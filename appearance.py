@@ -72,7 +72,7 @@ class Appearance:
         s.configure('Vertical.TScrollbar',background=p['panel'],troughcolor=p['bg'],arrowcolor=p['muted'],borderwidth=0)
         s.map('Vertical.TScrollbar',background=[('active',p['hover'])])
         # Classic widgets and pop-downs do not inherit ttk styles.
-        for name,value in [('Background',p['bg']),('Foreground',p['text']),('Font','Segoe UI 10'),('selectBackground',p['selected']),('selectForeground',p['text']),('insertBackground',p['text']),('TCombobox*Listbox.background',p['field']),('TCombobox*Listbox.foreground',p['text'])]:
+        for name,value in [('Background',p['bg']),('Foreground',p['text']),('Font','{Segoe UI} 10'),('selectBackground',p['selected']),('selectForeground',p['text']),('insertBackground',p['text']),('TCombobox*Listbox.background',p['field']),('TCombobox*Listbox.foreground',p['text'])]:
             self.root.option_add('*'+name,value)
         self.restyle(self.root)
     def restyle(self,widget):
