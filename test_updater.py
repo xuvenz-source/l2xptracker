@@ -28,14 +28,30 @@ class UpdateTests(unittest.TestCase):
         with self.assertRaises(ValueError):expected_hash((digest+'  wrong.zip').encode(),name)
     def test_zip_paths(self):
         for name in ('../evil',APP_NAME+'/../evil',APP_NAME+'/file:stream',APP_NAME+'/CON',APP_NAME+'/bad\\path'):
-            with tempfile.TemporaryDirectory() as d:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as d:
                 p=Path(d);z=p/'x.zip'
-                with zipfile.ZipFile(z,'w') as out:out.writestr(name,'bad')
+                # Preserve the raw name even when ZipInfo normalizes Windows
+                # separators during construction. This is an adversarial ZIP.
+                entry=zipfile.ZipInfo(name)
+                entry.filename=name
+                with zipfile.ZipFile(z,'w') as out:out.writestr(entry,'bad')
                 with self.assertRaises(ValueError):extract_portable(z,p/'stage')
         with tempfile.TemporaryDirectory() as d:
             p=Path(d);z=p/'x.zip'
             with zipfile.ZipFile(z,'w') as out:out.writestr(APP_NAME+'/file.txt','ok')
             self.assertEqual((extract_portable(z,p/'stage')/'file.txt').read_text(),'ok')
+    def test_nul_and_case_collision(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d);z=p/'x.zip'
+            with zipfile.ZipFile(z,'w') as out:out.writestr(APP_NAME+'/fileXhidden','bad')
+            z.write_bytes(z.read_bytes().replace(b'fileXhidden',b'file\x00hidden'))
+            with self.assertRaises(ValueError):extract_portable(z,p/'stage')
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d);z=p/'x.zip'
+            with zipfile.ZipFile(z,'w') as out:
+                out.writestr(APP_NAME+'/File.txt','one')
+                out.writestr(APP_NAME+'/file.txt','two')
+            with self.assertRaises(ValueError):extract_portable(z,p/'stage')
     def test_switch_and_backup(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d).resolve();root=p/'current';stage=p/'.l2tracker-update-test'

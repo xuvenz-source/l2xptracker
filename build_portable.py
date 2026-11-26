@@ -3,7 +3,7 @@ import argparse, json, os, shutil, struct, subprocess, sys, tempfile, zipfile
 from importlib import metadata
 from pathlib import Path
 from version import VERSION, APP_NAME, HELPER_NAME, MARKER, zip_name
-from updater import install_manifest
+from updater import install_manifest, extract_portable, validate_install
 
 ROOT = Path(__file__).resolve().parent
 NAME = APP_NAME
@@ -92,6 +92,10 @@ def main():
                     if f.is_file(): z.write(f,Path(NAME)/f.relative_to(app))
             with zipfile.ZipFile(partial) as z:
                 if z.testzip() is not None: raise RuntimeError('ZIP integrity check failed')
+            # Exercise the actual release archive with the same extraction and
+            # installation validation code used by the in-app updater.
+            staged=extract_portable(partial,work/'archive-check')
+            validate_install(staged,VERSION)
             os.replace(partial,final)
         finally: partial.unlink(missing_ok=True)
         print('\nBUILD SUCCESS. Share this entire ZIP:\n'+str(final),flush=True)

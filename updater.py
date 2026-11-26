@@ -86,7 +86,11 @@ def extract_portable(archive,directory):
         entries=z.infolist()
         if len(entries)>20000:raise ValueError('Too many archive entries')
         for e in entries:
-            parts=e.filename.rstrip('/').split('/')
+            # ZipInfo normalizes native separators and truncates NUL on some
+            # platforms. Validate the original archive name, not the sanitized one.
+            raw=e.orig_filename
+            if raw!=e.filename:raise ValueError('Unsafe normalized archive path')
+            parts=raw.rstrip('/').split('/')
             if parts[0]!=APP_NAME or not all(valid_part(p) for p in parts) or (len(parts)==1 and not e.is_dir()):
                 raise ValueError('Unsafe archive path')
             mode=(e.external_attr>>16)&0xffff
