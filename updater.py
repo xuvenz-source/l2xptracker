@@ -54,7 +54,17 @@ def release_info(data,current=VERSION):
         if len(matches)!=1 or matches[0].get('browser_download_url')!=url:
             raise ValueError('Release missing expected portable ZIP or checksum')
         return url
-    return dict(version=version,name=name,url=asset(name),checksum=asset(name+'.sha256'),notes=str(data.get('body') or '')[:1200])
+    info=dict(version=version,name=name,url=asset(name),checksum=asset(name+'.sha256'),notes=str(data.get('body') or '')[:1200])
+    # Older releases and skipped versions still use the verified full package.
+    from delta import delta_name
+    patch=delta_name(current,version)
+    try:
+        url=asset(patch);checksum=asset(patch+'.sha256')
+        sizes={a.get('name'):a.get('size') for a in data.get('assets',[])}
+        if type(sizes.get(patch)) is int and type(sizes.get(name)) is int and 0<sizes[patch]<sizes[name]:
+            info['delta']=dict(name=patch,url=url,checksum=checksum,size=sizes[patch])
+    except ValueError:pass
+    return info
 
 def check_release():
     try:return release_info(json.loads(small(API,2*1024**2)))
@@ -136,11 +146,25 @@ def smoke_test(root,report):
     if proc.returncode or not report.is_file() or not json.loads(report.read_text(encoding='utf-8')).get('ok'):
         raise RuntimeError('New application failed its self-test; current version unchanged')
 
-def stage_update(info,root):
+def stage_update(info,root,progress=lambda text:None):
     validate_install(root,VERSION)
     if version_key(info['version'])<=version_key(VERSION):raise ValueError('Update is not newer')
     staging=Path(tempfile.mkdtemp(prefix='.l2tracker-update-',dir=root.parent)).resolve()
     try:
+        patch=info.get('delta')
+        if patch:
+            try:
+                from delta import reconstruct
+                progress(f"Downloading incremental patch ({patch['size']/1024**2:.1f} MiB)…")
+                digest=expected_hash(small(patch['checksum'],4096),patch['name'])
+                archive=staging/patch['name'];download(patch['url'],archive,digest)
+                new=reconstruct(archive,root,staging,VERSION,info['version'])
+                smoke_test(new,staging/'smoke.json');archive.unlink();return staging
+            except Exception as exc:
+                progress(f'Incremental patch unavailable: {exc}. Using full package.')
+                shutil.rmtree(staging)
+                staging.mkdir()
+        progress('Downloading full update package…')
         digest=expected_hash(small(info['checksum'],4096),info['name'])
         archive=staging/info['name'];download(info['url'],archive,digest)
         new=extract_portable(archive,staging)

@@ -50,7 +50,11 @@ Merged reports now appear as collapsed parent sessions. Expand them to see origi
 
 In **Party setup**, enter your usual teammates and choose **Save as new** to name a preset. Select a saved preset to populate the roster, then choose **Use party** for your next session. Presets can be updated, renamed or deleted; Solo / clear empties the roster. Presets are stored locally in tracker_preferences.json and survive upgrades. Saved sessions retain their original rosters; no preset is automatically applied after restarting the tracker.
 
-## Current status: v0.26
+## Tabbed interface and incremental updates (v0.27)
+
+The desktop now has Dashboard, Activity, Reviews, History, Party and Settings tabs. Capture controls and the status bar remain available across tabs; game binding and HUD positioning are under Settings. Existing history and presets are retained. The updater prefers a smaller, checksum-verified file-level patch for an exact installed version when available. Unchanged files are copied locally and verified against the target manifest; changed files are downloaded, removed files are omitted, and the complete staged installation is self-tested before the existing backup/restart process. A missing, incompatible or failed patch falls back to the full ZIP. v0.26 and older need one full update to acquire this capability. Release packaging compares against the latest published version, so skipping versions may still require a full download.
+
+## Current status: v0.27
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

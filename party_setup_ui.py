@@ -5,11 +5,11 @@ from party import roster
 from party_presets import load_presets,save_preset,rename_preset,delete_preset
 
 class PartySetup:
-    def __init__(self,app):
-        self.app=app
-        win=self.win=tk.Toplevel(app.root)
-        win.title('Party setup');win.transient(app.root)
-        win.geometry('650x440');win.minsize(610,420)
+    def __init__(self,app,parent=None):
+        self.app=app;self.embedded=parent is not None
+        win=self.win=parent if self.embedded else tk.Toplevel(app.root)
+        if not self.embedded:
+            win.title('Party setup');win.transient(app.root);win.geometry('650x440');win.minsize(610,420)
         content=ttk.Frame(win,padding=18);content.pack(fill='both',expand=True)
         ttk.Label(content,text='Party setup',style='Title.TLabel').pack(anchor='w')
         ttk.Label(content,text='Choose a saved party or enter the other character names for your next session.',style='Muted.TLabel',wraplength=570).pack(anchor='w',pady=(4,14))
@@ -34,13 +34,12 @@ class PartySetup:
         ttk.Label(content,textvariable=self.feedback,style='Muted.TLabel',wraplength=570).pack(anchor='w')
         actions=ttk.Frame(content);actions.pack(side='bottom',fill='x',pady=(10,0))
         ttk.Button(actions,text='Solo / clear',command=self.clear).pack(side='left')
-        ttk.Button(actions,text='Cancel',command=win.destroy).pack(side='right')
+        ttk.Button(actions,text='Cancel',command=self.cancel).pack(side='right')
         ttk.Button(actions,text='Use party',command=self.apply,style='Primary.TButton').pack(side='right',padx=8)
         self.refresh()
         app.appearance.restyle(win)
-        win.bind('<Escape>',lambda _:win.destroy())
-        win.bind('<Return>',lambda _:self.apply())
-        win.grab_set();entry.focus_set()
+        if not self.embedded:
+            win.bind('<Escape>',lambda _:self.cancel());win.bind('<Return>',lambda _:self.apply());win.grab_set();entry.focus_set()
     def refresh(self,selection=''):
         self.presets=load_presets()
         self.combo.configure(values=list(self.presets))
@@ -99,4 +98,9 @@ class PartySetup:
         except ValueError as e:self.error(e);return
         self.app.next_party_members=list(members)
         self.app.party_status.set('Next session: '+(', '.join(members) or 'solo / no estimates'))
-        self.win.destroy()
+        if self.embedded:self.app.navigate('dashboard')
+        else:self.win.destroy()
+    def cancel(self):
+        if self.embedded:
+            self.members.set(', '.join(self.app.next_party_members));self.selected.set('');self.controls();self.app.navigate('dashboard')
+        else:self.win.destroy()

@@ -36,6 +36,8 @@ class UpdateUI:
     def idle(self):
         a=self.app
         if a.running or a.pending or a.selecting or a.closing or a.update_busy:return False
+        tabs=getattr(a,'tabs',None)
+        if isinstance(tabs,ttk.Notebook) and tabs.select()!=str(a.pages['dashboard']):return False
         # Do not restart while reviewing OCR, editing settings, exporting a file,
         # or interacting with another tracker dialog.
         try:
@@ -53,7 +55,7 @@ class UpdateUI:
     def manual_offer(self):
         if not self.available:return self.check(True)
         if not self.idle():
-            messagebox.showinfo('Update available','Stop tracking, finish queued OCR and close other tracker windows before installing.',parent=self.app.root)
+            messagebox.showinfo('Update available','Stop tracking, finish queued OCR, return to Dashboard and close other tracker windows before installing.',parent=self.app.root)
             return
         info=self.available
         if messagebox.askyesno('Tracker update',
@@ -82,7 +84,7 @@ class UpdateUI:
         self.app.status.set(f'Updating to v{version} — verifying download; the tracker will restart.')
         root=Path(sys.executable).resolve().parent
         def work():
-            try:self.queue.put(('staged',(root,stage_update(info,root),version),True))
+            try:self.queue.put(('staged',(root,stage_update(info,root,lambda msg:self.queue.put(('progress',msg,False))),version),True))
             except Exception as e:self.queue.put(('install_error',str(e),True))
         threading.Thread(target=work,daemon=True).start()
 
@@ -112,6 +114,9 @@ class UpdateUI:
                     else:
                         self.available=None
                         if manual:messagebox.showinfo('Updates','No newer published release is available.',parent=self.app.root)
+                elif kind=='progress':
+                    self.app.status.set(payload)
+                    self.app.append('UPDATE: '+payload)
                 elif kind=='install_error':
                     self.fail(payload)
                 elif kind=='staged':

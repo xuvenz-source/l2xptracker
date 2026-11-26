@@ -336,55 +336,76 @@ class App:
         except Exception as e: self.hud_enabled.set(False); self.status.set(self.status.get()+f' HUD unavailable: {e}')
         try: self.archive=Archive()
         except Exception as e: messagebox.showerror("Session storage",f"Could not open session history: {e}")
-        header=ttk.Frame(root,padding=(16,12,16,3));header.pack(fill='x')
+        header=ttk.Frame(root,padding=(20,15,20,6));header.pack(fill='x')
         ttk.Label(header,text='L2 Legacy Tracker',style='Title.TLabel').pack(side='left')
-        ttk.Label(header,text=f'  v{VERSION}  ·  Farming dashboard',style='Muted.TLabel').pack(side='left',padx=8)
+        ttk.Label(header,text=f'v{VERSION}  ·  Farming analytics',style='Muted.TLabel').pack(side='left',padx=14)
         self.dark_mode=tk.BooleanVar(value=self.appearance.mode=='dark')
-        ttk.Button(header,text='Settings…',command=self.open_settings).pack(side='right')
-        self.dashboard=Dashboard(root);self.dashboard.pack(fill='x',padx=16,pady=(8,4))
-        top=ttk.Frame(root,padding=(16,6)); top.pack(fill='x')
-        ttk.Button(top,text='Bind game / chat area',command=self.select).pack(side='left')
-        ttk.Label(top,text='Line height (px):').pack(side='left',padx=(12,3)); ttk.Entry(top,textvariable=self.pitch,width=5).pack(side='left')
-        self.start_btn=ttk.Button(top,text='Start',command=self.start,style='Primary.TButton'); self.start_btn.pack(side='left',padx=8)
-        self.stop_btn=ttk.Button(top,text='Stop',command=self.stop,state='disabled',style='Danger.TButton'); self.stop_btn.pack(side='left')
-        self.pause_btn=ttk.Button(top,text='Pause',command=self.toggle_pause,state='disabled'); self.pause_btn.pack(side='left',padx=6)
-        ttk.Button(top,text='Export CSV',command=self.export).pack(side='right')
-        ttk.Checkbutton(top,text='Game HUD',variable=self.hud_enabled).pack(side='left',padx=8)
-        self.pitch.trace_add('write', self.pitch_changed)
-        ttk.Label(root,textvariable=self.status,wraplength=850,padding=(16,4),style='Status.TLabel').pack(fill='x')
-        ttk.Label(root,textvariable=self.stats,wraplength=850,padding=(16,4),style='Muted.TLabel').pack(fill='x')
-        ttk.Label(root,text='Session loot',style='Section.TLabel',padding=(16,7,16,3)).pack(anchor='w')
-        loot=ttk.Frame(root);loot.pack(fill='both',expand=True,padx=16)
-        self.tree=ttk.Treeview(loot,columns=('who','item','qty'),show='headings',height=6)
-        for c,t,w in [('who','Player',160),('item','Item',440),('qty','Quantity',145)]:
+        self.party_status=tk.StringVar(value='Next session: solo / no estimates')
+        actions=ttk.Frame(root,padding=(20,3,20,8));actions.pack(fill='x')
+        self.start_btn=ttk.Button(actions,text='Start session',command=self.start,style='Primary.TButton');self.start_btn.pack(side='left')
+        self.pause_btn=ttk.Button(actions,text='Pause',command=self.toggle_pause,state='disabled');self.pause_btn.pack(side='left',padx=7)
+        self.stop_btn=ttk.Button(actions,text='Stop',command=self.stop,state='disabled',style='Danger.TButton');self.stop_btn.pack(side='left')
+        ttk.Label(actions,textvariable=self.party_status,style='Muted.TLabel').pack(side='right')
+        self.tabs=ttk.Notebook(root);self.tabs.pack(fill='both',expand=True,padx=16,pady=(0,8))
+        self.pages={}
+        for key,label in [('dashboard','Dashboard'),('activity','Activity'),('review','Reviews (0)'),('history','History'),('party','Party'),('settings','Settings')]:
+            page=ttk.Frame(self.tabs,padding=12);self.pages[key]=page;self.tabs.add(page,text=label)
+        dash=self.pages['dashboard']
+        self.dashboard=Dashboard(dash);self.dashboard.pack(fill='x',pady=(0,10))
+        ttk.Label(dash,textvariable=self.stats,wraplength=880,padding=(0,3,0,12),style='Muted.TLabel').pack(fill='x')
+        loot_header=ttk.Frame(dash);loot_header.pack(fill='x',pady=(2,8))
+        ttk.Label(loot_header,text='Session loot',style='Section.TLabel').pack(side='left')
+        ttk.Button(loot_header,text='Export CSV',command=self.export).pack(side='right')
+        loot=ttk.Frame(dash);loot.pack(fill='both',expand=True)
+        self.tree=ttk.Treeview(loot,columns=('who','item','qty'),show='headings',height=9)
+        for c,t,w in [('who','Player',170),('item','Item',440),('qty','Quantity',145)]:
             self.tree.heading(c,text=t);self.tree.column(c,width=w,anchor='e' if c=='qty' else 'w',stretch=c=='item')
         loot_scroll=ttk.Scrollbar(loot,orient='vertical',command=self.tree.yview);self.tree.configure(yscrollcommand=loot_scroll.set)
         loot_scroll.pack(side='right',fill='y');self.tree.pack(fill='both',expand=True)
-        tools=ttk.Frame(root); tools.pack(fill='x',padx=10,pady=(6,0))
-        ttk.Button(tools,text='Session history…',command=self.open_history).pack(side='right')
-        ttk.Button(tools,textvariable=self.review_count,command=self.open_reviews).pack(side='left')
-        ttk.Button(tools,text='Position HUD…',command=self.open_position).pack(side='left',padx=8)
-        self.move_btn=ttk.Button(tools,text='Move HUD in game',command=self.arm_hud_move); self.move_btn.pack(side='left')
-        ttk.Button(tools,text='Party setup…',command=self.setup_party).pack(side='left',padx=8)
-        self.party_status=tk.StringVar(value='Next session: solo / no estimates')
-        bottom=ttk.Frame(root,padding=(10,3)); bottom.pack(fill='x')
-        self.updates=UpdateUI(self,bottom)
-        ttk.Label(bottom,textvariable=self.party_status,wraplength=610).pack(side='left',fill='x',expand=True)
-        ttk.Label(root,text='Activity log',style='Section.TLabel',padding=(16,7,16,3)).pack(anchor='w')
-        log_frame=ttk.Frame(root);log_frame.pack(fill='both',expand=True,padx=16,pady=(0,14))
-        self.log=tk.Text(log_frame,height=7,wrap='word',state='disabled')
+        activity=self.pages['activity']
+        ttk.Label(activity,text='Activity log',style='Title.TLabel').pack(anchor='w')
+        ttk.Label(activity,text='Accepted messages, review warnings and ignored OCR lines.',style='Muted.TLabel').pack(anchor='w',pady=(3,10))
+        log_frame=ttk.Frame(activity);log_frame.pack(fill='both',expand=True)
+        self.log=tk.Text(log_frame,height=12,wrap='word',state='disabled')
         log_scroll=ttk.Scrollbar(log_frame,orient='vertical',command=self.log.yview);self.log.configure(yscrollcommand=log_scroll.set)
         log_scroll.pack(side='right',fill='y');self.log.pack(fill='both',expand=True)
+        bottom=ttk.Frame(root,padding=(20,3,20,10));bottom.pack(fill='x')
+        ttk.Label(bottom,textvariable=self.status,wraplength=680,style='Status.TLabel').pack(side='left',fill='x',expand=True)
+        self.updates=UpdateUI(self,bottom)
+        self.pitch.trace_add('write',self.pitch_changed)
+        self.build_settings(self.pages['settings'])
+        self.tabs.bind('<<NotebookTabChanged>>',self.page_changed)
         self.appearance.restyle(root)
-        root.after(100,self.tick); root.after(25,self.hud_tick); root.protocol('WM_DELETE_WINDOW',self.close)
+        root.after(100,self.tick);root.after(25,self.hud_tick);root.protocol('WM_DELETE_WINDOW',self.close)
+    def navigate(self,key):
+        if not self.update_busy:self.tabs.select(self.pages[key])
+    def page_changed(self,*_):
+        if self.update_busy:
+            if self.tabs.select()!=str(self.pages['dashboard']):self.tabs.select(self.pages['dashboard'])
+            return
+        key=next((k for k,v in self.pages.items() if str(v)==self.tabs.select()),None)
+        if key=='history':
+            if not self.archive:return
+            if self.session_id and not self.save_session():return
+            if self.history_window:self.history_window.refresh()
+            else:self.history_window=HistoryWindow(self,self.pages['history'])
+        elif key=='review':self.build_reviews()
+        elif key=='party':
+            if not getattr(self,'party_setup_window',None):self.party_setup_window=PartySetup(self,self.pages['party'])
     def open_settings(self):
-        if getattr(self,'update_busy',False):return
-        if self.settings_win and self.settings_win.winfo_exists():
-            self.settings_win.lift();return
-        win=self.settings_win=tk.Toplevel(self.root);win.title('Tracker settings');win.transient(self.root);win.geometry('590x525');win.minsize(540,475)
+        self.navigate('settings')
+    def build_settings(self,win):
         content=ttk.Frame(win,padding=18);content.pack(fill='both',expand=True)
         ttk.Label(content,text='Settings',style='Title.TLabel').pack(anchor='w')
-        ttk.Label(content,text='Tracking',style='Section.TLabel').pack(anchor='w',pady=(14,5))
+        ttk.Label(content,text='Game capture',style='Section.TLabel').pack(anchor='w',pady=(14,5))
+        calibration=ttk.Frame(content);calibration.pack(fill='x',pady=(0,6))
+        ttk.Button(calibration,text='Bind game / chat area',command=self.select).pack(side='left')
+        ttk.Label(calibration,text='Line height (px):').pack(side='left',padx=(14,4))
+        ttk.Entry(calibration,textvariable=self.pitch,width=5).pack(side='left')
+        hudtools=ttk.Frame(content);hudtools.pack(fill='x',pady=(0,8))
+        ttk.Button(hudtools,text='Position HUD…',command=self.open_position).pack(side='left')
+        self.move_btn=ttk.Button(hudtools,text='Move HUD in game',command=self.arm_hud_move);self.move_btn.pack(side='left',padx=8)
+        ttk.Label(content,text='Tracking',style='Section.TLabel').pack(anchor='w',pady=(4,5))
         self.focus_pause_var=tk.BooleanVar(master=win,value=self.pause_on_blur)
         ttk.Checkbutton(content,text='Pause when Lineage 2 loses focus',variable=self.focus_pause_var,command=self.change_focus_policy).pack(anchor='w')
         ttk.Label(content,text='Off by default. Capture continues if the game chat is visible; covered, minimised or resized game windows still wait safely.',style='Muted.TLabel',wraplength=500).pack(anchor='w',pady=(3,10))
@@ -398,7 +419,7 @@ class App:
         ttk.Checkbutton(content,text='Automatically install updates',variable=self.auto_update_var,command=self.change_update_policy).pack(anchor='w',pady=(6,3))
         ttk.Label(content,text='On by default. Checks GitHub on launch and every 30 minutes; installs published releases and restarts only when idle. Turn off to approve updates manually.',style='Muted.TLabel',wraplength=500).pack(anchor='w')
         ttk.Label(content,text='Preferences are saved automatically.',style='Muted.TLabel').pack(anchor='w',pady=(10,0))
-        ttk.Button(content,text='Close',command=win.destroy).pack(side='bottom',anchor='e')
+        
         self.appearance.restyle(win)
     def change_update_policy(self):
         value=bool(self.auto_update_var.get())
@@ -420,10 +441,7 @@ class App:
         if self.running or self.pending:
             messagebox.showinfo('Party setup','Stop the current session before changing party composition. Start a new session with the new roster; merge them later.')
             return
-        existing=getattr(self,'party_setup_window',None)
-        if existing and existing.win.winfo_exists():
-            existing.win.lift();return
-        self.party_setup_window=PartySetup(self)
+        self.navigate('party')
     def persist(self):
         if not self.target or not self.region: return
         data=dict(schema=1,title=self.target.title,window_class=self.target.window_class,width=self.target.width,height=self.target.height,pitch=int(self.pitch.get()),region=dict(self.region))
@@ -499,7 +517,8 @@ class App:
         self.party_members=list(self.next_party_members)
         self.party_status.set('Session party: '+(', '.join(self.party_members) or 'solo / no estimates'))
         self.session_id=new_id(); self.session_date=now(); self.session_end=None; self.session_complete=None; self.last_archive_save=0
-        if self.review_win and self.review_win.winfo_exists():self.review_win.destroy();self.review_win=None
+        if self.review_win and self.review_win.winfo_exists():
+            self.review_tree.delete(*self.review_tree.get_children());self.review_selected=None
         self.reviews=ReviewQueue(); self.refresh_reviews()
         self.events=[]; self.raw=[]; self.kills=0; self.totals.clear(); self.tree.delete(*self.tree.get_children()); self.gaps=0; self.active_seconds=0.0; self.started=time.monotonic(); self.ended=None; self.run_id+=1; self.running=True; self.pending=2
         self.pause_gate=PauseGate(self.pause_on_blur); self.pause_btn.config(text="Pause",state="normal"); self.halt=threading.Event(); self.jobs=queue.Queue(maxsize=120); self.start_btn.config(state='disabled'); self.stop_btn.config(state='normal')
@@ -649,6 +668,7 @@ class App:
             if row[1]!='Adena/hr (estimated)':self.tree.insert('','end',values=row)
     def refresh_reviews(self):
         self.review_count.set(f'Review ({len(self.reviews.pending)})')
+        if hasattr(self,'tabs'):self.tabs.tab(self.pages['review'],text=f'Reviews ({len(self.reviews.pending)})')
         if not self.review_win or not self.review_win.winfo_exists(): return
         # Preserve current selection and any unsaved manual edit as new OCR arrives.
         ids=set(self.review_tree.get_children())
@@ -661,10 +681,10 @@ class App:
             first=self.review_tree.get_children()[0]; self.review_tree.selection_set(first); self.review_tree.focus(first); self.show_review()
         elif not wanted:self.show_review()
     def open_reviews(self):
-        if getattr(self,'update_busy',False):return
-        if self.review_win and self.review_win.winfo_exists():
-            self.review_win.lift(); return
-        win=self.review_win=tk.Toplevel(self.root); win.title('Review uncertain OCR messages'); win.geometry('860x610');win.minsize(790,540)
+        self.navigate('review')
+    def build_reviews(self):
+        if self.review_win and self.review_win.winfo_exists():return
+        win=self.review_win=self.pages['review']
         ttk.Label(win,text='OCR review',style='Title.TLabel',padding=(12,10,12,0)).pack(anchor='w')
         ttk.Label(win,text='Select a message, confirm the type and enter the missing numbers. Already-counted amounts are locked.',wraplength=740,padding=10).pack(fill='x')
         frame=ttk.Frame(win); frame.pack(fill='both',expand=True,padx=10)
@@ -699,7 +719,7 @@ class App:
         buttons=ttk.Frame(win,padding=10); buttons.pack(fill='x')
         self.approve_btn=ttk.Button(buttons,text='Approve & count',command=self.approve_review,style='Primary.TButton'); self.approve_btn.pack(side='left')
         self.dismiss_btn=ttk.Button(buttons,text='Dismiss (ignore)',command=self.dismiss_review); self.dismiss_btn.pack(side='left',padx=8)
-        ttk.Button(buttons,text='Close',command=win.destroy).pack(side='right')
+        ttk.Button(buttons,text='Dashboard',command=lambda:self.navigate('dashboard')).pack(side='right')
         self.appearance.restyle(win)
         self.review_tree.bind('<<TreeviewSelect>>',self.show_review); self.review_selected=None; self.refresh_reviews()
     def selected_review(self):
@@ -731,13 +751,15 @@ class App:
             self.review_sp_entry.config(state='readonly' if r.sp_counted is not None else 'normal')
             self.review_xp_frame.pack(fill='x',pady=5,before=self.review_hint_label)
             self.review_hint.set('XP already counted; enter SP only.' if r.xp_counted is not None else 'SP already counted; enter XP only.' if r.sp_counted is not None else 'Enter XP and SP. Conflicting or unknown readings are left blank.')
-            (self.review_sp_entry if r.xp_counted is not None else self.review_xp_entry).focus_set()
+            if self.review_win.winfo_viewable():(self.review_sp_entry if r.xp_counted is not None else self.review_xp_entry).focus_set()
         elif kind=='adena' and r:
             self.review_adena_frame.pack(fill='x',pady=5,before=self.review_hint_label)
-            self.review_hint.set('Enter the Adena amount and confirm the recipient.');self.review_adena_entry.focus_set()
+            self.review_hint.set('Enter the Adena amount and confirm the recipient.')
+            if self.review_win.winfo_viewable():self.review_adena_entry.focus_set()
         elif kind=='item' and r:
             self.review_item_frame.pack(fill='x',pady=5,before=self.review_hint_label)
-            self.review_hint.set('Correct the full item message for personal or party loot.');self.review_edit.focus_set()
+            self.review_hint.set('Correct the full item message for personal or party loot.')
+            if self.review_win.winfo_viewable():self.review_edit.focus_set()
         else:self.review_hint.set('Choose a message type.' if r else 'No pending reviews.')
         self.approve_btn.config(state='normal' if r and kind else 'disabled')
     def approve_review(self):
@@ -832,12 +854,7 @@ class App:
             else:messagebox.showerror('Session save failed',f'{e}\nYour current session remains in memory. Retry or export CSV before closing.')
             return False
     def open_history(self):
-        if getattr(self,'update_busy',False):return
-        if not self.archive:messagebox.showerror('History','Session history is unavailable.');return
-        if self.session_id and not self.save_session():return
-        if self.history_window and self.history_window.win.winfo_exists():
-            self.history_window.refresh();self.history_window.win.lift();return
-        self.history_window=HistoryWindow(self)
+        self.navigate('history')
     def restore_session(self,id):
         if getattr(self,'update_busy',False):return False
         if self.running or self.pending:
@@ -853,7 +870,8 @@ class App:
         self.session_id=id;self.session_date=d['start'];self.session_end=d['end'];self.session_complete=d['complete'];self.active_seconds=d['seconds'];self.events=events;self.raw=raw;self.reviews=reviews;self.totals=totals;self.gaps=d['gaps'];self.started=time.monotonic();self.ended=self.started
         self.log.config(state='normal');self.log.delete('1.0','end');self.log.config(state='disabled')
         for ts,status,line in self.raw[-100:]:self.append(f'{status}: {line}')
-        if self.review_win and self.review_win.winfo_exists():self.review_win.destroy();self.review_win=None
+        if self.review_win and self.review_win.winfo_exists():
+            self.review_tree.delete(*self.review_tree.get_children());self.review_selected=None
         self.refresh_totals();self.refresh_reviews();self.status.set(f"Opened saved session: {r['name']}. Reviews will update the archive and merged reports.")
         return True
     def close(self):

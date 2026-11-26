@@ -7,8 +7,9 @@ from history import duration,rate,history_forest
 from party import display_rows as party_rows, summary_text as party_summary
 
 class HistoryWindow:
-    def __init__(self,app):
-        self.app=app; self.archive=app.archive; self.win=tk.Toplevel(app.root); self.win.title('Farming session history'); self.win.geometry('1110x710');self.win.minsize(950,600)
+    def __init__(self,app,parent=None):
+        self.app=app;self.archive=app.archive;self.embedded=parent is not None;self.win=parent if self.embedded else tk.Toplevel(app.root)
+        if not self.embedded:self.win.title('Farming session history');self.win.geometry('1110x710');self.win.minsize(950,600)
         ttk.Label(self.win,text='Session history',style='Title.TLabel',padding=(12,10,12,0)).pack(anchor='w')
         ttk.Label(self.win,text='Merge selected sessions into a collapsed parent. Expand its arrow to view originals or nested reports. Ctrl/Shift selects multiple rows.',padding=10).pack(fill='x')
         frame=ttk.Frame(self.win);frame.pack(fill='both',expand=True,padx=10)
@@ -84,7 +85,9 @@ class HistoryWindow:
         i=self.single()
         if not i:return
         if self.records[i]['kind']!='original':messagebox.showinfo('Review','Expand the group and select an original session to correct reviews. Parent totals update automatically.',parent=self.win);return
-        if self.app.restore_session(i):self.win.destroy();self.app.open_reviews()
+        if self.app.restore_session(i):
+            if not self.embedded:self.win.destroy()
+            self.app.open_reviews()
     def export(self):
         i=self.single()
         if not i:return

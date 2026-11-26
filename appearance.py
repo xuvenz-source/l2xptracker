@@ -53,6 +53,9 @@ class Appearance:
         s.configure('CardTotal.TLabel',background=p['panel'],foreground=p['muted'],font=('Segoe UI',10))
         for name,colour in [('Gold','gold'),('Green','green'),('Blue','blue')]:
             s.configure(name+'.Metric.TLabel',background=p['panel'],foreground=p[colour],font=('Segoe UI',25,'bold'))
+        s.configure('TNotebook',background=p['bg'],borderwidth=0,tabmargins=(0,0,0,5))
+        s.configure('TNotebook.Tab',background=p['panel'],foreground=p['muted'],padding=(20,12),font=('Segoe UI',10,'bold'),borderwidth=0)
+        s.map('TNotebook.Tab',background=[('selected',p['selected']),('active',p['hover'])],foreground=[('selected',p['text'])])
         s.configure('TButton',background=p['panel'],foreground=p['text'],padding=(11,7),borderwidth=1,relief='flat')
         s.map('TButton',background=[('disabled',p['bg']),('pressed',p['selected']),('active',p['hover'])],foreground=[('disabled',p['disabled'])])
         s.configure('Primary.TButton',background=p['primary'],foreground=p['primary_text'],font=('Segoe UI',10,'bold'))
