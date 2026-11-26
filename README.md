@@ -54,7 +54,11 @@ In **Party setup**, enter your usual teammates and choose **Save as new** to nam
 
 The desktop now has Dashboard, Activity, Reviews, History, Party and Settings tabs. Capture controls and the status bar remain available across tabs; game binding and HUD positioning are under Settings. Existing history and presets are retained. The updater prefers a smaller, checksum-verified file-level patch for an exact installed version when available. Unchanged files are copied locally and verified against the target manifest; changed files are downloaded, removed files are omitted, and the complete staged installation is self-tested before the existing backup/restart process. A missing, incompatible or failed patch falls back to the full ZIP. v0.26 and older need one full update to acquire this capability. Release packaging compares against the latest published version, so skipping versions may still require a full download.
 
-## Current status: v0.27
+## Capture and pause reliability hotfix (v0.28)
+
+Restores the original focused-game screen capture path, avoiding false-positive background occlusion checks while the game is focused. When unfocused, overlapping windows still suspend OCR. Keep chat unobstructed even in the focused game. HUD pause and position commands are dispatched through the main UI queue, not directly from native window callbacks. Settings includes an Open diagnostic folder action; bounded local diagnostics and native fault dumps help identify remaining errors. No screenshots or chat messages are deliberately written to diagnostic logs. Live game verification remains necessary.
+
+## Current status: v0.28
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

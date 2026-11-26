@@ -2,6 +2,7 @@
 import ctypes as c
 from ctypes import wintypes as w
 import os
+from diagnostics import diagnostic
 
 WIDTH, HEIGHT = 310, 86
 PAUSE_RECT = (210, 60, 304, 82)
@@ -82,7 +83,7 @@ class Hud:
         sig(self.g,'CreateFontW',[c.c_int]*5+[w.DWORD]*8+[w.LPCWSTR],H)
         self.instance=self.k.GetModuleHandleW(None)
         self.name=f'L2LegacyTrackerHud_{os.getpid()}'
-        self.callback=self.proc_type(self.wndproc)
+        self.callback=self.proc_type(self.safe_wndproc)
         wc=WNDCLASS(0,self.callback,0,0,self.instance,None,None,None,None,self.name)
         if not self.u.RegisterClassW(c.byref(wc)): raise c.WinError(c.get_last_error())
         self.brush=self.g.CreateSolidBrush(self.rgb(20,25,33))
@@ -111,6 +112,11 @@ class Hud:
         if not getattr(self,'on_pause',None) or getattr(self,'pause_pressed',False):return
         self.pause_pressed=True
         self.on_pause()
+    def safe_wndproc(self,h,msg,wp,lp):
+        try:return self.wndproc(h,msg,wp,lp)
+        except Exception:
+            diagnostic('Native HUD callback exception, message=%s',msg,exc_info=True)
+            return self.u.DefWindowProcW(h,msg,wp,lp)
     def wndproc(self,h,msg,wp,lp):
         if msg==0x84:return 1 if self.interactive and (self.key_down(0x10) or self.pause_hit(self.cursor())) else -1 # HTCLIENT / HTTRANSPARENT
         if msg==0x201: # WM_LBUTTONDOWN on our HUD only
@@ -120,7 +126,7 @@ class Hud:
                 self.pause_click()
             return 0
         if msg==0x202: # WM_LBUTTONUP; polling also detects release outside HUD
-            self.finish_drag();self.pause_pressed=False;return 0
+            self.finish_drag();return 0 # polling clears the press latch on release
         if msg==0x21:return 3 # MA_NOACTIVATE
         if msg==0x14:return 1
         if msg==0xF:

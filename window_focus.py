@@ -107,11 +107,12 @@ def intersects(region,bounds):
     return x<region['left']+region['width'] and r>region['left'] and y<region['top']+region['height'] and b>region['top']
 
 def capture_region(api, target, local, desktop, pause_on_blur=True):
-    """Return only visible and unobstructed original game pixels."""
+    """Capture the calibrated focused client, or unobstructed background chat."""
     h = target.hwnd
     if not api.usable(h) or api.pid(h) != target.pid:
         return None, 'Waiting — game window unavailable or minimised. Restore the game; rebind if it has restarted.'
-    if pause_on_blur and api.foreground() != h:
+    focused=api.foreground()==h
+    if pause_on_blur and not focused:
         return None, 'Paused — Lineage 2 is not focused. Return to the game to resume.'
     geo = api.geometry(h)
     if not geo: return None, 'Paused — game window geometry unavailable.'
@@ -125,6 +126,10 @@ def capture_region(api, target, local, desktop, pause_on_blur=True):
     if (region['left']<desktop['left'] or region['top']<desktop['top'] or
         region['left']+r>desktop['left']+desktop['width'] or region['top']+b>desktop['top']+desktop['height']):
         return None, 'Paused — chat is outside the visible desktop.'
-    if not api.region_clear(h,region):
+    # The previous foreground-only tracker relied on the focused game and
+    # calibrated client geometry. Full Z-order rectangle scans can mistake
+    # transparent overlays for covering windows, even in a focused game.
+    # Keep that conservative scan for actual background capture only.
+    if not focused and not api.region_clear(h,region):
         return None, 'Waiting — game chat is covered. Keep the chat visible to continue tracking.'
     return region, None

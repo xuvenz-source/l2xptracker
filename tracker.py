@@ -18,6 +18,7 @@ from history import Archive, new_id, now, snapshot, totals_for, review_queue, co
 from history_ui import HistoryWindow
 from runtime_ocr import configure_ocr
 from version import VERSION
+from diagnostics import setup_diagnostics, diagnostic
 from appearance import Appearance, Dashboard, save_mode
 from preferences import load_focus_pause, save_focus_pause, load_auto_update, save_auto_update
 from party_setup_ui import PartySetup
@@ -332,7 +333,7 @@ class App:
                 self.target=self.api.find_saved(self.saved)
                 self.status.set('Saved chat calibration loaded. Start when the matching game is open.')
         except Exception as e: self.status.set(f'Could not restore calibration: {e}. Bind game again.')
-        try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.save_hud_position,on_pause=self.toggle_pause)
+        try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.queue_hud_move,on_pause=self.queue_hud_pause)
         except Exception as e: self.hud_enabled.set(False); self.status.set(self.status.get()+f' HUD unavailable: {e}')
         try: self.archive=Archive()
         except Exception as e: messagebox.showerror("Session storage",f"Could not open session history: {e}")
@@ -419,7 +420,12 @@ class App:
         ttk.Checkbutton(content,text='Automatically install updates',variable=self.auto_update_var,command=self.change_update_policy).pack(anchor='w',pady=(6,3))
         ttk.Label(content,text='On by default. Checks GitHub on launch and every 30 minutes; installs published releases and restarts only when idle. Turn off to approve updates manually.',style='Muted.TLabel',wraplength=500).pack(anchor='w')
         ttk.Label(content,text='Preferences are saved automatically.',style='Muted.TLabel').pack(anchor='w',pady=(10,0))
+        ttk.Button(content,text='Open diagnostic folder',command=self.open_diagnostic_folder).pack(anchor='w',pady=(7,0))
         self.appearance.restyle(win)
+    def open_diagnostic_folder(self):
+        try:
+            folder=settings.settings_path().parent;folder.mkdir(parents=True,exist_ok=True);os.startfile(folder)
+        except OSError as e:messagebox.showwarning('Diagnostics',str(e),parent=self.root)
     def change_update_policy(self):
         value=bool(self.auto_update_var.get())
         self.auto_update=value
@@ -446,6 +452,12 @@ class App:
         data=dict(schema=1,title=self.target.title,window_class=self.target.window_class,width=self.target.width,height=self.target.height,pitch=int(self.pitch.get()),region=dict(self.region))
         if self.hud and self.hud.preferred is not None:data['hud_position']=list(self.hud.preferred)
         settings.save(data); self.saved=data
+    def queue_hud_pause(self):
+        # Native WndProc can be dispatched from inside Tcl/Tk. Never call Tk,
+        # take the capture lock or change session state in that callback.
+        self.inbox.put(('hud_pause',self.run_id))
+    def queue_hud_move(self,position):
+        self.inbox.put(('hud_move',position))
     def save_hud_position(self,position):
         if not self.saved:return
         try:
@@ -531,6 +543,7 @@ class App:
             nonlocal last_status
             if message != last_status:
                 self.inbox.put(('status',message)); last_status=message
+                diagnostic('capture status: %s',message.split(' — ')[0])
         def pause(message):
             nonlocal old, failures, last_active
             old=None; failures=0; last_active=None
@@ -577,7 +590,9 @@ class App:
                                     except queue.Full: self.inbox.put(('gap','OCR backlog full; some lines dropped.'))
                                 old=new
                     halt.wait(max(0,.05-(time.monotonic()-tick)))
-        except Exception as e: self.inbox.put(('gap',f'Capture stopped: {e}')); halt.set()
+        except Exception as e:
+            diagnostic('capture exception',exc_info=True)
+            self.inbox.put(('gap',f'Capture stopped: {e}')); halt.set()
         finally: jobs.put(None); self.inbox.put(('done','capture'))
     def worker(self,jobs):
         while True:
@@ -594,12 +609,15 @@ class App:
             try:
                 for kind,line in ocr_rows(np.concatenate(group)):
                     if line.strip():self.inbox.put((kind,(ts,line)))
-            except Exception as e:self.inbox.put(('gap',f'OCR error: {e}'))
+            except Exception as e:
+                diagnostic('OCR exception',exc_info=True)
+                self.inbox.put(('gap',f'OCR error: {e}'))
             if end:break
         self.inbox.put(('done','ocr'))
     def toggle_pause(self):
         if not self.running:return
         paused=self.pause_gate.toggle()
+        diagnostic('manual pause: %s',paused)
         self.pause_btn.config(text='Resume' if paused else 'Pause')
         self.status.set('Manually paused — click Resume to continue. Buffered lines may still finish.' if paused else 'Resuming — keep Lineage 2 chat visible. Chat will resynchronise.')
         self.append('SESSION: Manually paused.' if paused else 'SESSION: Resumed; skipped messages will not be recovered.')
@@ -609,11 +627,24 @@ class App:
     def append(self,s):
         self.log.config(state='normal'); self.log.insert('end',s+'\n',('accepted' if s.startswith('✓') else 'review' if 'REVIEW' in s or s.startswith('WARNING') else 'ignored',)); self.log.see('end'); self.log.config(state='disabled')
     def tick(self):
+        try:self.process_inbox()
+        except Exception:
+            diagnostic('UI processing exception',exc_info=True)
+            self.status.set('Tracker UI error — see tracker-diagnostics.log in LocalAppData. Stop and restart the session if needed.')
+            if self.running:self.stop()
+        finally:
+            try:
+                if self.root.winfo_exists():self.root.after(100,self.tick)
+            except tk.TclError:pass
+    def process_inbox(self):
         changed=False; finished=False
         while True:
             try: kind,data=self.inbox.get_nowait()
             except queue.Empty:break
-            if kind=='done':
+            if kind=='hud_pause':
+                if self.running and data==self.run_id:self.toggle_pause()
+            elif kind=='hud_move':self.save_hud_position(data)
+            elif kind=='done':
                 self.pending-=1
                 if data=='capture' and self.running:self.stop()
                 if not self.pending:
@@ -656,7 +687,6 @@ class App:
                 extra=party_summary(live_party_report(self.party_members,dur,self.totals))
                 extra+=f' Each listed member: {ad:,} estimated ({ad/h:,.0f}/h).'
                 self.stats.set(self.stats.get()+'\n'+extra)
-        self.root.after(100,self.tick)
     def refresh_totals(self):
         self.kills=count_kills(self.events)
         self.tree.delete(*self.tree.get_children())
@@ -827,7 +857,11 @@ class App:
         if self.hud and self.api:
             try: self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get(),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills,paused=self.pause_gate.snapshot()[0])
             except Exception as e:
-                self.hud.hide(); self.hud_enabled.set(False); self.append(f'HUD disabled: {e}'); self.hud.close(); self.hud=None
+                diagnostic('HUD update exception',exc_info=True)
+                hud,self.hud=self.hud,None
+                self.hud_enabled.set(False);self.append(f'HUD disabled: {e}')
+                try:hud.close()
+                except Exception:diagnostic('HUD close exception',exc_info=True)
         self.move_btn.config(text='Cancel HUD move' if self.hud and self.hud.placement is not None else 'Move HUD in game')
         self.root.after(25,self.hud_tick)
     def export(self):
@@ -917,7 +951,12 @@ if __name__=='__main__':
         try:
             import ctypes; ctypes.windll.shcore.SetProcessDpiAwareness(2)
         except Exception:pass
+    setup_diagnostics()
     root=tk.Tk()
+    def callback_error(exc,value,tb):
+        diagnostic('Tk callback exception',exc_info=(exc,value,tb))
+        messagebox.showerror('Tracker error','A control failed. See tracker-diagnostics.log in the tracker data folder.',parent=root)
+    root.report_callback_exception=callback_error
     try: configure_ocr()
     except Exception as e:
         root.withdraw(); messagebox.showerror('OCR setup', str(e)); root.destroy(); sys.exit(1)
