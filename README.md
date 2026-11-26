@@ -42,7 +42,11 @@ Use the floating HUD Pause/Resume button or the desktop controls to toggle the s
 
 Launch only `L2 Legacy Tracker.exe`. The integrated updater checks for newer published stable releases on startup and every 30 minutes while open. Automatic installation is enabled by default, can be disabled in Settings, and waits for tracking, pending OCR and open tracker dialogs to finish. With automatic installation off, the update button offers manual approval. Each install verifies the ZIP checksum and self-test, saves the session, starts the bundled internal helper, then restarts. A failed attempt is not repeated continuously; the update button permits manual retry. A previous installation is retained. The helper remains bundled beside the main executable for compatibility with earlier updater versions; users never need to open it. The complete extracted folder is required. Draft releases remain invisible until the maintainer publishes them.
 
-## Current status: v0.24
+## Grouped session history (v0.25)
+
+Merged reports now appear as collapsed parent sessions. Expand them to see originals and any previously selected merged reports. Grouped sessions no longer occupy separate top-level rows. Existing merged reports automatically display their original sources without database migration. A source included in multiple reports is visible under each; its actual record is shared, not copied. Totals, exports and review corrections continue to use unique original sessions. Renaming an original updates its name in all groups.
+
+## Current status: v0.25
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

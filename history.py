@@ -76,10 +76,14 @@ class Archive:
                 if source not in out: out.append(source)
         return out
     def merge(self,ids,name):
-        records=self.records(); sources=self.sources(ids,records)
+        records=self.records(); ids=list(dict.fromkeys(ids)); sources=self.sources(ids,records)
         if len(sources)<2: raise ValueError('Select at least two distinct original sessions.')
+        # Keep the selected report hierarchy separately from the immutable,
+        # deduplicated original source list used for all calculations.
+        covered={s for i in ids if records[i]['kind']=='merged' for s in self.sources([i],records)}
+        children=[i for i in ids if records[i]['kind']=='merged' or i not in covered]
         id=new_id()
-        with self.db() as db: db.execute('INSERT INTO sessions VALUES (?,?,?,?)',(id,self._name(name),'merged',json.dumps(dict(sources=sources))))
+        with self.db() as db: db.execute('INSERT INTO sessions VALUES (?,?,?,?)',(id,self._name(name),'merged',json.dumps(dict(sources=sources,children=children))))
         return id
     def summary(self,id,records=None):
         if records is None: records=self.records()
@@ -87,3 +91,44 @@ class Archive:
         parts=sorted((records[s]['data'] for s in sources),key=lambda p:p['start'])
         events=[tuple(e) for p in parts for e in p['events']]; raw=[tuple(e) for p in parts for e in p['raw']]
         return dict(**r,sources=sources,seconds=sum(p['seconds'] for p in parts),start=min(p['start'] for p in parts),end=max(p['end'] for p in parts),events=events,raw=raw,totals=totals_for(events),kills=count_kills(events),party=party_report(parts),pending=sum(len(p['reviews']) for p in parts),gaps=sum(p['gaps'] for p in parts),complete=all(p['complete'] for p in parts))
+
+
+def history_children(records):
+    """Display-only hierarchy. Legacy reports have original sessions as children.
+
+    Shared originals or reports may appear in more than one parent; the archive
+    retains a single record and all calculations still use unique sources.
+    """
+    children={}
+    for i,r in records.items():
+        if r['kind']!='merged':continue
+        sources=set(r['data']['sources'])
+        valid=[]
+        # Only accept children actually represented in this report's totals.
+        for child in r['data'].get('children',r['data']['sources']):
+            if child==i or child not in records or child in valid:continue
+            child_sources=set(Archive.sources([child],records))
+            if child_sources and child_sources<=sources:valid.append(child)
+        represented={s for child in valid for s in Archive.sources([child],records)}
+        valid.extend(s for s in r['data']['sources'] if s not in represented and s in records)
+        children[i]=valid
+    return children
+
+def history_forest(records,summaries):
+    """Return stable paths in display order, with cycles guarded defensively."""
+    children=history_children(records)
+    attached={i for group in children.values() for i in group}
+    def ordered(ids):
+        return sorted(ids,key=lambda i:(summaries[i]['start'],i),reverse=True)
+    reached=set()
+    def walk(i,path):
+        if i in path:return
+        current=(*path,i);reached.add(i)
+        yield current
+        for child in ordered(children.get(i,[])):
+            yield from walk(child,current)
+    for i in ordered(set(records)-attached):
+        yield from walk(i,())
+    # Corrupt/cyclic legacy metadata must not make records disappear.
+    for i in ordered(records):
+        if i not in reached:yield from walk(i,())
