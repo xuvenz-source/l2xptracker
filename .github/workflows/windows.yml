@@ -20,7 +20,7 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - run: python -m unittest discover -v
   build:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: test
     runs-on: windows-2022
     steps:

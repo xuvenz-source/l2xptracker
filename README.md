@@ -30,7 +30,7 @@ OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread number
 
 Use Python 3.12 x64 and Tesseract with English data on Windows. Run `Start Tracker.bat` or install `requirements.txt` and run `python tracker.py`. Run regression tests with `python -m unittest discover -v`. `Build Portable.bat` creates a self-tested portable ZIP locally. See the existing README.txt for calibration and the version-by-version history, and BUILD INSTRUCTIONS.txt for packaging details.
 
-GitHub Actions runs tests on main and pull requests. A maintainer can manually run **Windows tests and portable build** to generate a downloadable build artifact. See [RELEASING.md](RELEASING.md) before sharing it publicly.
+GitHub Actions runs tests on main and pull requests. Successful main pushes also generate a Windows portable build artifact. A maintainer can manually rerun **Windows tests and portable build**. See [RELEASING.md](RELEASING.md) before sharing it publicly.
 
 ## Privacy and licensing
 

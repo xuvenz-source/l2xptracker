@@ -7,7 +7,7 @@ class PortableTests(unittest.TestCase):
     def test_bundled_paths_with_spaces(self):
         with tempfile.TemporaryDirectory(prefix='L2 Tracker ') as d:
             p=Path(d); exe=p/'L2 Legacy Tracker.exe'; ocr=p/'ocr'; (ocr/'tessdata').mkdir(parents=True); (ocr/'tesseract.exe').touch(); (ocr/'tessdata'/'eng.traineddata').touch()
-            self.assertEqual(locate_ocr(True,exe),(ocr/'tesseract.exe',ocr/'tessdata'))
+            self.assertEqual(locate_ocr(True,exe),((ocr/'tesseract.exe').resolve(),(ocr/'tessdata').resolve()))
     def test_missing_ocr_fails(self):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(FileNotFoundError): locate_ocr(True,Path(d)/'tracker.exe')
@@ -16,7 +16,7 @@ class PortableTests(unittest.TestCase):
             p=Path(d); src=p/'source'; (src/'tessdata').mkdir(parents=True)
             for name in ('tesseract.exe','libtesseract.dll','LICENSE.txt','uninstall.exe','personal.txt'): (src/name).write_text(name)
             (src/'tessdata'/'eng.traineddata').touch()
-            self.assertEqual(find_tesseract(src),src/'tesseract.exe')
+            self.assertEqual(find_tesseract(src),(src/'tesseract.exe').resolve())
             copy_ocr(src/'tesseract.exe',p/'output')
             for name in ('tesseract.exe','libtesseract.dll','LICENSE.txt','tessdata/eng.traineddata'): self.assertTrue((p/'output'/name).exists())
             for name in ('uninstall.exe','personal.txt'): self.assertFalse((p/'output'/name).exists())
