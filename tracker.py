@@ -20,6 +20,7 @@ from runtime_ocr import configure_ocr
 from version import VERSION
 from appearance import Appearance, Dashboard, save_mode
 from preferences import load_focus_pause, save_focus_pause, load_auto_update, save_auto_update
+from party_setup_ui import PartySetup
 from update_ui import UpdateUI
 from party import roster, live_report as live_party_report, display_rows as party_rows, summary_text as party_summary
 
@@ -419,11 +420,10 @@ class App:
         if self.running or self.pending:
             messagebox.showinfo('Party setup','Stop the current session before changing party composition. Start a new session with the new roster; merge them later.')
             return
-        value=simpledialog.askstring('Party setup','Enter other party character names, separated by commas. Do not include yourself. Leave blank for solo. Equal-share Adena estimates are not observed drops.',initialvalue=', '.join(self.next_party_members),parent=self.root)
-        if value is None:return
-        try:self.next_party_members=roster(value)
-        except ValueError as e:messagebox.showwarning('Party setup',str(e));return
-        self.party_status.set('Next session: '+(', '.join(self.next_party_members) or 'solo / no estimates'))
+        existing=getattr(self,'party_setup_window',None)
+        if existing and existing.win.winfo_exists():
+            existing.win.lift();return
+        self.party_setup_window=PartySetup(self)
     def persist(self):
         if not self.target or not self.region: return
         data=dict(schema=1,title=self.target.title,window_class=self.target.window_class,width=self.target.width,height=self.target.height,pitch=int(self.pitch.get()),region=dict(self.region))

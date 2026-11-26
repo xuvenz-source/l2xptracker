@@ -46,7 +46,11 @@ Launch only `L2 Legacy Tracker.exe`. The integrated updater checks for newer pub
 
 Merged reports now appear as collapsed parent sessions. Expand them to see originals and any previously selected merged reports. Grouped sessions no longer occupy separate top-level rows. Existing merged reports automatically display their original sources without database migration. A source included in multiple reports is visible under each; its actual record is shared, not copied. Totals, exports and review corrections continue to use unique original sessions. Renaming an original updates its name in all groups.
 
-## Current status: v0.25
+## Party presets (v0.26)
+
+In **Party setup**, enter your usual teammates and choose **Save as new** to name a preset. Select a saved preset to populate the roster, then choose **Use party** for your next session. Presets can be updated, renamed or deleted; Solo / clear empties the roster. Presets are stored locally in tracker_preferences.json and survive upgrades. Saved sessions retain their original rosters; no preset is automatically applied after restarting the tracker.
+
+## Current status: v0.26
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 
