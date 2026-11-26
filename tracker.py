@@ -17,6 +17,8 @@ from review import ReviewQueue, candidates
 from history import Archive, new_id, now, snapshot, totals_for, review_queue, count_kills, rate
 from history_ui import HistoryWindow
 from runtime_ocr import configure_ocr
+from version import VERSION
+from update_ui import UpdateUI
 from party import roster, live_report as live_party_report, display_rows as party_rows, summary_text as party_summary
 
 
@@ -312,9 +314,9 @@ def ocr_rows(rows):
 
 class App:
     def __init__(self,root):
-        self.root=root; root.title('L2 Legacy Farming Tracker — v0.19 Portable'); root.geometry('900x700')
+        self.root=root; root.title(f'L2 Legacy Farming Tracker — v{VERSION} Portable'); root.geometry('900x700')
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
-        self.party_members=[]; self.next_party_members=[]; self.kills=0
+        self.party_members=[]; self.next_party_members=[]; self.kills=0; self.update_busy=False
         self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False
         self.pause_gate=PauseGate(); self.position_win=None; self.reviews=ReviewQueue(); self.review_win=None; self.review_count=tk.StringVar(value="Review (0)"); self.saved=None; self.hud=None; self.api=None; self.hud_enabled=tk.BooleanVar(value=True)
         try:
@@ -350,7 +352,9 @@ class App:
         self.move_btn=ttk.Button(tools,text='Move HUD in game',command=self.arm_hud_move); self.move_btn.pack(side='left')
         ttk.Button(tools,text='Party setup…',command=self.setup_party).pack(side='left',padx=8)
         self.party_status=tk.StringVar(value='Next session: solo / no estimates')
-        ttk.Label(root,textvariable=self.party_status,wraplength=800,padding=(10,3)).pack(fill='x')
+        bottom=ttk.Frame(root,padding=(10,3)); bottom.pack(fill='x')
+        self.updates=UpdateUI(self,bottom)
+        ttk.Label(bottom,textvariable=self.party_status,wraplength=610).pack(side='left',fill='x',expand=True)
         ttk.Label(root,text='Recent OCR lines (including ignored messages / uncertain gaps)',padding=6).pack(anchor='w')
         self.log=tk.Text(root,height=11,wrap='word',state='disabled'); self.log.pack(fill='both',expand=True,padx=10,pady=(0,10))
         root.after(100,self.tick); root.after(25,self.hud_tick); root.protocol('WM_DELETE_WINDOW',self.close)
@@ -379,6 +383,7 @@ class App:
             data=dict(self.saved,pitch=int(self.pitch.get())); settings.save(data); self.saved=data
         except (ValueError, OSError): pass
     def select(self):
+        if getattr(self,'update_busy',False):return
         if self.running or self.pending or self.selecting: return
         if not messagebox.askokcancel('Bind Lineage 2', 'After clicking OK, you have 5 seconds to focus the actual Lineage 2 game window. The tracker will take one screenshot of that window for chat selection. Keep the chat visible.'): return
         self.selecting=True; self.root.withdraw(); self.root.after(5000,self.selector)
@@ -419,6 +424,7 @@ class App:
         def cancel(*_): self.selecting=False; win.destroy(); self.root.deiconify()
         canvas.bind('<Button-1>',down); canvas.bind('<B1-Motion>',drag); canvas.bind('<ButtonRelease-1>',up); win.bind('<Escape>',cancel); win.protocol('WM_DELETE_WINDOW',cancel)
     def start(self):
+        if getattr(self,'update_busy',False):return
         if self.running or self.pending or self.closing:return
         if self.saved and (not self.target or not self.api.usable(self.target.hwnd) or self.api.pid(self.target.hwnd)!=self.target.pid):
             self.target=self.api.find_saved(self.saved)
@@ -738,6 +744,8 @@ class App:
         self.refresh_totals();self.refresh_reviews();self.status.set(f"Opened saved session: {r['name']}. Reviews will update the archive and merged reports.")
         return True
     def close(self):
+        if getattr(self,'update_busy',False):
+            messagebox.showinfo('Update in progress','The update is being verified. Close after it finishes or reports an error.');return False
         if self.running or self.pending:
             if self.closing:return
             self.closing=True;self.start_btn.config(state='disabled');self.stop();self.status.set('Saving session — finishing buffered OCR before closing…');return

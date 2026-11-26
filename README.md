@@ -22,7 +22,11 @@ Before Start, open **Party setup** and enter the other character names (comma-se
 
 Each recorded personal XP acquisition event counts as one estimated kill, including partial XP/SP events. Manual approvals of new XP events add a kill; correcting existing partial events does not. The HUD, live totals and session history show kills/hour based on active capture time. Existing saved sessions and merged reports derive kill counts from recorded events; history summary CSV includes kills and kills/hour. XP from quests or other non-kill sources also counts if it uses the same message format, and missed OCR messages can undercount kills. Party kills are counted once per personal XP message, not multiplied by party size.
 
-## Current status: v0.19
+## Updates (v0.20)
+
+Portable builds check GitHub's latest published stable release on launch. **Check for updates** also checks manually. Downloads require approval and are disabled while tracking or draining OCR. The updater downloads the exact versioned ZIP and SHA-256 sidecar, verifies its digest, extracts it beside the installation and runs its self-test. It then closes the tracker, replaces the dedicated application directory and restarts. The old folder is retained; immediate installation/startup failure attempts rollback. LocalAppData settings and session history are untouched. If the folder contains extra files, extract a new release to a dedicated folder instead. HTTPS and release checksums are not a publisher signature; trust the repository and do not disable security software.
+
+## Current status: v0.20
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 
@@ -30,7 +34,7 @@ OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread number
 
 Use Python 3.12 x64 and Tesseract with English data on Windows. Run `Start Tracker.bat` or install `requirements.txt` and run `python tracker.py`. Run regression tests with `python -m unittest discover -v`. `Build Portable.bat` creates a self-tested portable ZIP locally. See the existing README.txt for calibration and the version-by-version history, and BUILD INSTRUCTIONS.txt for packaging details.
 
-GitHub Actions runs tests on main and pull requests. Successful main pushes also generate a Windows portable build artifact. A maintainer can manually rerun **Windows tests and portable build**. See [RELEASING.md](RELEASING.md) before sharing it publicly.
+GitHub Actions runs tests on main and pull requests. Successful main pushes also generate a Windows portable build artifact and a draft release if the version does not already exist. Only published releases are visible to the updater. A maintainer can manually rerun **Windows tests and portable build**. See [RELEASING.md](RELEASING.md) before sharing it publicly.
 
 ## Privacy and licensing
 

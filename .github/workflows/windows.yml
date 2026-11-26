@@ -50,3 +50,38 @@ jobs:
             Share with friends/*.zip
             Share with friends/*.sha256
           if-no-files-found: error
+  draft_release:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: l2-tracker-draft-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: L2-Legacy-Tracker-Windows-x64
+          path: release-files
+      - name: Prepare draft for owner review
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION=$(python3 -c 'from version import VERSION; print(VERSION)')
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
+          TAG="v$VERSION"
+          NAME="L2_Legacy_Tracker_$TAG""_Windows_x64_Portable.zip"
+          cd release-files
+          test -f "$NAME"
+          test -f "$NAME.sha256"
+          sha256sum -c "$NAME.sha256"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release or draft already exists; not overwriting it."
+            exit 0
+          fi
+          gh release create "$TAG" "$NAME" "$NAME.sha256" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title "L2 Legacy Tracker $TAG" --notes "Portable Windows x64 build with in-app updater. Extract the full ZIP and run L2 Legacy Tracker.exe. Review dependency notices and test on a clean Windows PC before publishing."
