@@ -3,7 +3,9 @@ from pathlib import Path
 from updater import release_info,expected_hash,extract_portable,install_manifest,validate_install,switch_install,safe_url,version_key,REPO
 from version import VERSION,APP_NAME,EXE_NAME,HELPER_NAME,MARKER,zip_name
 
-def release(version='0.21'):
+NEXT_VERSION='.'.join([*VERSION.split('.')[:-1],str(int(VERSION.split('.')[-1])+1)])
+
+def release(version=NEXT_VERSION):
     name=zip_name(version);tag='v'+version
     return dict(tag_name=tag,assets=[dict(name=x,browser_download_url=f'https://github.com/{REPO}/releases/download/{tag}/{x}') for x in (name,name+'.sha256')])
 
@@ -15,7 +17,7 @@ def install(root,version):
 
 class UpdateTests(unittest.TestCase):
     def test_release(self):
-        self.assertEqual(release_info(release())['version'],'0.21')
+        self.assertEqual(release_info(release())['version'],NEXT_VERSION)
         self.assertIsNone(release_info(release(VERSION)))
         self.assertIsNone(release_info(dict(release(),draft=True)))
         self.assertIsNone(release_info(dict(release(),prerelease=True)))
@@ -23,7 +25,7 @@ class UpdateTests(unittest.TestCase):
         with self.assertRaises(ValueError):release_info(dict(release(),assets=[]))
         with self.assertRaises(ValueError):safe_url('https://github.com.evil.example/file')
     def test_hash(self):
-        name=zip_name('0.21');digest=hashlib.sha256(b'x').hexdigest()
+        name=zip_name(NEXT_VERSION);digest=hashlib.sha256(b'x').hexdigest()
         self.assertEqual(expected_hash((digest+'  '+name+'\n').encode(),name),digest)
         with self.assertRaises(ValueError):expected_hash((digest+'  wrong.zip').encode(),name)
     def test_zip_paths(self):
@@ -55,15 +57,15 @@ class UpdateTests(unittest.TestCase):
     def test_switch_and_backup(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d).resolve();root=p/'current';stage=p/'.l2tracker-update-test'
-            install(root,VERSION);install(stage/APP_NAME,'0.21')
-            backup=switch_install(root,stage,'0.21',launch=lambda r:None)
-            validate_install(root,'0.21');validate_install(backup,VERSION)
+            install(root,VERSION);install(stage/APP_NAME,NEXT_VERSION)
+            backup=switch_install(root,stage,NEXT_VERSION,launch=lambda r:None)
+            validate_install(root,NEXT_VERSION);validate_install(backup,VERSION)
     def test_rollback(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d).resolve();root=p/'current';stage=p/'.l2tracker-update-test'
-            install(root,VERSION);install(stage/APP_NAME,'0.21')
+            install(root,VERSION);install(stage/APP_NAME,NEXT_VERSION)
             def fail(r):raise RuntimeError('startup failure')
-            with self.assertRaisesRegex(RuntimeError,'restored'):switch_install(root,stage,'0.21',launch=fail)
+            with self.assertRaisesRegex(RuntimeError,'restored'):switch_install(root,stage,NEXT_VERSION,launch=fail)
             validate_install(root,VERSION)
     def test_unrelated_files_rejected(self):
         with tempfile.TemporaryDirectory() as d:

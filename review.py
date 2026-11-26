@@ -77,3 +77,65 @@ def candidates(r, parse, xp_numeric_candidate):
         if tail.startswith('numeric OCR:') and re.fullmatch(r'[0-9]+',t):
             add(f'You have earned {int(t)} Adena.')
     return out
+
+
+def review_fields(r, parse, xp_numeric_candidate):
+    """Prefill only unambiguous evidence; locked partial values always win."""
+    opts=candidates(r,parse,xp_numeric_candidate)
+    events=[parse(s) for s in opts]
+    events=[e for e in events if e]
+    kinds={e[0] for e in events}
+    first=r.text.split(' [',1)[0]
+    if r.event_index is not None:
+        kind='xp'
+    elif len(kinds)==1:
+        kind=next(iter(kinds))
+    elif len(kinds)>1:
+        kind=''
+    elif re.search(r'\b(?:XP|SP)\b|\bacquired\b|\[XP retry:',r.text,re.I):
+        kind='xp'
+    elif re.search(r'\bAdena\b|\b(?:earned|eamed)\b',first,re.I):
+        kind='adena'
+    elif re.search(r'\bobtained\b',first,re.I):
+        kind='item'
+    else:
+        kind=''
+    def agree(values):
+        vals=set(values)
+        return str(next(iter(vals))) if len(vals)==1 else ''
+    xp=[e for e in events if e[0]=='xp']
+    ad=[e for e in events if e[0]=='adena']
+    # Preserve a named recipient; never silently assign a party drop to You.
+    who=agree(e[1] for e in ad)
+    if not ad:
+        m=re.match(r'([\w-]+) has (?:earned|eamed|obtained)\b',first,re.I)
+        who=m[1] if m else ('You' if re.match(r'You\b',first,re.I) else '')
+    return dict(kind=kind,xp=str(r.xp_counted) if r.xp_counted is not None else agree(e[3] for e in xp),
+                sp=str(r.sp_counted) if r.sp_counted is not None else agree(e[4] for e in xp),
+                adena=agree(e[3] for e in ad),who=who,
+                full=opts[0] if len(opts)==1 else '',options=opts)
+
+def numeric_field(value,label,allow_zero=False):
+    value=value.strip()
+    if not re.fullmatch(r'(?:[0-9]{1,15}|[0-9]{1,3}(?:,[0-9]{3}){1,4})',value):
+        raise ValueError(f'Enter a whole number for {label}.')
+    n=int(value.replace(',',''))
+    if n==0 and not allow_zero:raise ValueError(f'{label} must be greater than zero.')
+    return n
+
+def correction_message(r,kind,xp='',sp='',adena='',who='',full=''):
+    if r.event_index is not None and kind!='xp':
+        raise ValueError('This partially counted message must remain XP / SP.')
+    if kind=='xp':
+        x=r.xp_counted if r.xp_counted is not None else numeric_field(xp,'XP')
+        s=r.sp_counted if r.sp_counted is not None else numeric_field(sp,'SP',True)
+        return f'You have acquired {x} XP and {s} SP.'
+    if kind=='adena':
+        n=numeric_field(adena,'Adena')
+        who=who.strip()
+        if not re.fullmatch(r'[\w-]{1,40}',who):
+            raise ValueError('Confirm the recipient: You or a character name.')
+        prefix='You have' if who.casefold()=='you' else who+' has'
+        return f'{prefix} earned {n} Adena.'
+    if kind=='item':return full.strip()
+    raise ValueError('Select XP / SP, Adena or Item / other.')

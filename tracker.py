@@ -13,7 +13,7 @@ from window_focus import Windows, capture_region
 import settings
 from hud import Hud, WIDTH, HEIGHT, safe_position, hud_position
 from session_pause import PauseGate
-from review import ReviewQueue, candidates
+from review import ReviewQueue, candidates, review_fields, correction_message
 from history import Archive, new_id, now, snapshot, totals_for, review_queue, count_kills, rate
 from history_ui import HistoryWindow
 from runtime_ocr import configure_ocr
@@ -605,16 +605,37 @@ class App:
     def open_reviews(self):
         if self.review_win and self.review_win.winfo_exists():
             self.review_win.lift(); return
-        win=self.review_win=tk.Toplevel(self.root); win.title('Review uncertain OCR messages'); win.geometry('790x470')
-        ttk.Label(win,text='Select a message, check the OCR evidence, choose or edit the corrected line, then approve.',wraplength=740,padding=10).pack(fill='x')
+        win=self.review_win=tk.Toplevel(self.root); win.title('Review uncertain OCR messages'); win.geometry('820x555')
+        ttk.Label(win,text='Select a message, confirm the type and enter the missing numbers. Already-counted amounts are locked.',wraplength=740,padding=10).pack(fill='x')
         frame=ttk.Frame(win); frame.pack(fill='both',expand=True,padx=10)
         self.review_tree=ttk.Treeview(frame,columns=('time','state','line'),show='headings',selectmode='browse',height=6)
         for c,t,w in [('time','Captured',155),('state','Status',130),('line','Message',460)]:
             self.review_tree.heading(c,text=t); self.review_tree.column(c,width=w)
         scroll=ttk.Scrollbar(frame,orient='vertical',command=self.review_tree.yview); self.review_tree.configure(yscrollcommand=scroll.set); scroll.pack(side='right',fill='y'); self.review_tree.pack(fill='both',expand=True)
         self.review_evidence=tk.Text(win,height=5,wrap='word',state='disabled'); self.review_evidence.pack(fill='x',padx=10,pady=8)
-        self.review_input=tk.StringVar(); self.review_edit=ttk.Combobox(win,textvariable=self.review_input,state='normal'); self.review_edit.pack(fill='x',padx=10)
-        ttk.Label(win,text='Use a full message, e.g. You have earned 85 Adena. / You have acquired 221 XP and 9 SP.',wraplength=740,padding=8).pack(fill='x')
+        editor=ttk.LabelFrame(win,text='Corrected values',padding=8);editor.pack(fill='x',padx=10)
+        self.review_kind=tk.StringVar()
+        self.review_type_buttons=[]
+        types=ttk.Frame(editor);types.pack(fill='x')
+        for label,value in [('XP / SP','xp'),('Adena','adena'),('Item / other','item')]:
+            b=ttk.Radiobutton(types,text=label,value=value,variable=self.review_kind,command=self.review_mode)
+            b.pack(side='left',padx=(0,18));self.review_type_buttons.append(b)
+        self.review_xp=tk.StringVar();self.review_sp=tk.StringVar();self.review_adena=tk.StringVar();self.review_who=tk.StringVar()
+        self.review_xp_frame=ttk.Frame(editor)
+        ttk.Label(self.review_xp_frame,text='XP').pack(side='left')
+        self.review_xp_entry=ttk.Entry(self.review_xp_frame,textvariable=self.review_xp,width=13);self.review_xp_entry.pack(side='left',padx=(6,18))
+        ttk.Label(self.review_xp_frame,text='SP').pack(side='left')
+        self.review_sp_entry=ttk.Entry(self.review_xp_frame,textvariable=self.review_sp,width=13);self.review_sp_entry.pack(side='left',padx=6)
+        self.review_adena_frame=ttk.Frame(editor)
+        ttk.Label(self.review_adena_frame,text='Adena').pack(side='left')
+        self.review_adena_entry=ttk.Entry(self.review_adena_frame,textvariable=self.review_adena,width=13);self.review_adena_entry.pack(side='left',padx=(6,18))
+        ttk.Label(self.review_adena_frame,text='Recipient').pack(side='left')
+        self.review_who_entry=ttk.Combobox(self.review_adena_frame,textvariable=self.review_who,width=20,values=['You',*getattr(self,'party_members',[])])
+        self.review_who_entry.pack(side='left',padx=6)
+        self.review_item_frame=ttk.Frame(editor)
+        self.review_input=tk.StringVar(); self.review_edit=ttk.Combobox(self.review_item_frame,textvariable=self.review_input,state='normal')
+        self.review_edit.pack(fill='x',expand=True)
+        self.review_hint=tk.StringVar();self.review_hint_label=ttk.Label(editor,textvariable=self.review_hint,wraplength=740);self.review_hint_label.pack(fill='x',pady=(5,0))
         buttons=ttk.Frame(win,padding=10); buttons.pack(fill='x')
         self.approve_btn=ttk.Button(buttons,text='Approve & count',command=self.approve_review); self.approve_btn.pack(side='left')
         self.dismiss_btn=ttk.Button(buttons,text='Dismiss (ignore)',command=self.dismiss_review); self.dismiss_btn.pack(side='left',padx=8)
@@ -629,15 +650,41 @@ class App:
         self.review_selected=id
         self.review_evidence.config(state='normal'); self.review_evidence.delete('1.0','end')
         self.review_evidence.insert('1.0',r.text if r else 'No pending reviews.'); self.review_evidence.config(state='disabled')
-        opts=candidates(r,parse,xp_numeric_candidate) if r else []
-        self.review_edit.configure(values=opts,state='normal' if r else 'disabled')
-        self.review_input.set(opts[0] if len(opts)==1 else '')
-        self.approve_btn.config(state='normal' if r else 'disabled'); self.dismiss_btn.config(state='normal' if r else 'disabled')
+        fields=review_fields(r,parse,xp_numeric_candidate) if r else dict(kind='',xp='',sp='',adena='',who='',full='',options=[])
+        for name in ('kind','xp','sp','adena','who'):
+            getattr(self,'review_'+name).set(fields[name])
+        self.review_who_entry.configure(values=['You',*getattr(self,'party_members',[])])
+        self.review_edit.configure(values=fields['options'])
+        self.review_input.set(fields['full'])
+        self.review_mode()
+        self.dismiss_btn.config(state='normal' if r else 'disabled')
+    def review_mode(self):
+        r=self.selected_review();kind=self.review_kind.get()
+        partial=bool(r and r.event_index is not None)
+        if partial:kind='xp';self.review_kind.set(kind)
+        for b in self.review_type_buttons:
+            b.config(state='disabled' if not r or partial else 'normal')
+        for frame in (self.review_xp_frame,self.review_adena_frame,self.review_item_frame):frame.pack_forget()
+        if kind=='xp' and r:
+            self.review_xp_entry.config(state='readonly' if r.xp_counted is not None else 'normal')
+            self.review_sp_entry.config(state='readonly' if r.sp_counted is not None else 'normal')
+            self.review_xp_frame.pack(fill='x',pady=5,before=self.review_hint_label)
+            self.review_hint.set('XP already counted; enter SP only.' if r.xp_counted is not None else 'SP already counted; enter XP only.' if r.sp_counted is not None else 'Enter XP and SP. Conflicting or unknown readings are left blank.')
+            (self.review_sp_entry if r.xp_counted is not None else self.review_xp_entry).focus_set()
+        elif kind=='adena' and r:
+            self.review_adena_frame.pack(fill='x',pady=5,before=self.review_hint_label)
+            self.review_hint.set('Enter the Adena amount and confirm the recipient.');self.review_adena_entry.focus_set()
+        elif kind=='item' and r:
+            self.review_item_frame.pack(fill='x',pady=5,before=self.review_hint_label)
+            self.review_hint.set('Correct the full item message for personal or party loot.');self.review_edit.focus_set()
+        else:self.review_hint.set('Choose a message type.' if r else 'No pending reviews.')
+        self.approve_btn.config(state='normal' if r and kind else 'disabled')
     def approve_review(self):
         r=self.selected_review()
         if not r:return
-        corrected=self.review_input.get().strip()
-        try:self.reviews.approve(r.id,corrected,parse,self.events,self.totals)
+        try:
+            corrected=correction_message(r,self.review_kind.get(),self.review_xp.get(),self.review_sp.get(),self.review_adena.get(),self.review_who.get(),self.review_input.get())
+            self.reviews.approve(r.id,corrected,parse,self.events,self.totals)
         except ValueError as e:messagebox.showwarning('Review',str(e),parent=self.review_win); return
         self.raw.append((r.timestamp,'review_approved',f'#{r.id}: {corrected} | original: {r.text}'))
         self.append(f'✓ REVIEW #{r.id} approved: {corrected}'+(' (SP only added; XP already counted)' if r.xp_counted is not None else ' (XP only added; SP already counted)' if r.sp_counted is not None else ''))

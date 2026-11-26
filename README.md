@@ -26,7 +26,11 @@ Each recorded personal XP acquisition event counts as one estimated kill, includ
 
 Portable builds check GitHub's latest published stable release on launch. **Check for updates** also checks manually. Downloads require approval and are disabled while tracking or draining OCR. The updater downloads the exact versioned ZIP and SHA-256 sidecar, verifies its digest, extracts it beside the installation and runs its self-test. It then closes the tracker, replaces the dedicated application directory and restarts. The old folder is retained; immediate installation/startup failure attempts rollback. LocalAppData settings and session history are untouched. If the folder contains extra files, extract a new release to a dedicated folder instead. HTTPS and release checksums are not a publisher signature; trust the repository and do not disable security software.
 
-## Current status: v0.20
+## Numeric reviews (v0.21)
+
+Select XP / SP or Adena and enter the numbers only. Unambiguous OCR suggestions prefill the fields; conflicting values remain blank. Previously counted partial XP/SP is locked and will not be added twice. The Adena recipient is shown for personal and party drops. Item / other retains full-message correction. Approvals continue to update session totals, kills and merged reports.
+
+## Current status: v0.21
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 
