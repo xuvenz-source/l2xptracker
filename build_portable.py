@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 NAME = 'L2 Legacy Tracker'
-ZIPNAME = 'L2_Legacy_Tracker_v0.17_Windows_x64_Portable.zip'
+ZIPNAME = 'L2_Legacy_Tracker_v0.18_Windows_x64_Portable.zip'
 
 
 def find_tesseract(override=None):

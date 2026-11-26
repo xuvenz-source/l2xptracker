@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 import numpy as np
 from PIL import Image, ImageTk, ImageOps
 import mss
@@ -17,6 +17,7 @@ from review import ReviewQueue, candidates
 from history import Archive, new_id, now, snapshot, totals_for, review_queue
 from history_ui import HistoryWindow
 from runtime_ocr import configure_ocr
+from party import roster, report as party_report, display_rows as party_rows, summary_text as party_summary
 
 
 def parse(line):
@@ -27,8 +28,10 @@ def parse(line):
     def num(t): return int(t.replace(',', ''))
     m = re.fullmatch(r'You have acquired '+n+r' XP and '+n+r' SP', s, re.I)
     if m: return ('xp', 'You', 'XP / SP', num(m[1]), num(m[2]))
-    m = re.fullmatch(r'You have (?:earned|eamed) '+n+r' Adena', s, re.I)
-    if m: return ('adena','You','Adena',num(m[1]),0)
+    m = re.fullmatch(r'(You have|[\w\-]+ has) (?:earned|eamed) '+n+r' Adena', s, re.I)
+    if m:
+        who='You' if m[1].lower()=='you have' else m[1].rsplit(' ',1)[0]
+        return ('adena',who,'Adena',num(m[2]),0)
     m = re.fullmatch(r'(You have|[\w\-]+ has) obtained (.+)', s, re.I)
     if m:
         who = 'You' if m[1].lower() == 'you have' else m[1].rsplit(' ',1)[0]
@@ -309,8 +312,9 @@ def ocr_rows(rows):
 
 class App:
     def __init__(self,root):
-        self.root=root; root.title('L2 Legacy Farming Tracker — v0.17 Portable'); root.geometry('900x700')
+        self.root=root; root.title('L2 Legacy Farming Tracker — v0.18 Portable'); root.geometry('900x700')
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
+        self.party_members=[]; self.next_party_members=[]
         self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False
         self.pause_gate=PauseGate(); self.position_win=None; self.reviews=ReviewQueue(); self.review_win=None; self.review_count=tk.StringVar(value="Review (0)"); self.saved=None; self.hud=None; self.api=None; self.hud_enabled=tk.BooleanVar(value=True)
         try:
@@ -344,9 +348,21 @@ class App:
         ttk.Button(tools,textvariable=self.review_count,command=self.open_reviews).pack(side='left')
         ttk.Button(tools,text='Position HUD…',command=self.open_position).pack(side='left',padx=8)
         self.move_btn=ttk.Button(tools,text='Move HUD in game',command=self.arm_hud_move); self.move_btn.pack(side='left')
+        ttk.Button(tools,text='Party setup…',command=self.setup_party).pack(side='left',padx=8)
+        self.party_status=tk.StringVar(value='Next session: solo / no estimates')
+        ttk.Label(root,textvariable=self.party_status,wraplength=800,padding=(10,3)).pack(fill='x')
         ttk.Label(root,text='Recent OCR lines (including ignored messages / uncertain gaps)',padding=6).pack(anchor='w')
         self.log=tk.Text(root,height=11,wrap='word',state='disabled'); self.log.pack(fill='both',expand=True,padx=10,pady=(0,10))
         root.after(100,self.tick); root.after(25,self.hud_tick); root.protocol('WM_DELETE_WINDOW',self.close)
+    def setup_party(self):
+        if self.running or self.pending:
+            messagebox.showinfo('Party setup','Stop the current session before changing party composition. Start a new session with the new roster; merge them later.')
+            return
+        value=simpledialog.askstring('Party setup','Enter other party character names, separated by commas. Do not include yourself. Leave blank for solo. Equal-share Adena estimates are not observed drops.',initialvalue=', '.join(self.next_party_members),parent=self.root)
+        if value is None:return
+        try:self.next_party_members=roster(value)
+        except ValueError as e:messagebox.showwarning('Party setup',str(e));return
+        self.party_status.set('Next session: '+(', '.join(self.next_party_members) or 'solo / no estimates'))
     def persist(self):
         if not self.target or not self.region: return
         data=dict(schema=1,title=self.target.title,window_class=self.target.window_class,width=self.target.width,height=self.target.height,pitch=int(self.pitch.get()),region=dict(self.region))
@@ -417,6 +433,8 @@ class App:
         if not self.save_session():return
         if not self.archive:
             messagebox.showerror('Session storage','History storage is unavailable. Restart the tracker after fixing storage.');return
+        self.party_members=list(self.next_party_members)
+        self.party_status.set('Session party: '+(', '.join(self.party_members) or 'solo / no estimates'))
         self.session_id=new_id(); self.session_date=now(); self.session_end=None; self.session_complete=None; self.last_archive_save=0
         if self.review_win and self.review_win.winfo_exists():self.review_win.destroy();self.review_win=None
         self.reviews=ReviewQueue(); self.refresh_reviews()
@@ -551,11 +569,17 @@ class App:
             if self.close():return
         if self.started is not None:
             dur=self.active_seconds; h=max(1,dur)/3600; xp=self.totals[('You','XP / SP')]; sp=self.totals[('You','SP')]; ad=self.totals[('You','Adena')]; self.stats.set(f'{"PAUSED  |  " if self.running and self.pause_gate.snapshot()[0] else ""}Active {int(dur)//3600:02}:{int(dur)%3600//60:02}:{int(dur)%60:02}  |  XP {xp:,}  ({xp/h:,.0f}/h)  |  SP {sp:,}\nAdena {ad:,}  ({ad/h:,.0f}/h)  |  Capture/OCR warnings {self.gaps}  |  Pending review {len(self.reviews.pending)}')
+            if getattr(self,'party_members',[]):
+                extra=party_summary(party_report([dict(party_members=self.party_members,seconds=dur,events=self.events)]))
+                self.stats.set(self.stats.get()+'\n'+extra)
         self.root.after(100,self.tick)
     def refresh_totals(self):
         self.tree.delete(*self.tree.get_children())
         for (who,item),qty in sorted(self.totals.items()):
             if item not in ('XP / SP','SP'):self.tree.insert('','end',values=(who,item,f'{qty:,}'))
+        for row in party_rows(party_report([dict(party_members=getattr(self,'party_members',[]),seconds=self.active_seconds,events=self.events)])):
+            # Rates use the live timer in the summary; row amounts refresh on events.
+            if row[1]!='Adena/hr (estimated)':self.tree.insert('','end',values=row)
     def refresh_reviews(self):
         self.review_count.set(f'Review ({len(self.reviews.pending)})')
         if not self.review_win or not self.review_win.winfo_exists(): return
@@ -702,6 +726,8 @@ class App:
             if r['kind']!='original':raise ValueError('Only original sessions can be opened for review.')
             d=r['data'];events=[tuple(e) for e in d['events']];raw=[tuple(e) for e in d['raw']];reviews=review_queue(d);totals=totals_for(events)
         except Exception as e:messagebox.showerror('History',str(e));return False
+        self.party_members=list(d.get('party_members',[]))
+        self.party_status.set('Saved session party: '+(', '.join(self.party_members) or 'not configured'))
         self.session_id=id;self.session_date=d['start'];self.session_end=d['end'];self.session_complete=d['complete'];self.active_seconds=d['seconds'];self.events=events;self.raw=raw;self.reviews=reviews;self.totals=totals;self.gaps=d['gaps'];self.started=time.monotonic();self.ended=self.started
         self.log.config(state='normal');self.log.delete('1.0','end');self.log.config(state='disabled')
         for ts,status,line in self.raw[-100:]:self.append(f'{status}: {line}')

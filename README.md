@@ -14,7 +14,11 @@ Once a verified release is published, download its Windows x64 portable ZIP from
 - Saved chat calibration and HUD position, session history, renaming and merging.
 - CSV export and local storage under `%LOCALAPPDATA%\L2LegacyTracker`.
 
-## Current status: v0.17
+## Party tracking (v0.18)
+
+Before Start, open **Party setup** and enter the other character names (comma-separated). The roster is fixed for that session; stop and start a new session if it changes. The loot list records visible personal and named party acquisitions as before, including named Adena messages if visible. If only your own Adena share is visible, each configured member receives a separate equal-share estimate, and the session summary estimates total party Adena and Adena/hour. Estimates assume every member receives the same amount as you, are not additional recorded loot, and can be wrong for rounding, range or distribution changes. Your HUD continues to show personal rates. Session history and merged reports calculate estimates per original roster; old sessions without a roster are not estimated. CSV exports contain observed events only.
+
+## Current status: v0.18
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

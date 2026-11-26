@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
 from pathlib import Path
 from history import duration,rate
+from party import display_rows as party_rows, summary_text as party_summary
 
 class HistoryWindow:
     def __init__(self,app):
@@ -39,6 +40,9 @@ class HistoryWindow:
         self.details.set(f"{s['name']}  |  {len(s['sources'])} original session(s)  |  Active {duration(s['seconds'])}  |  EXP {t['You','XP / SP']:,}  |  SP {t['You','SP']:,}  |  Adena {t['You','Adena']:,}\nPending reviews: {s['pending']}  |  Capture/OCR warnings: {s['gaps']}"+(f'\nSources: {names}' if s['kind']=='merged' else ''))
         for (who,item),q in sorted(t.items()):
             if item not in ('XP / SP','SP'):self.loot.insert('','end',values=(who,item,f'{q:,}'))
+        for row in party_rows(s['party']):self.loot.insert('','end',values=row)
+        extra=party_summary(s['party'])
+        if extra:self.details.set(self.details.get()+'\n'+extra)
     def single(self):
         ids=self.tree.selection()
         if len(ids)!=1:messagebox.showinfo('History','Select exactly one entry.',parent=self.win);return None
