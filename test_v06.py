@@ -27,7 +27,7 @@ class Tests(unittest.TestCase):
     def test_hud_focus(self):
         h=Hud.__new__(Hud);h.hwnd=33;h.shown=False;h.position=None;h.values=('—','—');h.preferred=None;h.drag=None;h.interactive=False;h.on_move=None;h.u=Mock();h.u.GetAsyncKeyState.return_value=0;h.u.GetSystemMetrics.side_effect=lambda i:{76:0,77:0,78:1920,79:1080}[i];h.u.SetWindowPos.return_value=True
         api=Mock();api.usable.return_value=True;api.pid.return_value=20;api.foreground.return_value=1;api.geometry.return_value=(100,100,1000,700)
-        h.update(api,TARGET,REG,True,1800,10745,65450);self.assertTrue(h.shown);self.assertEqual(h.values,('21,490','130,900'))
+        h.update(api,TARGET,REG,True,1800,10745,65450);self.assertTrue(h.shown);self.assertEqual(h.values,('21,490','130,900','0'))
         api.foreground.return_value=2;h.update(api,TARGET,REG,True,1800,10745,65450);self.assertFalse(h.shown);h.u.ShowWindow.assert_called_with(33,0)
         api.foreground.return_value=1;h.update(api,TARGET,REG,True,1800,10745,65450);self.assertTrue(h.shown)
         h.update(api,TARGET,REG,False,1800,10745,65450);self.assertFalse(h.shown)

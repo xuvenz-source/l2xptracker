@@ -14,7 +14,7 @@ import settings
 from hud import Hud, WIDTH, HEIGHT, safe_position, hud_position
 from session_pause import PauseGate
 from review import ReviewQueue, candidates
-from history import Archive, new_id, now, snapshot, totals_for, review_queue
+from history import Archive, new_id, now, snapshot, totals_for, review_queue, count_kills, rate
 from history_ui import HistoryWindow
 from runtime_ocr import configure_ocr
 from party import roster, live_report as live_party_report, display_rows as party_rows, summary_text as party_summary
@@ -312,9 +312,9 @@ def ocr_rows(rows):
 
 class App:
     def __init__(self,root):
-        self.root=root; root.title('L2 Legacy Farming Tracker — v0.18 Portable'); root.geometry('900x700')
+        self.root=root; root.title('L2 Legacy Farming Tracker — v0.19 Portable'); root.geometry('900x700')
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
-        self.party_members=[]; self.next_party_members=[]
+        self.party_members=[]; self.next_party_members=[]; self.kills=0
         self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False
         self.pause_gate=PauseGate(); self.position_win=None; self.reviews=ReviewQueue(); self.review_win=None; self.review_count=tk.StringVar(value="Review (0)"); self.saved=None; self.hud=None; self.api=None; self.hud_enabled=tk.BooleanVar(value=True)
         try:
@@ -438,7 +438,7 @@ class App:
         self.session_id=new_id(); self.session_date=now(); self.session_end=None; self.session_complete=None; self.last_archive_save=0
         if self.review_win and self.review_win.winfo_exists():self.review_win.destroy();self.review_win=None
         self.reviews=ReviewQueue(); self.refresh_reviews()
-        self.events=[]; self.raw=[]; self.totals.clear(); self.tree.delete(*self.tree.get_children()); self.gaps=0; self.active_seconds=0.0; self.started=time.monotonic(); self.ended=None; self.run_id+=1; self.running=True; self.pending=2
+        self.events=[]; self.raw=[]; self.kills=0; self.totals.clear(); self.tree.delete(*self.tree.get_children()); self.gaps=0; self.active_seconds=0.0; self.started=time.monotonic(); self.ended=None; self.run_id+=1; self.running=True; self.pending=2
         self.pause_gate=PauseGate(); self.pause_btn.config(text="Pause",state="normal"); self.halt=threading.Event(); self.jobs=queue.Queue(maxsize=120); self.start_btn.config(state='disabled'); self.stop_btn.config(state='normal')
         self.log.config(state='normal'); self.log.delete('1.0','end'); self.log.config(state='disabled'); self.status.set('Waiting for Lineage 2 focus. Existing messages will not be counted.')
         if not self.save_session():
@@ -569,12 +569,14 @@ class App:
             if self.close():return
         if self.started is not None:
             dur=self.active_seconds; h=max(1,dur)/3600; xp=self.totals[('You','XP / SP')]; sp=self.totals[('You','SP')]; ad=self.totals[('You','Adena')]; self.stats.set(f'{"PAUSED  |  " if self.running and self.pause_gate.snapshot()[0] else ""}Active {int(dur)//3600:02}:{int(dur)%3600//60:02}:{int(dur)%60:02}  |  XP {xp:,}  ({xp/h:,.0f}/h)  |  SP {sp:,}\nAdena {ad:,}  ({ad/h:,.0f}/h)  |  Capture/OCR warnings {self.gaps}  |  Pending review {len(self.reviews.pending)}')
+            self.stats.set(self.stats.get()+f'\nKills {self.kills:,}  ({rate(self.kills,dur)}/h; XP events)')
             if getattr(self,'party_members',[]):
                 extra=party_summary(live_party_report(self.party_members,dur,self.totals))
                 extra+=f' Each listed member: {ad:,} estimated ({ad/h:,.0f}/h).'
                 self.stats.set(self.stats.get()+'\n'+extra)
         self.root.after(100,self.tick)
     def refresh_totals(self):
+        self.kills=count_kills(self.events)
         self.tree.delete(*self.tree.get_children())
         for (who,item),qty in sorted(self.totals.items()):
             if item not in ('XP / SP','SP'):self.tree.insert('','end',values=(who,item,f'{qty:,}'))
@@ -667,7 +669,7 @@ class App:
         def draw():
             canvas.delete('hud'); x,y=pos
             canvas.create_rectangle(x*scale,y*scale,(x+WIDTH)*scale,(y+HEIGHT)*scale,fill='#151a22',outline='#98a6b8',width=2,tags='hud')
-            canvas.create_text((x+WIDTH/2)*scale,(y+HEIGHT/2)*scale,text='ADENA / HR   |   EXP / HR',fill='#f4d183',font=('Segoe UI',max(7,int(12*scale)),'bold'),tags='hud')
+            canvas.create_text((x+WIDTH/2)*scale,(y+HEIGHT/2)*scale,text='ADENA / HR  |  EXP / HR  |  KILLS / HR',fill='#f4d183',font=('Segoe UI',max(7,int(12*scale)),'bold'),tags='hud')
         def down(e):
             x,y=e.x/scale,e.y/scale
             if pos[0]<=x<pos[0]+WIDTH and pos[1]<=y<pos[1]+HEIGHT:offset[:]=[x-pos[0],y-pos[1]]
@@ -686,7 +688,7 @@ class App:
         ttk.Button(buttons,text='Cancel',command=win.destroy).pack(side='right',padx=8)
     def hud_tick(self):
         if self.hud and self.api:
-            try: self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get(),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')])
+            try: self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get(),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills)
             except Exception as e:
                 self.hud.hide(); self.hud_enabled.set(False); self.append(f'HUD disabled: {e}'); self.hud.close(); self.hud=None
         self.move_btn.config(text='Cancel HUD move' if self.hud and self.hud.placement is not None else 'Move HUD in game')

@@ -23,6 +23,12 @@ def totals_for(events):
     return totals
 
 
+def count_kills(events):
+    """One recorded personal XP event equals one estimated kill, even if partial."""
+    return sum(1 for _,typ,who,_,xp,sp,_ in events
+               if typ=='xp' and who.casefold()=='you' and (xp is not None or sp is not None))
+
+
 def snapshot(app):
     return dict(start=app.session_date, end=app.session_end or now(), seconds=app.active_seconds,
                 events=app.events, raw=app.raw, gaps=app.gaps, party_members=list(getattr(app,'party_members',[])),
@@ -80,4 +86,4 @@ class Archive:
         r=records[id]; sources=self.sources([id],records)
         parts=sorted((records[s]['data'] for s in sources),key=lambda p:p['start'])
         events=[tuple(e) for p in parts for e in p['events']]; raw=[tuple(e) for p in parts for e in p['raw']]
-        return dict(**r,sources=sources,seconds=sum(p['seconds'] for p in parts),start=min(p['start'] for p in parts),end=max(p['end'] for p in parts),events=events,raw=raw,totals=totals_for(events),party=party_report(parts),pending=sum(len(p['reviews']) for p in parts),gaps=sum(p['gaps'] for p in parts),complete=all(p['complete'] for p in parts))
+        return dict(**r,sources=sources,seconds=sum(p['seconds'] for p in parts),start=min(p['start'] for p in parts),end=max(p['end'] for p in parts),events=events,raw=raw,totals=totals_for(events),kills=count_kills(events),party=party_report(parts),pending=sum(len(p['reviews']) for p in parts),gaps=sum(p['gaps'] for p in parts),complete=all(p['complete'] for p in parts))

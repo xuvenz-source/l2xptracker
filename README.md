@@ -18,7 +18,11 @@ Once a verified release is published, download its Windows x64 portable ZIP from
 
 Before Start, open **Party setup** and enter the other character names (comma-separated). The roster is fixed for that session; stop and start a new session if it changes. The loot list records visible personal and named party acquisitions as before, including named Adena messages if visible. If only your own Adena share is visible, each configured member receives a separate equal-share estimate, and the session summary estimates total party Adena and Adena/hour. Estimates assume every member receives the same amount as you, are not additional recorded loot, and can be wrong for rounding, range or distribution changes. Your HUD continues to show personal rates. Session history and merged reports calculate estimates per original roster; old sessions without a roster are not estimated. CSV exports contain observed events only.
 
-## Current status: v0.18
+## Kills/hour (v0.19)
+
+Each recorded personal XP acquisition event counts as one estimated kill, including partial XP/SP events. Manual approvals of new XP events add a kill; correcting existing partial events does not. The HUD, live totals and session history show kills/hour based on active capture time. Existing saved sessions and merged reports derive kill counts from recorded events; history summary CSV includes kills and kills/hour. XP from quests or other non-kill sources also counts if it uses the same message format, and missed OCR messages can undercount kills. Party kills are counted once per personal XP message, not multiplied by party size.
+
+## Current status: v0.19
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

@@ -41,7 +41,7 @@ def rate_text(total, seconds):
 
 class Hud:
     def __init__(self, preferred=None, on_move=None):
-        self.hwnd=None; self.shown=False; self.position=None; self.values=('—','—')
+        self.hwnd=None; self.shown=False; self.position=None; self.values=('—','—','—')
         self.preferred=preferred; self.on_move=on_move; self.drag=None; self.interactive=False
         self.last_mouse_down=None; self.placement=None
         self.u=c.WinDLL('user32',use_last_error=True); self.g=c.WinDLL('gdi32',use_last_error=True); self.k=c.WinDLL('kernel32',use_last_error=True)
@@ -86,7 +86,7 @@ class Hud:
         if not self.u.RegisterClassW(c.byref(wc)): raise c.WinError(c.get_last_error())
         self.brush=self.g.CreateSolidBrush(self.rgb(20,25,33))
         self.divider=self.g.CreateSolidBrush(self.rgb(75,84,97))
-        self.small=self.font(14,400); self.large=self.font(21,600)
+        self.small=self.font(14,400); self.large=self.font(19,600)
         # layered + transparent + noactivate + toolwindow + topmost
         ex=0x80000|0x20|0x08000000|0x80|8
         self.hwnd=self.u.CreateWindowExW(ex,self.name,'L2 Farming HUD',0x80000000,0,0,WIDTH,HEIGHT,None,None,self.instance,None)
@@ -116,12 +116,12 @@ class Hud:
             if dc:
                 try:
                     self.u.FillRect(dc,c.byref(w.RECT(0,0,WIDTH,HEIGHT)),self.brush)
-                    self.u.FillRect(dc,c.byref(w.RECT(154,12,155,50)),self.divider)
+                    for x in (103,206):self.u.FillRect(dc,c.byref(w.RECT(x,12,x+1,50)),self.divider)
                     self.g.SetBkMode(dc,1)
-                    for i,(label,value,colour) in enumerate(zip(('ADENA / HR','EXP / HR'),self.values,((247,202,102),(134,224,183)))):
-                        x=i*155+12
-                        self.text(dc,label,(x,7,x+137,24),self.small,(180,190,205))
-                        self.text(dc,value,(x,26,x+137,53),self.large,colour)
+                    for i,(label,value,colour) in enumerate(zip(('ADENA / HR','EXP / HR','KILLS / HR'),self.values,((247,202,102),(134,224,183),(214,224,245)))):
+                        x=i*103+8
+                        self.text(dc,label,(x,7,x+91,24),self.small,(180,190,205))
+                        self.text(dc,value,(x,26,x+91,53),self.large,colour)
                 finally:self.u.EndPaint(h,c.byref(ps))
             return 0
         return self.u.DefWindowProcW(h,msg,wp,lp)
@@ -162,7 +162,7 @@ class Hud:
             self.preferred=(candidate[0]-geo[0],candidate[1]-geo[1]); self.cancel_placement()
             if self.on_move:self.on_move(self.preferred)
         return candidate
-    def update(self,api,target,chat,running,seconds,adena,xp):
+    def update(self,api,target,chat,running,seconds,adena,xp,kills=0):
         if not self.hwnd:return
         if not running or not target or not api.usable(target.hwnd) or api.pid(target.hwnd)!=target.pid or api.foreground()!=target.hwnd:
             if not running or (getattr(self,'placement',None) and self.placement['seen']):self.cancel_placement()
@@ -194,7 +194,7 @@ class Hud:
                         pos=candidate; self.preferred=(pos[0]-geo[0],pos[1]-geo[1])
                 else:self.finish_drag()
         if pos is None:self.hide();return
-        values=(rate_text(adena,seconds),rate_text(xp,seconds))
+        values=(rate_text(adena,seconds),rate_text(xp,seconds),rate_text(kills,seconds))
         if values!=self.values:self.values=values;self.u.InvalidateRect(self.hwnd,None,False)
         if not self.shown or pos!=self.position:
             if self.u.SetWindowPos(self.hwnd,c.c_void_p(-1),*pos,WIDTH,HEIGHT,0x0010|0x0040|0x0200):
