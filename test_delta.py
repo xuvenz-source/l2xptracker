@@ -49,3 +49,16 @@ class DeltaTests(unittest.TestCase):
         with patch('updater.small',side_effect=small),patch('updater.download',side_effect=download),patch('updater.smoke_test'):
             stage=stage_update(info,self.old)
         self.assertEqual(inventory(stage/APP_NAME),inventory(self.new))
+
+    def test_successful_patch_never_downloads_full(self):
+        import hashlib,shutil
+        name=delta_name(VERSION,NEXT_VERSION)
+        info=dict(version=NEXT_VERSION,name=zip_name(NEXT_VERSION),url='full',checksum='fullhash',delta=dict(name=name,url='patch',checksum='patchhash',size=100))
+        def small(url,limit):
+            self.assertEqual(url,'patchhash')
+            return (hashlib.sha256(self.patch.read_bytes()).hexdigest()+'  '+name).encode()
+        def download(url,dest,digest):
+            self.assertEqual(url,'patch');shutil.copyfile(self.patch,dest)
+        with patch('updater.small',side_effect=small),patch('updater.download',side_effect=download),patch('updater.smoke_test'):
+            stage=stage_update(info,self.old)
+        self.assertEqual(inventory(stage/APP_NAME),inventory(self.new))
