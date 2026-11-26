@@ -1,0 +1,21 @@
+L2 LEGACY TRACKER — PORTABLE BUILD KIT (v0.17)
+This ZIP is the builder, not a compiled Windows application.
+
+On the Windows x64 PC where the current tracker already works:
+1. Extract all files to a writable folder.
+2. Double-click Build Portable.bat. Internet is needed for build dependencies.
+3. The script builds the EXE, copies the existing Tesseract installation, runs
+   a frozen executable self-test, and creates Share with friends\L2_Legacy_Tracker_v0.17_Windows_x64_Portable.zip.
+4. Test that ZIP on another Windows x64 PC without Python/Tesseract before sharing.
+   Give friends that ZIP, not this build kit or the EXE alone.
+
+If Tesseract is installed in a custom folder, drag the installation folder onto
+Build Portable.bat or run it with the path as its first argument. The folder must
+contain tesseract.exe and tessdata\eng.traineddata. Use a trusted OCR installation
+whose redistribution license permits bundling. See THIRD PARTY.txt.
+
+Existing settings/history are unchanged. Source launch remains available via
+Start Tracker.bat. The portable build has no new game-tracking behavior.
+The build is not signed; no installer or administrator privileges are required
+for normal use. This kit was prepared on Linux and its Windows build and native
+HUD have not been run here. A failed smoke test prevents new ZIP creation.

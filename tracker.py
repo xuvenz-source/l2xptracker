@@ -1,0 +1,757 @@
+"""Passive screen-only Lineage II farming tracker. Windows desktop prototype."""
+import csv, os, queue, re, shutil, threading, time, sys
+from collections import Counter
+from datetime import datetime
+from pathlib import Path
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
+import numpy as np
+from PIL import Image, ImageTk, ImageOps
+import mss
+import pytesseract
+from window_focus import Windows, capture_region
+import settings
+from hud import Hud, WIDTH, HEIGHT, safe_position, hud_position
+from session_pause import PauseGate
+from review import ReviewQueue, candidates
+from history import Archive, new_id, now, snapshot, totals_for, review_queue
+from history_ui import HistoryWindow
+from runtime_ocr import configure_ocr
+
+
+def parse(line):
+    s = re.sub(r'\s+', ' ', line).strip(' .,;:|')
+    # Only correct known word-level errors, never guess XP or SP digits.
+    s = re.sub(r'^You haye acquired ', 'You have acquired ', s, flags=re.I)
+    n = r'(\d[\d,]*)'
+    def num(t): return int(t.replace(',', ''))
+    m = re.fullmatch(r'You have acquired '+n+r' XP and '+n+r' SP', s, re.I)
+    if m: return ('xp', 'You', 'XP / SP', num(m[1]), num(m[2]))
+    m = re.fullmatch(r'You have (?:earned|eamed) '+n+r' Adena', s, re.I)
+    if m: return ('adena','You','Adena',num(m[1]),0)
+    m = re.fullmatch(r'(You have|[\w\-]+ has) obtained (.+)', s, re.I)
+    if m:
+        who = 'You' if m[1].lower() == 'you have' else m[1].rsplit(' ',1)[0]
+        item = m[2].strip(); qty = 1
+        # These explicit quantity formats are provisional, not confirmed in C1.
+        for pat, reverse in [(r'(\d[\d,]*) (.+)',False),(r'(.+?)\s*\(\s*(?:x\s*)?(\d[\d,]*)\s*\)',True),(r'(.+?)\s+x\s*(\d[\d,]*)',True)]:
+            q = re.fullmatch(pat,item,re.I)
+            if q:
+                item, qty = (q[1],num(q[2])) if reverse else (q[2],num(q[1])); break
+        if item.lower() == 'adena': return ('adena',who,'Adena',qty,0)
+        return ('item',who,item,qty,0)
+    return None
+
+
+def mask(rgb):
+    r,g,b = np.moveaxis(rgb.astype(np.int16),-1,0)
+    return (r>145)&(g>125)&(r-b>15)&(g-b>10)
+
+
+def rows_of(rgb,pitch):
+    m = mask(rgb); n = len(m)//pitch
+    return m[:n*pitch].reshape(n,pitch,m.shape[1])
+
+
+def overlap(old,new):
+    # Compare the physical rows, not global text hashes. Repeated lines count
+    # independently when their movement can be observed.
+    n=len(old); scores=[]
+    if n != len(new) or n<3: return None
+    for shift in range(n-1):
+        a,b=old[shift:],new[:n-shift]
+        ca=a.sum(axis=(1,2)); cb=b.sum(axis=(1,2)); shared=(a&b).sum(axis=(1,2))
+        active=(ca+cb)>24
+        if active.sum()<2: continue
+        dice=2*shared[active]/(ca[active]+cb[active])
+        score=float(np.mean(dice))
+        if score>=.68 and (dice>=.55).mean()>=.75: scores.append((shift,score))
+    if not scores: return None
+    best=max(s for _,s in scores)
+    return min(k for k,s in scores if s>=best-.07)
+
+
+def yellow_strength(rgb):
+    r,g,b=np.moveaxis(rgb.astype(np.int16),-1,0)
+    return np.minimum(r,g)-b
+
+
+def row_images(rgb):
+    # Isolate yellow loot text by colour contrast before thresholding.
+    y=yellow_strength(rgb)
+    yellow=(y>105)&(rgb[:,:,0]>155)&(rgb[:,:,1]>155)
+    is_yellow=yellow.sum()>35
+    if is_yellow:
+        img=np.where(y>105,0,255).astype(np.uint8)
+    else:
+        img=np.where(mask(rgb),0,255).astype(np.uint8)
+    return img,is_yellow
+
+
+def padded(im,scale=4,nearest=False):
+    im=np.pad(im,((8,8),(12,12)),constant_values=255)
+    return Image.fromarray(im).resize((im.shape[1]*scale,im.shape[0]*scale),Image.Resampling.NEAREST if nearest else Image.Resampling.LANCZOS)
+
+
+def single_ocr(im,config='--psm 7',nearest=False):
+    return pytesseract.image_to_string(padded(im,nearest=nearest),config=config,timeout=5).strip()
+
+
+def adena_like(line):
+    return bool(re.search(r'\b(?:earned|eamed|ear[nm]ed)\b|\badena\b',line,re.I))
+
+
+def xp_like(line):
+    return bool(re.search(r'\bacquired\b|(?<=[0-9\s])XP\s*and(?=\s|[0-9])',line,re.I))
+
+
+def xp_numeric_candidate(line):
+    # Only use this in the XP retry path, which is gated by xp_like(first).
+    # Ignore damaged introductory words, but require both numeric fields and
+    # the XP/and/SP labels. SF is a known OCR substitution for SP. Never
+    # substitute or invent digits; malformed numbers yield no vote.
+    n = r'([0-9]+(?:,[0-9]{3})*)'
+    # OCR can merge adjacent words (XPand9SP), and capture a small stray
+    # glyph after the sentence punctuation. Only allow a single isolated
+    # digit or x after explicit punctuation, not arbitrary trailing text.
+    # Do not remove any characters from either numeric field.
+    tail = r'(?:\s*[.,;:]+(?:\s+[0-9x])?\s*[.,;:]*)?\s*$'
+    m = re.search(r'(?<![0-9,])'+n+r'\s*XP\s*and\s*'+n+r'\s*S[PF]'+tail,line.strip(),re.I)
+    if not m: return None
+    return tuple(int(x.replace(',', '')) for x in m.groups())
+
+
+def verified_xp(reads):
+    valid=[v for t in reads if (v:=xp_numeric_candidate(t)) is not None]
+    if len(valid)<2 or len(set(valid))!=1: return None
+    return valid[0]
+
+
+def xp_retry(row, first):
+    # Compare numeric pairs rather than requiring a perfect sentence in each
+    # retry. Failed reads are abstentions; contradictory pairs require review.
+    r,g,b=np.moveaxis(row.astype(np.int16),-1,0)
+    reads=[]
+    for threshold in (90,110,130):
+        m=(r>threshold)&(g>threshold-15)&(r-b>15)&(g-b>10)
+        reads.append(single_ocr(np.where(m,0,255).astype(np.uint8)))
+        votes={v for t in [first,*reads] if (v:=xp_numeric_candidate(t)) is not None}
+        if len(votes)>1: return None,reads
+        if len(reads)>=2:
+            pair=verified_xp([first,*reads])
+            if pair is not None:
+                return f'You have acquired {pair[0]} XP and {pair[1]} SP.',reads
+    return None,reads
+
+
+
+def sp_numeric_candidate(line):
+    # In a row already identified as an XP/SP message, SP may be readable
+    # even when the XP amount or its label is damaged. Never guess digits.
+    m=re.search(r'and\s*([0-9]+(?:,[0-9]{3})*)\s*S[PF](?:\s*[.,;:]+(?:\s+[0-9x])?\s*[.,;:]*)?\s*$',line.strip(),re.I)
+    return int(m[1].replace(',', '')) if m else None
+
+
+def recover_sp_only(reads):
+    votes=[v for t in reads if (v:=sp_numeric_candidate(t)) is not None]
+    if len(votes)<2 or len(set(votes))!=1:
+        return None
+    evidence=' | '.join(t or '(blank)' for t in reads)
+    return ('sp_partial',f'You have acquired {votes[0]} SP; XP unknown. [XP conflict or unreadable: {evidence}]')
+
+
+def recover_sp_conflict(row, first, reads):
+    """Resolve SP-only disagreement from this row, never from adjacent events.
+
+    XP is retained only if every valid pair agrees on it. SP needs at least
+    two matching votes against exactly one dissent after additional passes.
+    For a 2:1 result require at least four attempts (one unreadable).
+    Preserve all readings for the review/export log.
+    """
+    votes=[v for t in [first,*reads] if (v:=xp_numeric_candidate(t)) is not None]
+    if len(votes)<2 or len({v[0] for v in votes})!=1 or len({v[1] for v in votes})<2:
+        return None
+    r,g,b=np.moveaxis(row.astype(np.int16),-1,0)
+    extra=[]
+    for threshold,nearest in ((115,True),(145,False)):
+        m=(r>threshold)&(g>threshold-15)&(r-b>15)&(g-b>10)
+        extra.append(single_ocr(np.where(m,0,255).astype(np.uint8),nearest=nearest))
+    all_reads=[first,*reads,*extra]
+    votes=[v for t in all_reads if (v:=xp_numeric_candidate(t)) is not None]
+    if len({v[0] for v in votes})!=1:
+        return recover_sp_only(all_reads) or ('uncertain',f'{first} [XP retry: {" | ".join(t or "(blank)" for t in [*reads,*extra])}]')
+    xp=votes[0][0]
+    counts=Counter(v[1] for v in votes)
+    sp,n=counts.most_common(1)[0]
+    evidence=' | '.join(t or '(blank)' for t in all_reads)
+    if n>=2 and sum(counts.values())-n==1 and (n>=3 or len(all_reads)>=4):
+        return ('xp_recovered',f'You have acquired {xp} XP and {sp} SP. [SP majority: {evidence}]')
+    return ('xp_partial',f'You have acquired {xp} XP; SP unknown. [SP conflict: {evidence}]')
+
+
+def parse_xp_resolution(kind,line):
+    if kind=='xp_recovered':
+        return parse(line.split(' [SP majority: ',1)[0])
+    if kind=='xp_partial':
+        m=re.match(r'^You have acquired ([0-9]+) XP; SP unknown\. \[SP conflict: ',line)
+        if m: return ('xp','You','XP / SP',int(m[1]),None)
+    if kind=='sp_partial':
+        m=re.match(r'^You have acquired ([0-9]+) SP; XP unknown\. \[XP conflict or unreadable: ',line)
+        if m: return ('xp','You','XP / SP',None,int(m[1]))
+    return None
+
+
+def verified_amount(reads, event=None):
+    # Blank/non-numeric reads are failures, not votes. Never majority-vote
+    # over a conflicting valid numeric reading.
+    valid=[int(t) for t in reads if re.fullmatch(r'[0-9]+',t)]
+    if len(valid)<2 or len(set(valid))!=1:
+        return None
+    if event is not None and (event[0]!='adena' or event[3]!=valid[0]):
+        return None
+    return valid[0]
+
+
+def adena_numeric_retry(raw, event):
+    y=yellow_strength(raw)
+    config='--psm 7 -c tessedit_char_whitelist=0123456789'
+    reads=[]
+    for threshold in (90,120,65,105):
+        crop=np.where(y>threshold,0,255).astype(np.uint8)
+        reads.append(single_ocr(crop,config=config))
+        valid={int(t) for t in reads if re.fullmatch(r'[0-9]+',t)}
+        if len(valid)>1 or (event is not None and valid and (event[0]!='adena' or event[3] not in valid)):
+            return None,reads
+        if len(reads)>=2:
+            amount=verified_amount(reads,event)
+            if amount is not None:
+                return amount,reads
+    return None,reads
+
+
+def repeated_row_indices(processed):
+    # Compare adjacent line images, not recognised text. Similar-looking rows
+    # are a signal to isolate OCR, never a reason to merge drop events.
+    repeated=set()
+    for i in range(1,len(processed)):
+        a,ay=processed[i-1]; b,by=processed[i]
+        if ay!=by: continue
+        a=a<128; b=b<128
+        total=int(a.sum()+b.sum())
+        if total>=48 and 2*int((a&b).sum())/total>=.72:
+            repeated.update((i-1,i))
+    return repeated
+
+
+def ocr_rows(rows):
+    # Map OCR words back to fixed row positions, even when a row is omitted.
+    processed=[row_images(row) for row in rows]
+    h,w=rows.shape[1:3]; step=h+28
+    sheet=np.full((len(rows)*step+10,w+24),255,np.uint8)
+    for i,(im,is_yellow) in enumerate(processed):
+        if not is_yellow: sheet[14+i*step:14+i*step+h,12:12+w]=im
+    scale=4
+    big=Image.fromarray(sheet).resize((sheet.shape[1]*scale,sheet.shape[0]*scale),Image.Resampling.LANCZOS)
+    data=pytesseract.image_to_data(big,config='--psm 6',output_type=pytesseract.Output.DICT,timeout=10)
+    lines=[[] for _ in rows]
+    for word,top,height in zip(data['text'],data['top'],data['height']):
+        if word.strip():
+            idx=int((top+height/2)/scale//step)
+            if 0<=idx<len(lines): lines[idx].append(word)
+    repeats=repeated_row_indices(processed)
+    for i,(row,(im,is_yellow),words) in enumerate(zip(rows,processed,lines)):
+        batch=' '.join(words)
+        # Yellow lines already use isolated OCR. For beige repeated lines,
+        # bypass the shared OCR sheet, which can join neighbouring glyphs.
+        # Recover missing/malformed XP rows with the same isolated pass.
+        isolated=is_yellow or i in repeats or len(rows)==1 or (not batch and (im<128).sum()>24) or (xp_like(batch) and not parse(batch))
+        first=single_ocr(im) if isolated else batch
+        event=parse(first)
+        if is_yellow and adena_like(first):
+            # The amount is normally the penultimate word. Read just that word
+            # with a numeric alphabet, independent of full-line language OCR.
+            cols=np.flatnonzero((im<128).any(axis=0))
+            groups=np.split(cols,np.where(np.diff(cols)>3)[0]+1)
+            phrase=re.fullmatch(r'You have (?:earned|eamed) (.+) Adena[.,]?',first,re.I)
+            if phrase and len(groups)==5 and all(len(g) for g in groups):
+                g=groups[-2]; x0,x1=int(g[0]),int(g[-1])+1
+                raw=row[:,x0:x1]
+                amount,reads=adena_numeric_retry(raw,event)
+                if amount is not None:
+                    yield ('line',f'You have earned {amount} Adena.'); continue
+                yield ('uncertain',f"{first} [numeric OCR: {' | '.join(t or '(blank)' for t in reads)}]"); continue
+            # When the word boundaries cannot be located, require two readings.
+            alt=single_ocr(np.where(mask(row),0,255).astype(np.uint8)); alt_event=parse(alt)
+            if event and event==alt_event:
+                yield ('line',first); continue
+            yield ('uncertain',f'{first} [alternative: {alt}]'); continue
+        if is_yellow and not event:
+            alt=single_ocr(np.where(mask(row),0,255).astype(np.uint8)); alt_event=parse(alt)
+            # Do not assume an unrecognised yellow message is a valid drop.
+            yield ('uncertain',f'{first} [alternative: {alt}]'); continue
+
+        # A repeated XP row receives independent verification even when its
+        # initial isolated reading parses. A malformed batch is only a hint
+        # that this row is XP, never a numeric vote from a neighbouring line.
+        xp_hint=xp_like(first) or xp_like(batch)
+        if not is_yellow and xp_hint and (not event or (i in repeats and event[0]=='xp') or (isolated and not parse(batch) and event[0]=='xp')):
+            corrected,reads=xp_retry(row,first)
+            if corrected:
+                yield ('line',corrected); continue
+            resolution=recover_sp_conflict(row,first,reads) or recover_sp_only([first,*reads])
+            if resolution:
+                yield resolution; continue
+            yield ('uncertain',f"{first} [XP retry: {' | '.join(t or '(blank)' for t in reads)}]"); continue
+        if not first and isolated and (batch or i in repeats):
+            yield ('uncertain',f'Isolated row unreadable [batch hint: {batch or "(blank)"}]'); continue
+        if first:
+            yield ('uncertain' if not event and (adena_like(first) or xp_like(first)) else 'line',first)
+
+class App:
+    def __init__(self,root):
+        self.root=root; root.title('L2 Legacy Farming Tracker — v0.17 Portable'); root.geometry('900x700')
+        self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
+        self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False
+        self.pause_gate=PauseGate(); self.position_win=None; self.reviews=ReviewQueue(); self.review_win=None; self.review_count=tk.StringVar(value="Review (0)"); self.saved=None; self.hud=None; self.api=None; self.hud_enabled=tk.BooleanVar(value=True)
+        try:
+            self.api=Windows()
+            self.saved=settings.load()
+            if self.saved:
+                self.region=dict(self.saved['region']); self.pitch.set(str(self.saved['pitch']))
+                self.target=self.api.find_saved(self.saved)
+                self.status.set('Saved chat calibration loaded. Start when the matching game is open.')
+        except Exception as e: self.status.set(f'Could not restore calibration: {e}. Bind game again.')
+        try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.save_hud_position)
+        except Exception as e: self.hud_enabled.set(False); self.status.set(self.status.get()+f' HUD unavailable: {e}')
+        try: self.archive=Archive()
+        except Exception as e: messagebox.showerror("Session storage",f"Could not open session history: {e}")
+        top=ttk.Frame(root,padding=10); top.pack(fill='x')
+        ttk.Button(top,text='Bind game / chat area',command=self.select).pack(side='left')
+        ttk.Label(top,text='Line height (px):').pack(side='left',padx=(12,3)); ttk.Entry(top,textvariable=self.pitch,width=5).pack(side='left')
+        self.start_btn=ttk.Button(top,text='Start',command=self.start); self.start_btn.pack(side='left',padx=8)
+        self.stop_btn=ttk.Button(top,text='Stop',command=self.stop,state='disabled'); self.stop_btn.pack(side='left')
+        self.pause_btn=ttk.Button(top,text='Pause',command=self.toggle_pause,state='disabled'); self.pause_btn.pack(side='left',padx=6)
+        ttk.Button(top,text='Export CSV',command=self.export).pack(side='right')
+        ttk.Checkbutton(top,text='Game HUD',variable=self.hud_enabled).pack(side='left',padx=8)
+        self.pitch.trace_add('write', self.pitch_changed)
+        ttk.Label(root,textvariable=self.status,wraplength=800,padding=10).pack(fill='x')
+        ttk.Label(root,textvariable=self.stats,wraplength=800,padding=10,font=('Segoe UI',12)).pack(fill='x')
+        self.tree=ttk.Treeview(root,columns=('who','item','qty'),show='headings',height=9)
+        for c,t,w in [('who','Player',130),('item','Item',420),('qty','Quantity',100)]: self.tree.heading(c,text=t); self.tree.column(c,width=w)
+        self.tree.pack(fill='both',expand=True,padx=10)
+        tools=ttk.Frame(root); tools.pack(fill='x',padx=10,pady=(6,0))
+        ttk.Button(tools,text='Session history…',command=self.open_history).pack(side='right')
+        ttk.Button(tools,textvariable=self.review_count,command=self.open_reviews).pack(side='left')
+        ttk.Button(tools,text='Position HUD…',command=self.open_position).pack(side='left',padx=8)
+        self.move_btn=ttk.Button(tools,text='Move HUD in game',command=self.arm_hud_move); self.move_btn.pack(side='left')
+        ttk.Label(root,text='Recent OCR lines (including ignored messages / uncertain gaps)',padding=6).pack(anchor='w')
+        self.log=tk.Text(root,height=11,wrap='word',state='disabled'); self.log.pack(fill='both',expand=True,padx=10,pady=(0,10))
+        root.after(100,self.tick); root.after(25,self.hud_tick); root.protocol('WM_DELETE_WINDOW',self.close)
+    def persist(self):
+        if not self.target or not self.region: return
+        data=dict(schema=1,title=self.target.title,window_class=self.target.window_class,width=self.target.width,height=self.target.height,pitch=int(self.pitch.get()),region=dict(self.region))
+        if self.hud and self.hud.preferred is not None:data['hud_position']=list(self.hud.preferred)
+        settings.save(data); self.saved=data
+    def save_hud_position(self,position):
+        if not self.saved:return
+        try:
+            data=dict(self.saved,hud_position=list(position)); settings.save(data); self.saved=data
+        except Exception as e:self.append(f'WARNING: HUD position could not be saved: {e}')
+    def pitch_changed(self,*_):
+        if self.running or self.pending or not self.saved: return
+        try:
+            data=dict(self.saved,pitch=int(self.pitch.get())); settings.save(data); self.saved=data
+        except (ValueError, OSError): pass
+    def select(self):
+        if self.running or self.pending or self.selecting: return
+        if not messagebox.askokcancel('Bind Lineage 2', 'After clicking OK, you have 5 seconds to focus the actual Lineage 2 game window. The tracker will take one screenshot of that window for chat selection. Keep the chat visible.'): return
+        self.selecting=True; self.root.withdraw(); self.root.after(5000,self.selector)
+    def selector(self):
+        try:
+            api=Windows(); target=api.bind_foreground()
+            with mss.mss() as s:
+                full=dict(left=0,top=0,width=target.width,height=target.height)
+                mon,reason=capture_region(api,target,full,s.monitors[0])
+                if not mon: raise RuntimeError(reason)
+                shot=Image.frombytes('RGB', (mon['width'],mon['height']),s.grab(mon).rgb)
+                after,_=capture_region(api,target,full,s.monitors[0])
+                if after!=mon: raise RuntimeError('Window focus or position changed during selection. Try again.')
+        except Exception as e:
+            self.selecting=False; self.root.deiconify(); messagebox.showerror('Capture',str(e)); return
+        win=tk.Toplevel(self.root); win.title(f'{target.title} — select chat text, exclude scrollbar'); win.attributes('-topmost',True)
+        scale=min(1,(win.winfo_screenwidth()-70)/shot.width,(win.winfo_screenheight()-150)/shot.height)
+        iw,ih=round(shot.width*scale),round(shot.height*scale)
+        photo=ImageTk.PhotoImage(shot.resize((iw,ih))); canvas=tk.Canvas(win,width=iw,height=ih,cursor='cross',highlightthickness=0); canvas.pack(); canvas.create_image(0,0,image=photo,anchor='nw'); canvas.image=photo
+        anchor=[]; rect=[]
+        def down(e):
+            anchor[:]=[e.x,e.y]
+            if rect: canvas.delete(rect[0])
+            rect[:]=[canvas.create_rectangle(e.x,e.y,e.x,e.y,outline='cyan',width=2)]
+        def drag(e):
+            if anchor: canvas.coords(rect[0],*anchor,e.x,e.y)
+        def up(e):
+            if not anchor:return
+            x1,x2=sorted((anchor[0],e.x)); y1,y2=sorted((anchor[1],e.y)); x1=max(0,x1); y1=max(0,y1); x2=min(iw,x2); y2=min(ih,y2)
+            l,t=round(x1/scale),round(y1/scale); r,b=round(x2/scale),round(y2/scale)
+            if r-l<100 or b-t<54:return
+            if not messagebox.askyesno('Confirm game window',f'Bind to {target.title!r}? Only confirm if this is your Lineage 2 game.',parent=win): return
+            self.region={'left':l,'top':t,'width':r-l,'height':b-t}; self.target=target
+            try:
+                self.persist(); self.status.set(f'Saved chat calibration for {target.title}: {r-l} × {b-t}px. Start, then focus game.')
+            except Exception as e: self.status.set(f'Bound, but settings could not be saved: {e}')
+            self.selecting=False; win.destroy(); self.root.deiconify()
+        def cancel(*_): self.selecting=False; win.destroy(); self.root.deiconify()
+        canvas.bind('<Button-1>',down); canvas.bind('<B1-Motion>',drag); canvas.bind('<ButtonRelease-1>',up); win.bind('<Escape>',cancel); win.protocol('WM_DELETE_WINDOW',cancel)
+    def start(self):
+        if self.running or self.pending or self.closing:return
+        if self.saved and (not self.target or not self.api.usable(self.target.hwnd) or self.api.pid(self.target.hwnd)!=self.target.pid):
+            self.target=self.api.find_saved(self.saved)
+        if not self.region or not self.target:
+            messagebox.showwarning('Select area','Open the saved game at the original client size, or bind the game and select chat. If several matching clients are open, close the others or bind manually.'); return
+        try:
+            pitch=int(self.pitch.get()); assert 10<=pitch<=40 and self.region['height']//pitch>=3
+            pytesseract.get_tesseract_version()
+        except Exception as e: messagebox.showerror('Setup',f'Check line height and Tesseract installation.\n{e}'); return
+        try: self.persist()
+        except Exception as e: messagebox.showwarning('Settings',f'Calibration could not be saved: {e}')
+        if not self.save_session():return
+        if not self.archive:
+            messagebox.showerror('Session storage','History storage is unavailable. Restart the tracker after fixing storage.');return
+        self.session_id=new_id(); self.session_date=now(); self.session_end=None; self.session_complete=None; self.last_archive_save=0
+        if self.review_win and self.review_win.winfo_exists():self.review_win.destroy();self.review_win=None
+        self.reviews=ReviewQueue(); self.refresh_reviews()
+        self.events=[]; self.raw=[]; self.totals.clear(); self.tree.delete(*self.tree.get_children()); self.gaps=0; self.active_seconds=0.0; self.started=time.monotonic(); self.ended=None; self.run_id+=1; self.running=True; self.pending=2
+        self.pause_gate=PauseGate(); self.pause_btn.config(text="Pause",state="normal"); self.halt=threading.Event(); self.jobs=queue.Queue(maxsize=120); self.start_btn.config(state='disabled'); self.stop_btn.config(state='normal')
+        self.log.config(state='normal'); self.log.delete('1.0','end'); self.log.config(state='disabled'); self.status.set('Waiting for Lineage 2 focus. Existing messages will not be counted.')
+        if not self.save_session():
+            self.running=False; self.pending=0; self.started=None; self.session_id=None; self.start_btn.config(state='normal'); self.stop_btn.config(state='disabled'); self.pause_btn.config(state='disabled'); return
+        threading.Thread(target=self.capture,args=(self.target,dict(self.region),pitch,self.halt,self.jobs,self.pause_gate),daemon=True).start(); threading.Thread(target=self.worker,args=(self.jobs,),daemon=True).start()
+    def capture(self,target,region,pitch,halt,jobs,gate):
+        revision=None; old=None; failures=0; last_active=None; last_status=None
+        def status(message):
+            nonlocal last_status
+            if message != last_status:
+                self.inbox.put(('status',message)); last_status=message
+        def pause(message):
+            nonlocal old, failures, last_active
+            old=None; failures=0; last_active=None
+            status(message)
+        try:
+            api=Windows()
+            with mss.mss() as s:
+                while not halt.is_set():
+                    tick=time.monotonic()
+                    manual,current=gate.snapshot()
+                    if current!=revision:
+                        old=None; failures=0; last_active=None; revision=current
+                    if manual:
+                        pause('Manually paused — click Resume to continue.'); halt.wait(.05); continue
+                    rect,reason=capture_region(api,target,region,s.monitors[0])
+                    if rect is None:
+                        pause(reason); halt.wait(.05); continue
+                    shot=s.grab(rect)
+                    # Discard frames if focus or geometry changed while capturing.
+                    after,reason=capture_region(api,target,region,s.monitors[0])
+                    if after!=rect:
+                        pause(reason or 'Paused — window moved during capture; resynchronising.'); halt.wait(.05); continue
+                    rgb=np.asarray(shot)[:,:,:3][:,:,::-1]; new=rows_of(rgb,pitch)
+                    # Commit only if the same unpaused revision is still current.
+                    # A pause/resume during screen capture discards the stale frame.
+                    with gate.lock:
+                        if halt.is_set() or not gate.accepts(revision):
+                            old=None; failures=0; last_active=None; continue
+                        now=time.monotonic()
+                        if last_active is not None: self.active_seconds+=max(0,now-last_active)
+                        last_active=now
+                        status(f'Tracking {target.title} — only while focused. Keep chat unobstructed.')
+                        if old is None: old=new
+                        else:
+                            shift=overlap(old,new)
+                            if shift is None:
+                                failures+=1
+                                if failures>=4:
+                                    self.inbox.put(('gap','No reliable row overlap; resynchronised without counting ambiguous lines.')); old=new; failures=0
+                            else:
+                                failures=0
+                                if shift:
+                                    try: jobs.put_nowait((datetime.now().isoformat(timespec='seconds'),rgb[:len(new)*pitch].reshape(len(new),pitch,rgb.shape[1],3)[-shift:].copy()))
+                                    except queue.Full: self.inbox.put(('gap','OCR backlog full; some lines dropped.'))
+                                old=new
+                    halt.wait(max(0,.05-(time.monotonic()-tick)))
+        except Exception as e: self.inbox.put(('gap',f'Capture stopped: {e}')); halt.set()
+        finally: jobs.put(None); self.inbox.put(('done','capture'))
+    def worker(self,jobs):
+        while True:
+            job=jobs.get()
+            if job is None:break
+            ts,rows=job
+            # Coalesce nearby queued jobs without losing line order.
+            end=False; group=[rows]
+            while sum(len(x) for x in group)<16:
+                try: nxt=jobs.get_nowait()
+                except queue.Empty:break
+                if nxt is None: end=True; break
+                group.append(nxt[1])
+            try:
+                for kind,line in ocr_rows(np.concatenate(group)):
+                    if line.strip():self.inbox.put((kind,(ts,line)))
+            except Exception as e:self.inbox.put(('gap',f'OCR error: {e}'))
+            if end:break
+        self.inbox.put(('done','ocr'))
+    def toggle_pause(self):
+        if not self.running:return
+        paused=self.pause_gate.toggle()
+        self.pause_btn.config(text='Resume' if paused else 'Pause')
+        self.status.set('Manually paused — click Resume to continue. Buffered lines may still finish.' if paused else 'Resuming — return to Lineage 2. Chat will resynchronise.')
+        self.append('SESSION: Manually paused.' if paused else 'SESSION: Resumed; skipped messages will not be recovered.')
+    def stop(self):
+        if self.hud: self.hud.cancel_placement(); self.hud.hide()
+        if self.running:self.halt.set(); self.running=False; self.ended=time.monotonic(); self.session_end=now(); self.stop_btn.config(state='disabled'); self.pause_btn.config(text='Pause',state='disabled'); self.status.set('Stopped capturing; processing buffered lines…')
+    def append(self,s):
+        self.log.config(state='normal'); self.log.insert('end',s+'\n'); self.log.see('end'); self.log.config(state='disabled')
+    def tick(self):
+        changed=False; finished=False
+        while True:
+            try: kind,data=self.inbox.get_nowait()
+            except queue.Empty:break
+            if kind=='done':
+                self.pending-=1
+                if data=='capture' and self.running:self.stop()
+                if not self.pending:
+                    finished=True; self.start_btn.config(state='normal'); self.status.set('Session complete. Review OCR lines and warnings before relying on totals.')
+            elif kind=='status':
+                if self.running and not self.pause_gate.snapshot()[0] and not data.startswith('Manually paused'): self.status.set(data)
+            elif kind=='gap':self.gaps+=1; self.append('WARNING: '+data); self.raw.append((datetime.now().isoformat(timespec='seconds'),'gap',data)); changed=True
+            elif kind=='uncertain':
+                ts,line=data; self.gaps+=1; r=self.reviews.add(ts,line); self.raw.append((ts,'uncertain',f'#{r.id}: {line}')); self.append(f'REVIEW #{r.id} (not counted): '+line); self.refresh_reviews(); changed=True
+            elif kind in ('xp_partial','sp_partial','xp_recovered'):
+                ts,line=data; event=parse_xp_resolution(kind,line)
+                self.raw.append((ts,kind,line))
+                if event:
+                    typ,who,item,q,sp=event; self.events.append((ts,typ,who,item,q,sp,line))
+                    if q is not None: self.totals[(who,item)]+=q
+                    if sp is not None: self.totals[(who,'SP')]+=sp
+                    if q is None or sp is None:
+                        self.gaps+=1; r=self.reviews.add(ts,line,len(self.events)-1,q,sp); self.refresh_reviews()
+                        label='XP counted; SP unknown' if sp is None else 'SP counted; XP unknown'
+                        self.append(f'REVIEW #{r.id} ({label}): '+line)
+                    else: self.append('✓ (SP majority): '+line)
+                    changed=True
+            elif kind=='line':
+                ts,line=data; event=parse(line); self.raw.append((ts,'parsed' if event else 'ignored',line)); self.append(('✓ ' if event else '  ')+line)
+                if event:
+                    typ,who,item,q,sp=event; self.events.append((ts,typ,who,item,q,sp,line)); self.totals[(who,item)]+=q
+                    if typ=='xp':self.totals[(who,'SP')]+=sp
+                    changed=True
+        if changed: self.refresh_totals()
+        if self.session_id and (finished or (self.running and time.monotonic()-self.last_archive_save>=15)):
+            if self.save_session(quiet=not finished) and finished:self.status.set('Session saved. Open Session history to rename or merge it.')
+        if self.closing and not self.pending:
+            self.closing=False
+            if self.close():return
+        if self.started is not None:
+            dur=self.active_seconds; h=max(1,dur)/3600; xp=self.totals[('You','XP / SP')]; sp=self.totals[('You','SP')]; ad=self.totals[('You','Adena')]; self.stats.set(f'{"PAUSED  |  " if self.running and self.pause_gate.snapshot()[0] else ""}Active {int(dur)//3600:02}:{int(dur)%3600//60:02}:{int(dur)%60:02}  |  XP {xp:,}  ({xp/h:,.0f}/h)  |  SP {sp:,}\nAdena {ad:,}  ({ad/h:,.0f}/h)  |  Capture/OCR warnings {self.gaps}  |  Pending review {len(self.reviews.pending)}')
+        self.root.after(100,self.tick)
+    def refresh_totals(self):
+        self.tree.delete(*self.tree.get_children())
+        for (who,item),qty in sorted(self.totals.items()):
+            if item not in ('XP / SP','SP'):self.tree.insert('','end',values=(who,item,f'{qty:,}'))
+    def refresh_reviews(self):
+        self.review_count.set(f'Review ({len(self.reviews.pending)})')
+        if not self.review_win or not self.review_win.winfo_exists(): return
+        # Preserve current selection and any unsaved manual edit as new OCR arrives.
+        ids=set(self.review_tree.get_children())
+        wanted={str(i) for i in self.reviews.pending}
+        for i in ids-wanted:self.review_tree.delete(i)
+        for i,r in self.reviews.pending.items():
+            if str(i) not in ids:
+                self.review_tree.insert('','end',iid=str(i),values=(r.timestamp, 'XP already counted' if r.xp_counted is not None else 'SP already counted' if r.sp_counted is not None else 'Not counted',r.text.split(' [',1)[0]))
+        if not self.review_tree.selection() and wanted:
+            first=self.review_tree.get_children()[0]; self.review_tree.selection_set(first); self.review_tree.focus(first); self.show_review()
+        elif not wanted:self.show_review()
+    def open_reviews(self):
+        if self.review_win and self.review_win.winfo_exists():
+            self.review_win.lift(); return
+        win=self.review_win=tk.Toplevel(self.root); win.title('Review uncertain OCR messages'); win.geometry('790x470')
+        ttk.Label(win,text='Select a message, check the OCR evidence, choose or edit the corrected line, then approve.',wraplength=740,padding=10).pack(fill='x')
+        frame=ttk.Frame(win); frame.pack(fill='both',expand=True,padx=10)
+        self.review_tree=ttk.Treeview(frame,columns=('time','state','line'),show='headings',selectmode='browse',height=6)
+        for c,t,w in [('time','Captured',155),('state','Status',130),('line','Message',460)]:
+            self.review_tree.heading(c,text=t); self.review_tree.column(c,width=w)
+        scroll=ttk.Scrollbar(frame,orient='vertical',command=self.review_tree.yview); self.review_tree.configure(yscrollcommand=scroll.set); scroll.pack(side='right',fill='y'); self.review_tree.pack(fill='both',expand=True)
+        self.review_evidence=tk.Text(win,height=5,wrap='word',state='disabled'); self.review_evidence.pack(fill='x',padx=10,pady=8)
+        self.review_input=tk.StringVar(); self.review_edit=ttk.Combobox(win,textvariable=self.review_input,state='normal'); self.review_edit.pack(fill='x',padx=10)
+        ttk.Label(win,text='Use a full message, e.g. You have earned 85 Adena. / You have acquired 221 XP and 9 SP.',wraplength=740,padding=8).pack(fill='x')
+        buttons=ttk.Frame(win,padding=10); buttons.pack(fill='x')
+        self.approve_btn=ttk.Button(buttons,text='Approve & count',command=self.approve_review); self.approve_btn.pack(side='left')
+        self.dismiss_btn=ttk.Button(buttons,text='Dismiss (ignore)',command=self.dismiss_review); self.dismiss_btn.pack(side='left',padx=8)
+        ttk.Button(buttons,text='Close',command=win.destroy).pack(side='right')
+        self.review_tree.bind('<<TreeviewSelect>>',self.show_review); self.review_selected=None; self.refresh_reviews()
+    def selected_review(self):
+        sel=self.review_tree.selection()
+        return self.reviews.pending.get(int(sel[0])) if sel else None
+    def show_review(self,*_):
+        r=self.selected_review(); id=r.id if r else None
+        if id==self.review_selected and r: return
+        self.review_selected=id
+        self.review_evidence.config(state='normal'); self.review_evidence.delete('1.0','end')
+        self.review_evidence.insert('1.0',r.text if r else 'No pending reviews.'); self.review_evidence.config(state='disabled')
+        opts=candidates(r,parse,xp_numeric_candidate) if r else []
+        self.review_edit.configure(values=opts,state='normal' if r else 'disabled')
+        self.review_input.set(opts[0] if len(opts)==1 else '')
+        self.approve_btn.config(state='normal' if r else 'disabled'); self.dismiss_btn.config(state='normal' if r else 'disabled')
+    def approve_review(self):
+        r=self.selected_review()
+        if not r:return
+        corrected=self.review_input.get().strip()
+        try:self.reviews.approve(r.id,corrected,parse,self.events,self.totals)
+        except ValueError as e:messagebox.showwarning('Review',str(e),parent=self.review_win); return
+        self.raw.append((r.timestamp,'review_approved',f'#{r.id}: {corrected} | original: {r.text}'))
+        self.append(f'✓ REVIEW #{r.id} approved: {corrected}'+(' (SP only added; XP already counted)' if r.xp_counted is not None else ' (XP only added; SP already counted)' if r.sp_counted is not None else ''))
+        self.refresh_totals(); self.refresh_reviews(); self.save_session()
+    def dismiss_review(self):
+        r=self.selected_review()
+        if not r:return
+        if not messagebox.askyesno('Dismiss review','Ignore this uncertain message? Already counted XP or SP will remain.',parent=self.review_win):return
+        self.reviews.discard(r.id); self.raw.append((r.timestamp,'review_dismissed',f'#{r.id}: {r.text}')); self.append(f'REVIEW #{r.id} dismissed.'); self.refresh_reviews(); self.save_session()
+    def arm_hud_move(self):
+        if not self.running or not self.hud or not self.hud_enabled.get():
+            messagebox.showinfo('Move HUD','Start a session and enable Game HUD first. You can also use Position HUD without starting.'); return
+        if self.hud.placement is not None:
+            self.hud.cancel_placement(); self.move_btn.config(text='Move HUD in game'); return
+        self.hud.arm_placement()
+        self.move_btn.config(text='Cancel HUD move')
+        self.status.set('HUD move armed — return to Lineage 2, move the mouse, then tap Shift to save. Alt-tab again to cancel.')
+    def open_position(self):
+        if self.position_win and self.position_win.winfo_exists():self.position_win.lift();return
+        if not self.hud or not self.region or not (self.target or self.saved):
+            messagebox.showinfo('Position HUD','Bind the game and chat area first.');return
+        width,height=(self.target.width,self.target.height) if self.target else (self.saved['width'],self.saved['height'])
+        geo=(0,0,width,height); region=dict(self.region)
+        if not hud_position(geo,region):
+            messagebox.showinfo('Position HUD','The calibrated game window is too small for the HUD.');return
+        self.hud.cancel_placement()
+        win=tk.Toplevel(self.root); self.position_win=win; win.title('Position game HUD'); win.transient(self.root)
+        scale=min(1,760/width,490/height,max(0.1,(win.winfo_screenwidth()-100)/width),max(0.1,(win.winfo_screenheight()-230)/height))
+        ttk.Label(win,text='Drag the HUD in this game layout, then click Save. The shaded chat area is protected.',wraplength=680,padding=10).pack()
+        canvas=tk.Canvas(win,width=round(width*scale),height=round(height*scale),bg='#242b35',highlightthickness=0); canvas.pack(padx=12)
+        l,t,r,b=(region[k] for k in ('left','top','width','height'))
+        canvas.create_rectangle(l*scale,t*scale,(l+r)*scale,(t+b)*scale,fill='#583b36',outline='#be796a')
+        canvas.create_text((l+r/2)*scale,(t+b/2)*scale,text='OCR chat area',fill='white')
+        pos=list(hud_position(geo,region,preferred=self.hud.preferred)); offset=[]
+        def draw():
+            canvas.delete('hud'); x,y=pos
+            canvas.create_rectangle(x*scale,y*scale,(x+WIDTH)*scale,(y+HEIGHT)*scale,fill='#151a22',outline='#98a6b8',width=2,tags='hud')
+            canvas.create_text((x+WIDTH/2)*scale,(y+HEIGHT/2)*scale,text='ADENA / HR   |   EXP / HR',fill='#f4d183',font=('Segoe UI',max(7,int(12*scale)),'bold'),tags='hud')
+        def down(e):
+            x,y=e.x/scale,e.y/scale
+            if pos[0]<=x<pos[0]+WIDTH and pos[1]<=y<pos[1]+HEIGHT:offset[:]=[x-pos[0],y-pos[1]]
+        def drag(e):
+            if offset:
+                candidate=safe_position(geo,region,None,(round(e.x/scale-offset[0]),round(e.y/scale-offset[1])))
+                if candidate is not None:pos[:]=candidate;draw()
+        def save():
+            self.hud.preferred=tuple(pos); self.save_hud_position(tuple(pos));win.destroy()
+        def reset():
+            pos[:]=hud_position(geo,region);draw()
+        canvas.bind('<Button-1>',down); canvas.bind('<B1-Motion>',drag);canvas.bind('<ButtonRelease-1>',lambda e:offset.clear());draw()
+        buttons=ttk.Frame(win,padding=10); buttons.pack(fill='x')
+        ttk.Button(buttons,text='Reset to default',command=reset).pack(side='left')
+        ttk.Button(buttons,text='Save position',command=save).pack(side='right')
+        ttk.Button(buttons,text='Cancel',command=win.destroy).pack(side='right',padx=8)
+    def hud_tick(self):
+        if self.hud and self.api:
+            try: self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get(),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')])
+            except Exception as e:
+                self.hud.hide(); self.hud_enabled.set(False); self.append(f'HUD disabled: {e}'); self.hud.close(); self.hud=None
+        self.move_btn.config(text='Cancel HUD move' if self.hud and self.hud.placement is not None else 'Move HUD in game')
+        self.root.after(25,self.hud_tick)
+    def export(self):
+        if self.pending: messagebox.showinfo('Export','Stop tracking and allow the OCR queue to finish first.');return
+        path=filedialog.asksaveasfilename(defaultextension='.csv',filetypes=[('CSV','*.csv')],initialfile='l2-session.csv')
+        if not path:return
+        with open(path,'w',newline='',encoding='utf-8-sig') as f:
+            w=csv.writer(f);w.writerow(['timestamp','type','player','item','quantity_or_xp','sp','raw_text']);w.writerows(self.events)
+        rawpath=str(Path(path).with_suffix(''))+'-raw.csv'
+        with open(rawpath,'w',newline='',encoding='utf-8-sig') as f:
+            w=csv.writer(f);w.writerow(['timestamp','status','raw_text']);w.writerows(self.raw)
+        messagebox.showinfo('Exported',f'{path}\n{rawpath}')
+    def save_session(self,quiet=False):
+        if not self.session_id:return True
+        self.last_archive_save=time.monotonic()
+        try:
+            if not self.archive:raise RuntimeError('Session archive is unavailable.')
+            self.archive.save(self.session_id,'Session '+self.session_date.replace('T',' '),snapshot(self))
+            return True
+        except Exception as e:
+            if quiet:self.append(f'WARNING: Session checkpoint failed: {e}')
+            else:messagebox.showerror('Session save failed',f'{e}\nYour current session remains in memory. Retry or export CSV before closing.')
+            return False
+    def open_history(self):
+        if not self.archive:messagebox.showerror('History','Session history is unavailable.');return
+        if self.session_id and not self.save_session():return
+        if self.history_window and self.history_window.win.winfo_exists():
+            self.history_window.refresh();self.history_window.win.lift();return
+        self.history_window=HistoryWindow(self)
+    def restore_session(self,id):
+        if self.running or self.pending:
+            messagebox.showinfo('History','Stop tracking and wait for buffered OCR before opening a previous session.');return False
+        if not self.save_session():return False
+        try:
+            r=self.archive.records()[id]
+            if r['kind']!='original':raise ValueError('Only original sessions can be opened for review.')
+            d=r['data'];events=[tuple(e) for e in d['events']];raw=[tuple(e) for e in d['raw']];reviews=review_queue(d);totals=totals_for(events)
+        except Exception as e:messagebox.showerror('History',str(e));return False
+        self.session_id=id;self.session_date=d['start'];self.session_end=d['end'];self.session_complete=d['complete'];self.active_seconds=d['seconds'];self.events=events;self.raw=raw;self.reviews=reviews;self.totals=totals;self.gaps=d['gaps'];self.started=time.monotonic();self.ended=self.started
+        self.log.config(state='normal');self.log.delete('1.0','end');self.log.config(state='disabled')
+        for ts,status,line in self.raw[-100:]:self.append(f'{status}: {line}')
+        if self.review_win and self.review_win.winfo_exists():self.review_win.destroy();self.review_win=None
+        self.refresh_totals();self.refresh_reviews();self.status.set(f"Opened saved session: {r['name']}. Reviews will update the archive and merged reports.")
+        return True
+    def close(self):
+        if self.running or self.pending:
+            if self.closing:return
+            self.closing=True;self.start_btn.config(state='disabled');self.stop();self.status.set('Saving session — finishing buffered OCR before closing…');return
+        if not self.save_session():
+            if not messagebox.askyesno('Quit without saving','Session could not be saved. Close anyway? Unsaved changes will be lost.'):return False
+        if self.hud:self.hud.close()
+        self.root.destroy();return True
+
+def portable_self_test(report):
+    """Run without opening a session or changing real calibration/history."""
+    import json, sqlite3
+    from PIL import ImageDraw, ImageFont
+    output = Path(report)
+    try:
+        exe = configure_ocr()
+        if not exe: raise RuntimeError('Tesseract not found')
+        version = str(pytesseract.get_tesseract_version())
+        if 'eng' not in pytesseract.get_languages(config=''):
+            raise RuntimeError('English OCR language is missing')
+        font = ImageFont.truetype(str(Path(os.environ['WINDIR']) / 'Fonts' / 'arial.ttf'), 36)
+        image = Image.new('RGB', (440, 90), 'white')
+        ImageDraw.Draw(image).text((16, 16), '221 XP and 9 SP', font=font, fill='black')
+        result = pytesseract.image_to_string(image, config='--psm 7', timeout=15).strip()
+        if result != '221 XP and 9 SP': raise RuntimeError(f'OCR smoke test mismatch: {result!r}')
+        root = tk.Tk(); root.withdraw(); root.update_idletasks(); root.destroy()
+        with sqlite3.connect(':memory:') as db: db.execute('SELECT 1').fetchone()
+        with mss.mss() as capture:
+            if not capture.monitors: raise RuntimeError('Screen capture unavailable')
+        output.write_text(json.dumps({'ok': True, 'ocr': version, 'text': result}, indent=2), encoding='utf-8')
+        return 0
+    except Exception as exc:
+        output.write_text(json.dumps({'ok': False, 'error': repr(exc)}, indent=2), encoding='utf-8')
+        return 1
+
+if __name__=='__main__':
+    if len(sys.argv) == 3 and sys.argv[1] == '--self-test':
+        sys.exit(portable_self_test(sys.argv[2]))
+    if os.name=='nt':
+        try:
+            import ctypes; ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:pass
+    root=tk.Tk()
+    try: configure_ocr()
+    except Exception as e:
+        root.withdraw(); messagebox.showerror('OCR setup', str(e)); root.destroy(); sys.exit(1)
+    App(root); root.mainloop()

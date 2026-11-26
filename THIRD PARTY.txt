@@ -1,0 +1,14 @@
+Third-party components
+This application bundles CPython, Tcl/Tk, PyInstaller runtime, NumPy, Pillow,
+MSS, pytesseract and their dependencies, plus a locally installed Tesseract OCR
+Windows distribution and its language data and dependencies.
+Installed dependency license and notice files are copied under Third-party notices;
+OCR distribution license/notice files remain in ocr. Review the actual bundled
+third-party notices and satisfy the redistribution obligations of the selected
+Tesseract Windows distribution (including any source-offer obligations) before
+sharing publicly. The builder cannot verify that a local distribution includes
+all required notices or that all of its components are redistributable.
+Upstream: https://github.com/tesseract-ocr/tesseract (Apache-2.0 for Tesseract itself)
+https://github.com/tesseract-ocr/tessdata
+https://www.python.org/psf/license/
+https://pyinstaller.org/en/stable/license.html

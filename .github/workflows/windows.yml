@@ -1,0 +1,52 @@
+name: Windows tests and portable build
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -v
+  build:
+    if: github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - run: python -m pip install -r requirements-build.txt
+      - name: Install Tesseract
+        run: choco install tesseract --version=5.5.3.20260724 --yes --no-progress
+      - name: Build and smoke test portable app
+        run: python build_portable.py --tesseract "$env:ProgramFiles\Tesseract-OCR"
+      - name: Save portable ZIP and checksum
+        shell: pwsh
+        run: |
+          Get-ChildItem 'Share with friends' -Filter '*.zip' | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)" | Set-Content -Encoding ascii "$($_.FullName).sha256"
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: L2-Legacy-Tracker-Windows-x64
+          path: |
+            Share with friends/*.zip
+            Share with friends/*.sha256
+          if-no-files-found: error

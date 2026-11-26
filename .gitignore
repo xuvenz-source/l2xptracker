@@ -8,10 +8,10 @@ dist/
 *.spec
 Share with friends/
 *.sqlite3*
-*.db
-*.db-*
 settings.json
 *.csv
 *.log
 .env*
+*.db
+*.db-*
 *.zip
