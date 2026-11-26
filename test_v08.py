@@ -23,7 +23,7 @@ class DragTests(unittest.TestCase):
         self.assertEqual(hud_position((200,300,1000,700),REG,DESK,(200,200)),(400,500))
     def test_clamp_and_chat(self):
         self.assertEqual(safe_position(GEO,REG,DESK,(-10,-20)),(100,100))
-        self.assertEqual(safe_position(GEO,REG,DESK,(999,999)),(790,738))
+        self.assertEqual(safe_position(GEO,REG,DESK,(999,999)),(790,714))
         self.assertIsNone(safe_position(GEO,REG,DESK,(20,510)))
         self.assertEqual(hud_position(GEO,REG,DESK,(20,510)),(778,112))
     def test_desktop_edges(self):

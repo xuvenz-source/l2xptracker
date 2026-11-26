@@ -19,6 +19,7 @@ from history_ui import HistoryWindow
 from runtime_ocr import configure_ocr
 from version import VERSION
 from appearance import Appearance, Dashboard, save_mode
+from preferences import load_focus_pause, save_focus_pause
 from update_ui import UpdateUI
 from party import roster, live_report as live_party_report, display_rows as party_rows, summary_text as party_summary
 
@@ -317,10 +318,11 @@ class App:
     def __init__(self,root):
         self.root=root; root.title(f'L2 Legacy Farming Tracker — v{VERSION} Portable'); root.geometry('1020x810'); root.minsize(900,720)
         self.appearance=Appearance(root)
+        self.pause_on_blur=load_focus_pause();self.settings_win=None
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
         self.party_members=[]; self.next_party_members=[]; self.kills=0; self.update_busy=False
         self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False
-        self.pause_gate=PauseGate(); self.position_win=None; self.reviews=ReviewQueue(); self.review_win=None; self.review_count=tk.StringVar(value="Review (0)"); self.saved=None; self.hud=None; self.api=None; self.hud_enabled=tk.BooleanVar(value=True)
+        self.pause_gate=PauseGate(self.pause_on_blur); self.position_win=None; self.reviews=ReviewQueue(); self.review_win=None; self.review_count=tk.StringVar(value="Review (0)"); self.saved=None; self.hud=None; self.api=None; self.hud_enabled=tk.BooleanVar(value=True)
         try:
             self.api=Windows()
             self.saved=settings.load()
@@ -329,7 +331,7 @@ class App:
                 self.target=self.api.find_saved(self.saved)
                 self.status.set('Saved chat calibration loaded. Start when the matching game is open.')
         except Exception as e: self.status.set(f'Could not restore calibration: {e}. Bind game again.')
-        try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.save_hud_position)
+        try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.save_hud_position,on_pause=self.toggle_pause)
         except Exception as e: self.hud_enabled.set(False); self.status.set(self.status.get()+f' HUD unavailable: {e}')
         try: self.archive=Archive()
         except Exception as e: messagebox.showerror("Session storage",f"Could not open session history: {e}")
@@ -337,7 +339,7 @@ class App:
         ttk.Label(header,text='L2 Legacy Tracker',style='Title.TLabel').pack(side='left')
         ttk.Label(header,text=f'  v{VERSION}  ·  Farming dashboard',style='Muted.TLabel').pack(side='left',padx=8)
         self.dark_mode=tk.BooleanVar(value=self.appearance.mode=='dark')
-        ttk.Checkbutton(header,text='Dark mode',variable=self.dark_mode,command=self.toggle_appearance).pack(side='right')
+        ttk.Button(header,text='Settings…',command=self.open_settings).pack(side='right')
         self.dashboard=Dashboard(root);self.dashboard.pack(fill='x',padx=16,pady=(8,4))
         top=ttk.Frame(root,padding=(16,6)); top.pack(fill='x')
         ttk.Button(top,text='Bind game / chat area',command=self.select).pack(side='left')
@@ -374,6 +376,28 @@ class App:
         log_scroll.pack(side='right',fill='y');self.log.pack(fill='both',expand=True)
         self.appearance.restyle(root)
         root.after(100,self.tick); root.after(25,self.hud_tick); root.protocol('WM_DELETE_WINDOW',self.close)
+    def open_settings(self):
+        if self.settings_win and self.settings_win.winfo_exists():
+            self.settings_win.lift();return
+        win=self.settings_win=tk.Toplevel(self.root);win.title('Tracker settings');win.transient(self.root);win.geometry('570x370');win.minsize(520,340)
+        content=ttk.Frame(win,padding=18);content.pack(fill='both',expand=True)
+        ttk.Label(content,text='Settings',style='Title.TLabel').pack(anchor='w')
+        ttk.Label(content,text='Tracking',style='Section.TLabel').pack(anchor='w',pady=(14,5))
+        self.focus_pause_var=tk.BooleanVar(master=win,value=self.pause_on_blur)
+        ttk.Checkbutton(content,text='Pause when Lineage 2 loses focus',variable=self.focus_pause_var,command=self.change_focus_policy).pack(anchor='w')
+        ttk.Label(content,text='Off by default. Capture continues if the game chat is visible; covered, minimised or resized game windows still wait safely.',style='Muted.TLabel',wraplength=500).pack(anchor='w',pady=(3,10))
+        ttk.Checkbutton(content,text='Show floating game HUD',variable=self.hud_enabled).pack(anchor='w')
+        ttk.Separator(content).pack(fill='x',pady=12)
+        ttk.Label(content,text='Appearance',style='Section.TLabel').pack(anchor='w')
+        ttk.Checkbutton(content,text='Light mode',variable=self.dark_mode,onvalue=False,offvalue=True,command=self.toggle_appearance).pack(anchor='w',pady=(6,5))
+        ttk.Label(content,text='Theme and focus preferences are saved automatically.',style='Muted.TLabel').pack(anchor='w')
+        ttk.Button(content,text='Close',command=win.destroy).pack(side='bottom',anchor='e')
+        self.appearance.restyle(win)
+    def change_focus_policy(self):
+        value=bool(self.focus_pause_var.get())
+        self.pause_on_blur=value;self.pause_gate.set_focus_policy(value)
+        try:save_focus_pause(value)
+        except OSError as e:messagebox.showwarning('Settings',f'Changed for this run, but could not save: {e}',parent=self.root)
     def toggle_appearance(self):
         mode='dark' if self.dark_mode.get() else 'light'
         self.appearance.apply(mode)
@@ -466,8 +490,8 @@ class App:
         if self.review_win and self.review_win.winfo_exists():self.review_win.destroy();self.review_win=None
         self.reviews=ReviewQueue(); self.refresh_reviews()
         self.events=[]; self.raw=[]; self.kills=0; self.totals.clear(); self.tree.delete(*self.tree.get_children()); self.gaps=0; self.active_seconds=0.0; self.started=time.monotonic(); self.ended=None; self.run_id+=1; self.running=True; self.pending=2
-        self.pause_gate=PauseGate(); self.pause_btn.config(text="Pause",state="normal"); self.halt=threading.Event(); self.jobs=queue.Queue(maxsize=120); self.start_btn.config(state='disabled'); self.stop_btn.config(state='normal')
-        self.log.config(state='normal'); self.log.delete('1.0','end'); self.log.config(state='disabled'); self.status.set('Waiting for Lineage 2 focus. Existing messages will not be counted.')
+        self.pause_gate=PauseGate(self.pause_on_blur); self.pause_btn.config(text="Pause",state="normal"); self.halt=threading.Event(); self.jobs=queue.Queue(maxsize=120); self.start_btn.config(state='disabled'); self.stop_btn.config(state='normal')
+        self.log.config(state='normal'); self.log.delete('1.0','end'); self.log.config(state='disabled'); self.status.set('Waiting for readable Lineage 2 chat. Existing messages will not be counted.')
         if not self.save_session():
             self.running=False; self.pending=0; self.started=None; self.session_id=None; self.start_btn.config(state='normal'); self.stop_btn.config(state='disabled'); self.pause_btn.config(state='disabled'); return
         threading.Thread(target=self.capture,args=(self.target,dict(self.region),pitch,self.halt,self.jobs,self.pause_gate),daemon=True).start(); threading.Thread(target=self.worker,args=(self.jobs,),daemon=True).start()
@@ -486,17 +510,17 @@ class App:
             with mss.mss() as s:
                 while not halt.is_set():
                     tick=time.monotonic()
-                    manual,current=gate.snapshot()
+                    manual,current,pause_on_blur=gate.capture_policy()
                     if current!=revision:
                         old=None; failures=0; last_active=None; revision=current
                     if manual:
                         pause('Manually paused — click Resume to continue.'); halt.wait(.05); continue
-                    rect,reason=capture_region(api,target,region,s.monitors[0])
+                    rect,reason=capture_region(api,target,region,s.monitors[0],pause_on_blur=pause_on_blur)
                     if rect is None:
                         pause(reason); halt.wait(.05); continue
                     shot=s.grab(rect)
                     # Discard frames if focus or geometry changed while capturing.
-                    after,reason=capture_region(api,target,region,s.monitors[0])
+                    after,reason=capture_region(api,target,region,s.monitors[0],pause_on_blur=pause_on_blur)
                     if after!=rect:
                         pause(reason or 'Paused — window moved during capture; resynchronising.'); halt.wait(.05); continue
                     rgb=np.asarray(shot)[:,:,:3][:,:,::-1]; new=rows_of(rgb,pitch)
@@ -508,7 +532,7 @@ class App:
                         now=time.monotonic()
                         if last_active is not None: self.active_seconds+=max(0,now-last_active)
                         last_active=now
-                        status(f'Tracking {target.title} — only while focused. Keep chat unobstructed.')
+                        status(f'Tracking {target.title} — '+('focused only.' if pause_on_blur else 'visible chat, including in background.'))
                         if old is None: old=new
                         else:
                             shift=overlap(old,new)
@@ -547,7 +571,7 @@ class App:
         if not self.running:return
         paused=self.pause_gate.toggle()
         self.pause_btn.config(text='Resume' if paused else 'Pause')
-        self.status.set('Manually paused — click Resume to continue. Buffered lines may still finish.' if paused else 'Resuming — return to Lineage 2. Chat will resynchronise.')
+        self.status.set('Manually paused — click Resume to continue. Buffered lines may still finish.' if paused else 'Resuming — keep Lineage 2 chat visible. Chat will resynchronise.')
         self.append('SESSION: Manually paused.' if paused else 'SESSION: Resumed; skipped messages will not be recovered.')
     def stop(self):
         if self.hud: self.hud.cancel_placement(); self.hud.hide()
@@ -746,7 +770,8 @@ class App:
         def draw():
             canvas.delete('hud'); x,y=pos
             canvas.create_rectangle(x*scale,y*scale,(x+WIDTH)*scale,(y+HEIGHT)*scale,fill='#151a22',outline='#98a6b8',width=2,tags='hud')
-            canvas.create_text((x+WIDTH/2)*scale,(y+HEIGHT/2)*scale,text='ADENA / HR  |  EXP / HR  |  KILLS / HR',fill='#f4d183',font=('Segoe UI',max(7,int(12*scale)),'bold'),tags='hud')
+            canvas.create_text((x+WIDTH/2)*scale,(y+27)*scale,text='ADENA / HR  |  EXP / HR  |  KILLS / HR',fill='#f4d183',font=('Segoe UI',max(7,int(12*scale)),'bold'),tags='hud')
+            canvas.create_text((x+WIDTH-54)*scale,(y+71)*scale,text='Pause',fill='#e6edf5',font=('Segoe UI',max(7,int(10*scale))),tags='hud')
         def down(e):
             x,y=e.x/scale,e.y/scale
             if pos[0]<=x<pos[0]+WIDTH and pos[1]<=y<pos[1]+HEIGHT:offset[:]=[x-pos[0],y-pos[1]]
@@ -765,7 +790,7 @@ class App:
         ttk.Button(buttons,text='Cancel',command=win.destroy).pack(side='right',padx=8)
     def hud_tick(self):
         if self.hud and self.api:
-            try: self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get(),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills)
+            try: self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get(),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills,paused=self.pause_gate.snapshot()[0])
             except Exception as e:
                 self.hud.hide(); self.hud_enabled.set(False); self.append(f'HUD disabled: {e}'); self.hud.close(); self.hud=None
         self.move_btn.config(text='Cancel HUD move' if self.hud and self.hud.placement is not None else 'Move HUD in game')

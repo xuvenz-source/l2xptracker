@@ -3,7 +3,8 @@ import ctypes as c
 from ctypes import wintypes as w
 import os
 
-WIDTH, HEIGHT = 310, 62
+WIDTH, HEIGHT = 310, 86
+PAUSE_RECT = (210, 60, 304, 82)
 
 
 def safe_position(geo, chat, desktop, preferred):
@@ -40,10 +41,10 @@ def rate_text(total, seconds):
 
 
 class Hud:
-    def __init__(self, preferred=None, on_move=None):
+    def __init__(self, preferred=None, on_move=None, on_pause=None):
         self.hwnd=None; self.shown=False; self.position=None; self.values=('—','—','—')
         self.preferred=preferred; self.on_move=on_move; self.drag=None; self.interactive=False
-        self.last_mouse_down=None; self.placement=None
+        self.last_mouse_down=None; self.placement=None; self.on_pause=on_pause; self.paused=False; self.pause_pressed=False
         self.u=c.WinDLL('user32',use_last_error=True); self.g=c.WinDLL('gdi32',use_last_error=True); self.k=c.WinDLL('kernel32',use_last_error=True)
         H=w.HANDLE; L=c.c_ssize_t; U=c.c_size_t
         self.proc_type=c.WINFUNCTYPE(L,w.HWND,w.UINT,U,L)
@@ -87,6 +88,7 @@ class Hud:
         self.brush=self.g.CreateSolidBrush(self.rgb(20,25,33))
         self.divider=self.g.CreateSolidBrush(self.rgb(75,84,97))
         self.small=self.font(14,400); self.large=self.font(19,600)
+        self.control=self.g.CreateSolidBrush(self.rgb(46,61,78))
         # layered + transparent + noactivate + toolwindow + topmost
         ex=0x80000|0x20|0x08000000|0x80|8
         self.hwnd=self.u.CreateWindowExW(ex,self.name,'L2 Farming HUD',0x80000000,0,0,WIDTH,HEIGHT,None,None,self.instance,None)
@@ -101,14 +103,24 @@ class Hud:
         self.g.SetTextColor(dc,self.rgb(*colour)); r=w.RECT(*rect)
         self.u.DrawTextW(dc,string,-1,c.byref(r),0x00000020|0x00000004|0x00000800) # single line, vertical centre, no prefix
         self.g.SelectObject(dc,prev)
+    def pause_hit(self,point):
+        if not getattr(self,'on_pause',None) or not self.shown or not self.position or point is None or getattr(self,'placement',None) is not None:return False
+        x,y=self.position;l,t,r,b=PAUSE_RECT
+        return x+l<=point[0]<x+r and y+t<=point[1]<y+b
+    def pause_click(self):
+        if not getattr(self,'on_pause',None) or getattr(self,'pause_pressed',False):return
+        self.pause_pressed=True
+        self.on_pause()
     def wndproc(self,h,msg,wp,lp):
-        if msg==0x84:return 1 if self.interactive and self.key_down(0x10) else -1 # HTCLIENT / HTTRANSPARENT
+        if msg==0x84:return 1 if self.interactive and (self.key_down(0x10) or self.pause_hit(self.cursor())) else -1 # HTCLIENT / HTTRANSPARENT
         if msg==0x201: # WM_LBUTTONDOWN on our HUD only
             if self.interactive and self.key_down(0x10):
                 self.begin_drag(self.cursor())
+            elif self.interactive and self.pause_hit(self.cursor()):
+                self.pause_click()
             return 0
         if msg==0x202: # WM_LBUTTONUP; polling also detects release outside HUD
-            self.finish_drag();return 0
+            self.finish_drag();self.pause_pressed=False;return 0
         if msg==0x21:return 3 # MA_NOACTIVATE
         if msg==0x14:return 1
         if msg==0xF:
@@ -122,6 +134,11 @@ class Hud:
                         x=i*103+8
                         self.text(dc,label,(x,7,x+91,24),self.small,(180,190,205))
                         self.text(dc,value,(x,26,x+91,53),self.large,colour)
+                    self.u.FillRect(dc,c.byref(w.RECT(8,56,302,57)),self.divider)
+                    self.u.FillRect(dc,c.byref(w.RECT(*PAUSE_RECT)),self.control)
+                    paused=getattr(self,'paused',False)
+                    self.text(dc,'PAUSED' if paused else 'SESSION ACTIVE',(9,60,200,82),self.small,(247,202,102) if paused else (134,224,183))
+                    self.text(dc,'  Resume' if paused else '  Pause',(210,60,304,82),self.small,(235,240,248))
                 finally:self.u.EndPaint(h,c.byref(ps))
             return 0
         return self.u.DefWindowProcW(h,msg,wp,lp)
@@ -162,7 +179,7 @@ class Hud:
             self.preferred=(candidate[0]-geo[0],candidate[1]-geo[1]); self.cancel_placement()
             if self.on_move:self.on_move(self.preferred)
         return candidate
-    def update(self,api,target,chat,running,seconds,adena,xp,kills=0):
+    def update(self,api,target,chat,running,seconds,adena,xp,kills=0,paused=False):
         if not self.hwnd:return
         if not running or not target or not api.usable(target.hwnd) or api.pid(target.hwnd)!=target.pid or api.foreground()!=target.hwnd:
             if not running or (getattr(self,'placement',None) and self.placement['seen']):self.cancel_placement()
@@ -174,16 +191,20 @@ class Hud:
         mouse_down=self.key_down(0x01)
         previous=getattr(self,'last_mouse_down',None)
         self.last_mouse_down=mouse_down
+        if not mouse_down:self.pause_pressed=False
         if getattr(self,'placement',None) is not None:
             self.set_interactive(False)
             # No overlay clicks or mouse routing: move with pointer and tap Shift.
             candidate=self.placement_position(geo,chat,desktop,shift,self.cursor())
             pos=candidate or hud_position(geo,chat,desktop,self.preferred)
         else:
-            point=self.cursor() if shift or self.drag is not None else None
+            point=self.cursor() if shift or self.drag is not None or getattr(self,'on_pause',None) else None
             # Keep the existing native hit-test path, but do not depend on the
             # window manager delivering WM_LBUTTONDOWN to a layered overlay.
-            self.set_interactive(shift)
+            button=self.pause_hit(point) and not shift and self.drag is None
+            was_interactive=self.interactive
+            self.set_interactive(shift or button)
+            if button and was_interactive and mouse_down and previous is False:self.pause_click()
             if shift and mouse_down and previous is False:
                 self.begin_drag(point)
             pos=hud_position(geo,chat,desktop,self.preferred)
@@ -195,7 +216,8 @@ class Hud:
                 else:self.finish_drag()
         if pos is None:self.hide();return
         values=(rate_text(adena,seconds),rate_text(xp,seconds),rate_text(kills,seconds))
-        if values!=self.values:self.values=values;self.u.InvalidateRect(self.hwnd,None,False)
+        if values!=self.values or paused!=getattr(self,'paused',False):
+            self.values=values;self.paused=paused;self.u.InvalidateRect(self.hwnd,None,False)
         if not self.shown or pos!=self.position:
             if self.u.SetWindowPos(self.hwnd,c.c_void_p(-1),*pos,WIDTH,HEIGHT,0x0010|0x0040|0x0200):
                 self.shown=True;self.position=pos
@@ -204,11 +226,11 @@ class Hud:
             if getattr(self,"placement",None) and self.placement["seen"]:self.cancel_placement()
             self.hide()
     def hide(self):
-        self.finish_drag();self.set_interactive(False);self.last_mouse_down=None
+        self.finish_drag();self.set_interactive(False);self.last_mouse_down=None;self.pause_pressed=False
         if self.hwnd and self.shown:self.u.ShowWindow(self.hwnd,0);self.shown=False;self.position=None
     def close(self):
         self.cancel_placement(); self.finish_drag()
         if self.hwnd:self.u.DestroyWindow(self.hwnd);self.hwnd=None
-        for obj in (self.brush,self.divider,self.small,self.large):
+        for obj in (self.brush,self.divider,self.small,self.large,self.control):
             if obj:self.g.DeleteObject(obj)
         self.u.UnregisterClassW(self.name,self.instance)

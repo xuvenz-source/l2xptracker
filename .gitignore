@@ -18,3 +18,6 @@ settings.json
 
 appearance.json
 .appearance-*
+
+tracker_preferences.json
+.preferences-*

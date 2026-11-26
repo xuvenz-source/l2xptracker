@@ -19,8 +19,8 @@ class PauseTests(unittest.TestCase):
 class PlacementTests(unittest.TestCase):
     def make(self):return test_v08.DragTests().make_hud()
     def test_pointer_without_mouse_click(self):
-        h,api,tick=self.make();tick();h.arm_placement();h.cursor.return_value=(500,300);tick();self.assertEqual(h.position,(345,269));self.assertFalse(h.interactive);h.on_move.assert_not_called()
-        h.keys={0x10};tick();self.assertIsNone(h.placement);h.on_move.assert_called_once_with((245,169));self.assertEqual(h.preferred,(245,169))
+        h,api,tick=self.make();tick();h.arm_placement();h.cursor.return_value=(500,300);tick();self.assertEqual(h.position,(345,257));self.assertFalse(h.interactive);h.on_move.assert_not_called()
+        h.keys={0x10};tick();self.assertIsNone(h.placement);h.on_move.assert_called_once_with((245,157));self.assertEqual(h.preferred,(245,157))
     def test_wait_for_game_then_cancel_on_alt_tab(self):
         h,api,tick=self.make();api.foreground.return_value=2;h.arm_placement();tick();self.assertIsNotNone(h.placement);self.assertFalse(h.shown)
         api.foreground.return_value=1;tick();api.foreground.return_value=2;tick();self.assertIsNone(h.placement);self.assertFalse(h.shown);h.on_move.assert_not_called()

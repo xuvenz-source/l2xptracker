@@ -29,6 +29,8 @@ class Windows:
             ('IsWindow', [wintypes.HWND], wintypes.BOOL),
             ('IsWindowVisible', [wintypes.HWND], wintypes.BOOL),
             ('IsIconic', [wintypes.HWND], wintypes.BOOL),
+            ('GetWindowRect', [wintypes.HWND, ctypes.POINTER(wintypes.RECT)], wintypes.BOOL),
+            ('GetWindow', [wintypes.HWND, wintypes.UINT], wintypes.HWND),
             ('GetClientRect', [wintypes.HWND, ctypes.POINTER(wintypes.RECT)], wintypes.BOOL),
             ('ClientToScreen', [wintypes.HWND, ctypes.POINTER(wintypes.POINT)], wintypes.BOOL),
         ]:
@@ -62,6 +64,26 @@ class Windows:
         return select_match(matches,self.foreground())
     def usable(self, hwnd):
         return bool(hwnd and self.u.IsWindow(hwnd) and self.u.IsWindowVisible(hwnd) and not self.u.IsIconic(hwnd))
+    def region_clear(self,hwnd,region):
+        """Reject visible windows above the game that overlap the chat region."""
+        try:
+            dwm=ctypes.WinDLL('dwmapi',use_last_error=True).DwmGetWindowAttribute
+            dwm.argtypes=[wintypes.HWND,wintypes.DWORD,ctypes.c_void_p,wintypes.DWORD]
+            dwm.restype=ctypes.c_long
+        except (OSError,AttributeError):dwm=None
+        visited={hwnd};h=self.u.GetWindow(hwnd,3)
+        while h:
+            if h in visited or len(visited)>2048:return False
+            visited.add(h)
+            if self.usable(h):
+                cloaked=wintypes.DWORD()
+                hidden=bool(dwm and dwm(h,14,ctypes.byref(cloaked),ctypes.sizeof(cloaked))==0 and cloaked.value)
+                if not hidden:
+                    rect=wintypes.RECT()
+                    if not self.u.GetWindowRect(h,ctypes.byref(rect)):return False
+                    if intersects(region,(rect.left,rect.top,rect.right,rect.bottom)):return False
+            h=self.u.GetWindow(h,3)
+        return bool(self.usable(hwnd))
     def geometry(self, hwnd):
         r = wintypes.RECT(); p = wintypes.POINT(0, 0)
         if not self.u.GetClientRect(hwnd, ctypes.byref(r)) or not self.u.ClientToScreen(hwnd, ctypes.byref(p)):
@@ -78,12 +100,16 @@ class Windows:
         return Target(h, pid, title, geo[2], geo[3], self.window_class(h))
 
 
-def capture_region(api, target, local, desktop):
-    """Return absolute region only for the original, focused, calibrated window."""
+def intersects(region,bounds):
+    x,y,r,b=bounds
+    return x<region['left']+region['width'] and r>region['left'] and y<region['top']+region['height'] and b>region['top']
+
+def capture_region(api, target, local, desktop, pause_on_blur=True):
+    """Return only visible and unobstructed original game pixels."""
     h = target.hwnd
     if not api.usable(h) or api.pid(h) != target.pid:
         return None, 'Game window unavailable; reopen it and select the chat area again.'
-    if api.foreground() != h:
+    if pause_on_blur and api.foreground() != h:
         return None, 'Paused — Lineage 2 is not focused. Return to the game to resume.'
     geo = api.geometry(h)
     if not geo: return None, 'Paused — game window geometry unavailable.'
@@ -97,4 +123,6 @@ def capture_region(api, target, local, desktop):
     if (region['left']<desktop['left'] or region['top']<desktop['top'] or
         region['left']+r>desktop['left']+desktop['width'] or region['top']+b>desktop['top']+desktop['height']):
         return None, 'Paused — chat is outside the visible desktop.'
+    if not api.region_clear(h,region):
+        return None, 'Waiting — game chat is covered. Keep the chat visible to continue tracking.'
     return region, None

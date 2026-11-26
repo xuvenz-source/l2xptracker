@@ -32,9 +32,13 @@ Select XP / SP or Adena and enter the numbers only. Unambiguous OCR suggestions 
 
 ## Appearance (v0.22)
 
-The desktop dashboard now defaults to a charcoal dark theme with gold Adena, green EXP and blue kills/hour cards, styled tables, numeric reviews and a colour-coded activity log. Toggle **Dark mode** in the header to switch to light mode. Appearance is saved separately from calibration and sessions. Windows-native dialogs may still follow the system theme. No OCR, HUD or session calculation changes.
+The desktop dashboard now defaults to a charcoal dark theme with gold Adena, green EXP and blue kills/hour cards, styled tables, numeric reviews and a colour-coded activity log. Enable **Light mode** in Settings. Appearance is saved separately from calibration and sessions. Windows-native dialogs may still follow the system theme. No OCR, HUD or session calculation changes.
 
-## Current status: v0.22
+## Tracking preferences and HUD pause (v0.23)
+
+Use the floating HUD Pause/Resume button or the desktop controls to toggle the same manual pause. Settings now contains Light mode and Pause when Lineage 2 loses focus (off by default). Background tracking continues only while the calibrated chat pixels remain visible and unobstructed; covered, minimised or resized clients suspend capture and exclude that time from rates. This is not hidden-window capture. The HUD still hides outside the game. Focus and appearance preferences persist independently of calibration. Native game click routing and background capture require live Windows testing.
+
+## Current status: v0.23
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 
