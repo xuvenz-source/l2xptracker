@@ -539,11 +539,12 @@ class App:
         threading.Thread(target=self.capture,args=(self.target,dict(self.region),pitch,self.halt,self.jobs,self.pause_gate),daemon=True).start(); threading.Thread(target=self.worker,args=(self.jobs,),daemon=True).start()
     def capture(self,target,region,pitch,halt,jobs,gate):
         revision=None; old=None; failures=0; last_active=None; last_status=None
+        frames=0; batches=0; last_report=time.monotonic()
         def status(message):
             nonlocal last_status
             if message != last_status:
                 self.inbox.put(('status',message)); last_status=message
-                diagnostic('capture status: %s',message.split(' — ')[0])
+                diagnostic('capture status: %s',message.replace(target.title,'[game]') if target.title else message)
         def pause(message):
             nonlocal old, failures, last_active
             old=None; failures=0; last_active=None
@@ -574,7 +575,10 @@ class App:
                             old=None; failures=0; last_active=None; continue
                         now=time.monotonic()
                         if last_active is not None: self.active_seconds+=max(0,now-last_active)
-                        last_active=now
+                        last_active=now;frames+=1
+                        if now-last_report>=10:
+                            diagnostic('capture progress: frames=%d queued_batches=%d active_seconds=%.1f',frames,batches,self.active_seconds)
+                            last_report=now
                         status(f'Tracking {target.title} — '+('focused only.' if pause_on_blur else 'visible chat, including in background.'))
                         if old is None: old=new
                         else:
@@ -586,14 +590,17 @@ class App:
                             else:
                                 failures=0
                                 if shift:
-                                    try: jobs.put_nowait((datetime.now().isoformat(timespec='seconds'),rgb[:len(new)*pitch].reshape(len(new),pitch,rgb.shape[1],3)[-shift:].copy()))
+                                    try:
+                                        jobs.put_nowait((datetime.now().isoformat(timespec='seconds'),rgb[:len(new)*pitch].reshape(len(new),pitch,rgb.shape[1],3)[-shift:].copy()));batches+=1
                                     except queue.Full: self.inbox.put(('gap','OCR backlog full; some lines dropped.'))
                                 old=new
                     halt.wait(max(0,.05-(time.monotonic()-tick)))
         except Exception as e:
             diagnostic('capture exception',exc_info=True)
             self.inbox.put(('gap',f'Capture stopped: {e}')); halt.set()
-        finally: jobs.put(None); self.inbox.put(('done','capture'))
+        finally:
+            diagnostic('capture ended: frames=%d queued_batches=%d active_seconds=%.1f',frames,batches,self.active_seconds)
+            jobs.put(None); self.inbox.put(('done','capture'))
     def worker(self,jobs):
         while True:
             job=jobs.get()

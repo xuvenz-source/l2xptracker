@@ -36,4 +36,10 @@ class TabbedUITests(unittest.TestCase):
                     self.assertEqual(a.next_party_members,['Alpha'])
                     self.assertEqual(a.tabs.select(),str(a.pages['dashboard']))
                     self.assertFalse(any(isinstance(w,tk.Toplevel) for w in root.winfo_children()))
+                    # Main button and queued HUD click share one pause gate.
+                    a.running=True;a.session_id=None;a.started=None;a.pause_btn.configure(state='normal')
+                    a.pause_btn.invoke();self.assertTrue(a.pause_gate.snapshot()[0])
+                    a.queue_hud_pause();a.process_inbox();self.assertFalse(a.pause_gate.snapshot()[0])
+                    self.assertEqual(a.pause_btn.cget('text'),'Pause')
+                    a.running=False
         finally:root.destroy()
