@@ -44,6 +44,11 @@ def report(parts):
     return dict(rows=rows,estimated_party=total_estimate if configured_count else None,
                 seconds=configured_seconds,configured_count=configured_count)
 
+def live_report(members,seconds,totals):
+    # The UI already has aggregated counters: avoid scanning all events on every tick.
+    events=[('', 'adena', who, item, q, 0, '') for (who,item),q in totals.items() if item=='Adena']
+    return report([dict(party_members=members,seconds=seconds,events=events)])
+
 def display_rows(data):
     for row in data['rows']:
         if row['estimate'] is None: continue

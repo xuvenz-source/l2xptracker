@@ -1,5 +1,5 @@
 import unittest
-from party import roster, report, display_rows
+from party import roster, report, display_rows, live_report
 from tracker import parse
 from history import Archive, snapshot
 from test_v016 import data
@@ -23,6 +23,12 @@ class PartyTests(unittest.TestCase):
         self.assertEqual(r['rows'][0]['observed'],50)
         self.assertEqual(r['rows'][0]['estimate'],2000)
         self.assertIn(('Alpha','Adena/hr (estimated)','2,000'),list(display_rows(r)))
+    def test_live_report(self):
+        from collections import Counter
+        p=live_report(['Alpha'],1800,Counter({('You','Adena'):100,('Alpha','Adena'):30,('Alpha','Suede'):2}))
+        self.assertEqual(p['estimated_party'],200)
+        self.assertIn(('Alpha','Adena/hr (estimated)','200'),list(display_rows(p)))
+        self.assertEqual(p['rows'][0]['observed'],30)
     def test_legacy_without_roster(self):
         self.assertIsNone(report([data(3600,100,200)])['estimated_party'])
     def test_different_rosters_and_nested_merge(self):

@@ -17,7 +17,7 @@ from review import ReviewQueue, candidates
 from history import Archive, new_id, now, snapshot, totals_for, review_queue
 from history_ui import HistoryWindow
 from runtime_ocr import configure_ocr
-from party import roster, report as party_report, display_rows as party_rows, summary_text as party_summary
+from party import roster, live_report as live_party_report, display_rows as party_rows, summary_text as party_summary
 
 
 def parse(line):
@@ -570,14 +570,15 @@ class App:
         if self.started is not None:
             dur=self.active_seconds; h=max(1,dur)/3600; xp=self.totals[('You','XP / SP')]; sp=self.totals[('You','SP')]; ad=self.totals[('You','Adena')]; self.stats.set(f'{"PAUSED  |  " if self.running and self.pause_gate.snapshot()[0] else ""}Active {int(dur)//3600:02}:{int(dur)%3600//60:02}:{int(dur)%60:02}  |  XP {xp:,}  ({xp/h:,.0f}/h)  |  SP {sp:,}\nAdena {ad:,}  ({ad/h:,.0f}/h)  |  Capture/OCR warnings {self.gaps}  |  Pending review {len(self.reviews.pending)}')
             if getattr(self,'party_members',[]):
-                extra=party_summary(party_report([dict(party_members=self.party_members,seconds=dur,events=self.events)]))
+                extra=party_summary(live_party_report(self.party_members,dur,self.totals))
+                extra+=f' Each listed member: {ad:,} estimated ({ad/h:,.0f}/h).'
                 self.stats.set(self.stats.get()+'\n'+extra)
         self.root.after(100,self.tick)
     def refresh_totals(self):
         self.tree.delete(*self.tree.get_children())
         for (who,item),qty in sorted(self.totals.items()):
             if item not in ('XP / SP','SP'):self.tree.insert('','end',values=(who,item,f'{qty:,}'))
-        for row in party_rows(party_report([dict(party_members=getattr(self,'party_members',[]),seconds=self.active_seconds,events=self.events)])):
+        for row in party_rows(live_party_report(getattr(self,'party_members',[]),self.active_seconds,self.totals)):
             # Rates use the live timer in the summary; row amounts refresh on events.
             if row[1]!='Adena/hr (estimated)':self.tree.insert('','end',values=row)
     def refresh_reviews(self):
