@@ -59,7 +59,9 @@ def main():
     ocr=find_tesseract(args.tesseract)
     print('Using OCR:',ocr,flush=True)
     with tempfile.TemporaryDirectory(prefix='L2PortableBuild-') as tmp:
-        work=Path(tmp)
+        # Windows runners may supply an 8.3 short path (RUNNER~1). Resolve
+        # before creating or validating the portable installation directories.
+        work=Path(tmp).resolve(strict=True)
         cmd=[sys.executable,'-m','PyInstaller','--noconfirm','--clean','--onedir','--windowed','--noupx','--name',NAME,'--distpath',str(work/'dist'),'--workpath',str(work/'build'),'--specpath',str(work),'--paths',str(ROOT),'--hidden-import','mss.windows','--copy-metadata','pytesseract','--icon',str(ROOT/'tracker.ico'),str(ROOT/'tracker.py')]
         subprocess.run(cmd,cwd=ROOT,check=True)
         app=work/'dist'/NAME
@@ -82,6 +84,7 @@ def main():
         helper_report=work/'helper-smoke.txt'
         p=subprocess.run([str(app/HELPER_NAME),'--self-test',str(helper_report)],cwd=work,env=env,timeout=90)
         if p.returncode or not helper_report.is_file() or helper_report.read_text(encoding='utf-8')!='ok':raise RuntimeError('Update helper self-test failed')
+        print('Frozen tracker and updater self-tests passed.',flush=True)
         shutil.copy2(report,app/'Build self-test.json')
         (app/MARKER).write_text(json.dumps(install_manifest(app,VERSION),indent=2),encoding='utf-8')
         output=ROOT/'Share with friends'; output.mkdir(exist_ok=True)
@@ -94,8 +97,10 @@ def main():
                 if z.testzip() is not None: raise RuntimeError('ZIP integrity check failed')
             # Exercise the actual release archive with the same extraction and
             # installation validation code used by the in-app updater.
+            print('Validating release archive with the updater...',flush=True)
             staged=extract_portable(partial,work/'archive-check')
             validate_install(staged,VERSION)
+            print('Release archive extraction and installation validation passed.',flush=True)
             os.replace(partial,final)
         finally: partial.unlink(missing_ok=True)
         print('\nBUILD SUCCESS. Share this entire ZIP:\n'+str(final),flush=True)
