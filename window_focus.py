@@ -19,6 +19,12 @@ class Windows:
             raise RuntimeError('Window tracking requires Windows.')
         self.u = ctypes.WinDLL('user32', use_last_error=True)
         self.enum_callback=ctypes.WINFUNCTYPE(wintypes.BOOL,wintypes.HWND,wintypes.LPARAM)
+        try:
+            dwm=ctypes.WinDLL('dwmapi',use_last_error=True).DwmGetWindowAttribute
+            dwm.argtypes=[wintypes.HWND,wintypes.DWORD,ctypes.c_void_p,wintypes.DWORD]
+            dwm.restype=ctypes.c_long
+        except (OSError,AttributeError):dwm=None
+        self.dwm=dwm
         for name, args, result in [
             ('GetClassNameW', [wintypes.HWND,wintypes.LPWSTR,ctypes.c_int],ctypes.c_int),
             ('EnumWindows', [self.enum_callback,wintypes.LPARAM],wintypes.BOOL),
@@ -66,11 +72,7 @@ class Windows:
         return bool(hwnd and self.u.IsWindow(hwnd) and self.u.IsWindowVisible(hwnd) and not self.u.IsIconic(hwnd))
     def region_clear(self,hwnd,region):
         """Reject visible windows above the game that overlap the chat region."""
-        try:
-            dwm=ctypes.WinDLL('dwmapi',use_last_error=True).DwmGetWindowAttribute
-            dwm.argtypes=[wintypes.HWND,wintypes.DWORD,ctypes.c_void_p,wintypes.DWORD]
-            dwm.restype=ctypes.c_long
-        except (OSError,AttributeError):dwm=None
+        dwm=self.dwm
         visited={hwnd};h=self.u.GetWindow(hwnd,3)
         while h:
             if h in visited or len(visited)>2048:return False
@@ -108,7 +110,7 @@ def capture_region(api, target, local, desktop, pause_on_blur=True):
     """Return only visible and unobstructed original game pixels."""
     h = target.hwnd
     if not api.usable(h) or api.pid(h) != target.pid:
-        return None, 'Game window unavailable; reopen it and select the chat area again.'
+        return None, 'Waiting — game window unavailable or minimised. Restore the game; rebind if it has restarted.'
     if pause_on_blur and api.foreground() != h:
         return None, 'Paused — Lineage 2 is not focused. Return to the game to resume.'
     geo = api.geometry(h)

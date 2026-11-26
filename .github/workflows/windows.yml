@@ -32,8 +32,20 @@ jobs:
           python-version: '3.12'
           architecture: x64
       - run: python -m pip install -r requirements-build.txt
-      - name: Install Tesseract
-        run: choco install tesseract --version=5.5.3.20260724 --yes --no-progress
+      - name: Install Tesseract (retry transient package feed failures)
+        shell: pwsh
+        run: |
+          $ok = $false
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            choco install tesseract --version=5.5.3.20260724 --yes --no-progress
+            if ($LASTEXITCODE -eq 0 -and (Test-Path "$env:ProgramFiles\Tesseract-OCR\tesseract.exe")) {
+              $ok = $true
+              break
+            }
+            if ($attempt -lt 3) { Start-Sleep -Seconds (10 * $attempt) }
+          }
+          if (-not $ok) { throw "Pinned Tesseract install failed after three attempts." }
+          exit 0
       - name: Build and smoke test portable app
         run: python build_portable.py --tesseract "$env:ProgramFiles\Tesseract-OCR"
       - name: Save portable ZIP and checksum
