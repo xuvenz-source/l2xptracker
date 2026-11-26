@@ -8,7 +8,8 @@ from party import display_rows as party_rows, summary_text as party_summary
 
 class HistoryWindow:
     def __init__(self,app):
-        self.app=app; self.archive=app.archive; self.win=tk.Toplevel(app.root); self.win.title('Farming session history'); self.win.geometry('1080x660')
+        self.app=app; self.archive=app.archive; self.win=tk.Toplevel(app.root); self.win.title('Farming session history'); self.win.geometry('1110x710');self.win.minsize(950,600)
+        ttk.Label(self.win,text='Session history',style='Title.TLabel',padding=(12,10,12,0)).pack(anchor='w')
         ttk.Label(self.win,text='Select sessions with Ctrl or Shift. Merge creates a named report; originals stay intact.',padding=10).pack(fill='x')
         frame=ttk.Frame(self.win);frame.pack(fill='both',expand=True,padx=10)
         cols=[('name','Session name',235),('kind','Type',90),('start','Started',145),('active','Active time',80),('xp','EXP/hr',100),('ad','Adena/hr',100),('kills','Kills/hr',85),('review','Reviews',65)]
@@ -22,6 +23,7 @@ class HistoryWindow:
         for c,t,w in [('who','Player',160),('item','Item',500),('qty','Quantity',140)]:self.loot.heading(c,text=t);self.loot.column(c,width=w)
         sb=ttk.Scrollbar(f,orient='vertical',command=self.loot.yview);self.loot.config(yscrollcommand=sb.set);sb.pack(side='right',fill='y');self.loot.pack(fill='both',expand=True)
         self.tree.bind('<<TreeviewSelect>>',self.detail);self.refresh()
+        if hasattr(app,'appearance'):app.appearance.restyle(self.win)
     def refresh(self,select=None):
         try:
             self.records=self.archive.records(); self.summaries={i:self.archive.summary(i,self.records) for i in self.records}

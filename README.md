@@ -30,7 +30,11 @@ Portable builds check GitHub's latest published stable release on launch. **Chec
 
 Select XP / SP or Adena and enter the numbers only. Unambiguous OCR suggestions prefill the fields; conflicting values remain blank. Previously counted partial XP/SP is locked and will not be added twice. The Adena recipient is shown for personal and party drops. Item / other retains full-message correction. Approvals continue to update session totals, kills and merged reports.
 
-## Current status: v0.21
+## Appearance (v0.22)
+
+The desktop dashboard now defaults to a charcoal dark theme with gold Adena, green EXP and blue kills/hour cards, styled tables, numeric reviews and a colour-coded activity log. Toggle **Dark mode** in the header to switch to light mode. Appearance is saved separately from calibration and sessions. Windows-native dialogs may still follow the system theme. No OCR, HUD or session calculation changes.
+
+## Current status: v0.22
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

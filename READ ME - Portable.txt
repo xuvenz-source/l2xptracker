@@ -1,4 +1,4 @@
-L2 LEGACY FARMING TRACKER v0.21 — WINDOWS x64 PORTABLE
+L2 LEGACY FARMING TRACKER v0.22 — WINDOWS x64 PORTABLE
 
 1. Extract the ENTIRE ZIP to a normal folder (not directly inside the ZIP viewer).
 2. Double-click L2 Legacy Tracker.exe.
@@ -10,7 +10,7 @@ The tracker runs locally and requires no account or network connection for OCR.
 Settings and session history are kept in %LOCALAPPDATA%\L2LegacyTracker, not inside
 this folder. The package does not contain the builder's personal data.
 
-Includes v0.21 session history and merging, review queue, pause/resume, HUD,
+Includes v0.22 session history and merging, review queue, pause/resume, HUD,
 window-focus checks and the existing OCR logic. The external HUD works best in
 windowed or borderless mode. It does not inject, read game memory, intercept
 packets or send automated input. Obtain server staff approval before use.
@@ -33,3 +33,6 @@ The previous installation is kept as a backup; settings/history are separate.
 
 Reviews: select XP / SP or Adena and enter numbers. Already-counted values are
 locked; use Item / other for item loot. Confirm the recipient for Adena.
+
+Appearance: dark mode is enabled by default. Toggle Dark mode in the header.
+The choice is remembered independently of your calibration and sessions.

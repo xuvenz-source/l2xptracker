@@ -18,6 +18,7 @@ from history import Archive, new_id, now, snapshot, totals_for, review_queue, co
 from history_ui import HistoryWindow
 from runtime_ocr import configure_ocr
 from version import VERSION
+from appearance import Appearance, Dashboard, save_mode
 from update_ui import UpdateUI
 from party import roster, live_report as live_party_report, display_rows as party_rows, summary_text as party_summary
 
@@ -314,7 +315,8 @@ def ocr_rows(rows):
 
 class App:
     def __init__(self,root):
-        self.root=root; root.title(f'L2 Legacy Farming Tracker — v{VERSION} Portable'); root.geometry('900x700')
+        self.root=root; root.title(f'L2 Legacy Farming Tracker — v{VERSION} Portable'); root.geometry('1020x810'); root.minsize(900,720)
+        self.appearance=Appearance(root)
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
         self.party_members=[]; self.next_party_members=[]; self.kills=0; self.update_busy=False
         self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False
@@ -331,20 +333,30 @@ class App:
         except Exception as e: self.hud_enabled.set(False); self.status.set(self.status.get()+f' HUD unavailable: {e}')
         try: self.archive=Archive()
         except Exception as e: messagebox.showerror("Session storage",f"Could not open session history: {e}")
-        top=ttk.Frame(root,padding=10); top.pack(fill='x')
+        header=ttk.Frame(root,padding=(16,12,16,3));header.pack(fill='x')
+        ttk.Label(header,text='L2 Legacy Tracker',style='Title.TLabel').pack(side='left')
+        ttk.Label(header,text=f'  v{VERSION}  ·  Farming dashboard',style='Muted.TLabel').pack(side='left',padx=8)
+        self.dark_mode=tk.BooleanVar(value=self.appearance.mode=='dark')
+        ttk.Checkbutton(header,text='Dark mode',variable=self.dark_mode,command=self.toggle_appearance).pack(side='right')
+        self.dashboard=Dashboard(root);self.dashboard.pack(fill='x',padx=16,pady=(8,4))
+        top=ttk.Frame(root,padding=(16,6)); top.pack(fill='x')
         ttk.Button(top,text='Bind game / chat area',command=self.select).pack(side='left')
         ttk.Label(top,text='Line height (px):').pack(side='left',padx=(12,3)); ttk.Entry(top,textvariable=self.pitch,width=5).pack(side='left')
-        self.start_btn=ttk.Button(top,text='Start',command=self.start); self.start_btn.pack(side='left',padx=8)
-        self.stop_btn=ttk.Button(top,text='Stop',command=self.stop,state='disabled'); self.stop_btn.pack(side='left')
+        self.start_btn=ttk.Button(top,text='Start',command=self.start,style='Primary.TButton'); self.start_btn.pack(side='left',padx=8)
+        self.stop_btn=ttk.Button(top,text='Stop',command=self.stop,state='disabled',style='Danger.TButton'); self.stop_btn.pack(side='left')
         self.pause_btn=ttk.Button(top,text='Pause',command=self.toggle_pause,state='disabled'); self.pause_btn.pack(side='left',padx=6)
         ttk.Button(top,text='Export CSV',command=self.export).pack(side='right')
         ttk.Checkbutton(top,text='Game HUD',variable=self.hud_enabled).pack(side='left',padx=8)
         self.pitch.trace_add('write', self.pitch_changed)
-        ttk.Label(root,textvariable=self.status,wraplength=800,padding=10).pack(fill='x')
-        ttk.Label(root,textvariable=self.stats,wraplength=800,padding=10,font=('Segoe UI',12)).pack(fill='x')
-        self.tree=ttk.Treeview(root,columns=('who','item','qty'),show='headings',height=9)
-        for c,t,w in [('who','Player',130),('item','Item',420),('qty','Quantity',100)]: self.tree.heading(c,text=t); self.tree.column(c,width=w)
-        self.tree.pack(fill='both',expand=True,padx=10)
+        ttk.Label(root,textvariable=self.status,wraplength=850,padding=(16,4),style='Status.TLabel').pack(fill='x')
+        ttk.Label(root,textvariable=self.stats,wraplength=850,padding=(16,4),style='Muted.TLabel').pack(fill='x')
+        ttk.Label(root,text='Session loot',style='Section.TLabel',padding=(16,7,16,3)).pack(anchor='w')
+        loot=ttk.Frame(root);loot.pack(fill='both',expand=True,padx=16)
+        self.tree=ttk.Treeview(loot,columns=('who','item','qty'),show='headings',height=6)
+        for c,t,w in [('who','Player',160),('item','Item',440),('qty','Quantity',145)]:
+            self.tree.heading(c,text=t);self.tree.column(c,width=w,anchor='e' if c=='qty' else 'w',stretch=c=='item')
+        loot_scroll=ttk.Scrollbar(loot,orient='vertical',command=self.tree.yview);self.tree.configure(yscrollcommand=loot_scroll.set)
+        loot_scroll.pack(side='right',fill='y');self.tree.pack(fill='both',expand=True)
         tools=ttk.Frame(root); tools.pack(fill='x',padx=10,pady=(6,0))
         ttk.Button(tools,text='Session history…',command=self.open_history).pack(side='right')
         ttk.Button(tools,textvariable=self.review_count,command=self.open_reviews).pack(side='left')
@@ -355,9 +367,18 @@ class App:
         bottom=ttk.Frame(root,padding=(10,3)); bottom.pack(fill='x')
         self.updates=UpdateUI(self,bottom)
         ttk.Label(bottom,textvariable=self.party_status,wraplength=610).pack(side='left',fill='x',expand=True)
-        ttk.Label(root,text='Recent OCR lines (including ignored messages / uncertain gaps)',padding=6).pack(anchor='w')
-        self.log=tk.Text(root,height=11,wrap='word',state='disabled'); self.log.pack(fill='both',expand=True,padx=10,pady=(0,10))
+        ttk.Label(root,text='Activity log',style='Section.TLabel',padding=(16,7,16,3)).pack(anchor='w')
+        log_frame=ttk.Frame(root);log_frame.pack(fill='both',expand=True,padx=16,pady=(0,14))
+        self.log=tk.Text(log_frame,height=7,wrap='word',state='disabled')
+        log_scroll=ttk.Scrollbar(log_frame,orient='vertical',command=self.log.yview);self.log.configure(yscrollcommand=log_scroll.set)
+        log_scroll.pack(side='right',fill='y');self.log.pack(fill='both',expand=True)
+        self.appearance.restyle(root)
         root.after(100,self.tick); root.after(25,self.hud_tick); root.protocol('WM_DELETE_WINDOW',self.close)
+    def toggle_appearance(self):
+        mode='dark' if self.dark_mode.get() else 'light'
+        self.appearance.apply(mode)
+        try:save_mode(mode)
+        except OSError as e:messagebox.showwarning('Appearance',f'Theme changed, but preference could not be saved: {e}',parent=self.root)
     def setup_party(self):
         if self.running or self.pending:
             messagebox.showinfo('Party setup','Stop the current session before changing party composition. Start a new session with the new roster; merge them later.')
@@ -399,7 +420,7 @@ class App:
                 if after!=mon: raise RuntimeError('Window focus or position changed during selection. Try again.')
         except Exception as e:
             self.selecting=False; self.root.deiconify(); messagebox.showerror('Capture',str(e)); return
-        win=tk.Toplevel(self.root); win.title(f'{target.title} — select chat text, exclude scrollbar'); win.attributes('-topmost',True)
+        win=tk.Toplevel(self.root); win.title(f'{target.title} — select chat text, exclude scrollbar'); win.attributes('-topmost',True); self.appearance.restyle(win)
         scale=min(1,(win.winfo_screenwidth()-70)/shot.width,(win.winfo_screenheight()-150)/shot.height)
         iw,ih=round(shot.width*scale),round(shot.height*scale)
         photo=ImageTk.PhotoImage(shot.resize((iw,ih))); canvas=tk.Canvas(win,width=iw,height=ih,cursor='cross',highlightthickness=0); canvas.pack(); canvas.create_image(0,0,image=photo,anchor='nw'); canvas.image=photo
@@ -532,7 +553,7 @@ class App:
         if self.hud: self.hud.cancel_placement(); self.hud.hide()
         if self.running:self.halt.set(); self.running=False; self.ended=time.monotonic(); self.session_end=now(); self.stop_btn.config(state='disabled'); self.pause_btn.config(text='Pause',state='disabled'); self.status.set('Stopped capturing; processing buffered lines…')
     def append(self,s):
-        self.log.config(state='normal'); self.log.insert('end',s+'\n'); self.log.see('end'); self.log.config(state='disabled')
+        self.log.config(state='normal'); self.log.insert('end',s+'\n',('accepted' if s.startswith('✓') else 'review' if 'REVIEW' in s or s.startswith('WARNING') else 'ignored',)); self.log.see('end'); self.log.config(state='disabled')
     def tick(self):
         changed=False; finished=False
         while True:
@@ -574,8 +595,9 @@ class App:
             self.closing=False
             if self.close():return
         if self.started is not None:
-            dur=self.active_seconds; h=max(1,dur)/3600; xp=self.totals[('You','XP / SP')]; sp=self.totals[('You','SP')]; ad=self.totals[('You','Adena')]; self.stats.set(f'{"PAUSED  |  " if self.running and self.pause_gate.snapshot()[0] else ""}Active {int(dur)//3600:02}:{int(dur)%3600//60:02}:{int(dur)%60:02}  |  XP {xp:,}  ({xp/h:,.0f}/h)  |  SP {sp:,}\nAdena {ad:,}  ({ad/h:,.0f}/h)  |  Capture/OCR warnings {self.gaps}  |  Pending review {len(self.reviews.pending)}')
-            self.stats.set(self.stats.get()+f'\nKills {self.kills:,}  ({rate(self.kills,dur)}/h; XP events)')
+            dur=self.active_seconds; h=max(1,dur)/3600; xp=self.totals[('You','XP / SP')]; sp=self.totals[('You','SP')]; ad=self.totals[('You','Adena')]
+            if hasattr(self,'dashboard'):self.dashboard.update_metrics(dur,ad,xp,self.kills)
+            self.stats.set(f'{"PAUSED  |  " if self.running and self.pause_gate.snapshot()[0] else ""}Active {int(dur)//3600:02}:{int(dur)%3600//60:02}:{int(dur)%60:02}  |  SP {sp:,}  |  Capture/OCR warnings {self.gaps}  |  Pending review {len(self.reviews.pending)}')
             if getattr(self,'party_members',[]):
                 extra=party_summary(live_party_report(self.party_members,dur,self.totals))
                 extra+=f' Each listed member: {ad:,} estimated ({ad/h:,.0f}/h).'
@@ -605,7 +627,8 @@ class App:
     def open_reviews(self):
         if self.review_win and self.review_win.winfo_exists():
             self.review_win.lift(); return
-        win=self.review_win=tk.Toplevel(self.root); win.title('Review uncertain OCR messages'); win.geometry('820x555')
+        win=self.review_win=tk.Toplevel(self.root); win.title('Review uncertain OCR messages'); win.geometry('860x610');win.minsize(790,540)
+        ttk.Label(win,text='OCR review',style='Title.TLabel',padding=(12,10,12,0)).pack(anchor='w')
         ttk.Label(win,text='Select a message, confirm the type and enter the missing numbers. Already-counted amounts are locked.',wraplength=740,padding=10).pack(fill='x')
         frame=ttk.Frame(win); frame.pack(fill='both',expand=True,padx=10)
         self.review_tree=ttk.Treeview(frame,columns=('time','state','line'),show='headings',selectmode='browse',height=6)
@@ -637,9 +660,10 @@ class App:
         self.review_edit.pack(fill='x',expand=True)
         self.review_hint=tk.StringVar();self.review_hint_label=ttk.Label(editor,textvariable=self.review_hint,wraplength=740);self.review_hint_label.pack(fill='x',pady=(5,0))
         buttons=ttk.Frame(win,padding=10); buttons.pack(fill='x')
-        self.approve_btn=ttk.Button(buttons,text='Approve & count',command=self.approve_review); self.approve_btn.pack(side='left')
+        self.approve_btn=ttk.Button(buttons,text='Approve & count',command=self.approve_review,style='Primary.TButton'); self.approve_btn.pack(side='left')
         self.dismiss_btn=ttk.Button(buttons,text='Dismiss (ignore)',command=self.dismiss_review); self.dismiss_btn.pack(side='left',padx=8)
         ttk.Button(buttons,text='Close',command=win.destroy).pack(side='right')
+        self.appearance.restyle(win)
         self.review_tree.bind('<<TreeviewSelect>>',self.show_review); self.review_selected=None; self.refresh_reviews()
     def selected_review(self):
         sel=self.review_tree.selection()
@@ -711,7 +735,7 @@ class App:
         if not hud_position(geo,region):
             messagebox.showinfo('Position HUD','The calibrated game window is too small for the HUD.');return
         self.hud.cancel_placement()
-        win=tk.Toplevel(self.root); self.position_win=win; win.title('Position game HUD'); win.transient(self.root)
+        win=tk.Toplevel(self.root); self.position_win=win; win.title('Position game HUD'); win.transient(self.root); self.appearance.restyle(win)
         scale=min(1,760/width,490/height,max(0.1,(win.winfo_screenwidth()-100)/width),max(0.1,(win.winfo_screenheight()-230)/height))
         ttk.Label(win,text='Drag the HUD in this game layout, then click Save. The shaded chat area is protected.',wraplength=680,padding=10).pack()
         canvas=tk.Canvas(win,width=round(width*scale),height=round(height*scale),bg='#242b35',highlightthickness=0); canvas.pack(padx=12)
