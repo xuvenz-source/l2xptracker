@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError
 from version import VERSION, APP_NAME, EXE_NAME, HELPER_NAME, MARKER, zip_name
+from preferences import mark_failed_update
 
 REPO='xuvenz-source/l2xptracker'
 API=f'https://api.github.com/repos/{REPO}/releases/latest'
@@ -203,6 +204,8 @@ def helper_main():
         wait_for_exit(int(pid));switch_install(Path(old),Path(staged),version)
         shutil.rmtree(staged,ignore_errors=True);return 0
     except Exception as exc:
+        try:mark_failed_update(version)
+        except OSError:pass
         import tkinter as tk
         from tkinter import messagebox
         root=tk.Tk();root.withdraw()

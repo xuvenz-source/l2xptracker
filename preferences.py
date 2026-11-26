@@ -1,4 +1,4 @@
-"""Tracking preferences, separate from calibration."""
+"""Tracking and updater preferences, separate from calibration."""
 import json, os, tempfile
 from pathlib import Path
 from settings import settings_path
@@ -6,18 +6,39 @@ from settings import settings_path
 def preference_path():
     return settings_path().with_name('tracker_preferences.json')
 
-def load_focus_pause(path=None):
+def read_preferences(path=None):
     try:
-        value=json.loads(Path(path or preference_path()).read_text(encoding='utf-8')).get('pause_on_blur',False)
-        return value if type(value) is bool else False
-    except (OSError,ValueError,AttributeError,TypeError):return False
+        value=json.loads(Path(path or preference_path()).read_text(encoding='utf-8'))
+        return value if isinstance(value,dict) else {}
+    except (OSError,ValueError,TypeError):return {}
 
-def save_focus_pause(value,path=None):
-    if type(value) is not bool:raise ValueError('Expected a boolean')
+def read_bool(key,default,path=None):
+    value=read_preferences(path).get(key,default)
+    return value if type(value) is bool else default
+
+def write_preference(key,value,path=None):
     p=Path(path or preference_path());p.parent.mkdir(parents=True,exist_ok=True)
+    data=read_preferences(p);data[key]=value
     fd,tmp=tempfile.mkstemp(prefix='.preferences-',dir=p.parent)
     try:
-        with os.fdopen(fd,'w',encoding='utf-8') as out:json.dump({'pause_on_blur':value},out)
+        with os.fdopen(fd,'w',encoding='utf-8') as out:json.dump(data,out)
         os.replace(tmp,p)
     finally:
         if os.path.exists(tmp):os.unlink(tmp)
+
+def load_focus_pause(path=None):return read_bool('pause_on_blur',False,path)
+def save_focus_pause(value,path=None):
+    if type(value) is not bool:raise ValueError('Expected a boolean')
+    write_preference('pause_on_blur',value,path)
+
+def load_auto_update(path=None):return read_bool('auto_update',True,path)
+def save_auto_update(value,path=None):
+    if type(value) is not bool:raise ValueError('Expected a boolean')
+    write_preference('auto_update',value,path)
+
+def failed_update(path=None):
+    value=read_preferences(path).get('failed_update','')
+    return value if isinstance(value,str) else ''
+
+def mark_failed_update(version,path=None):
+    write_preference('failed_update',version,path)

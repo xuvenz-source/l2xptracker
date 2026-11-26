@@ -19,7 +19,7 @@ from history_ui import HistoryWindow
 from runtime_ocr import configure_ocr
 from version import VERSION
 from appearance import Appearance, Dashboard, save_mode
-from preferences import load_focus_pause, save_focus_pause
+from preferences import load_focus_pause, save_focus_pause, load_auto_update, save_auto_update
 from update_ui import UpdateUI
 from party import roster, live_report as live_party_report, display_rows as party_rows, summary_text as party_summary
 
@@ -318,7 +318,7 @@ class App:
     def __init__(self,root):
         self.root=root; root.title(f'L2 Legacy Farming Tracker — v{VERSION} Portable'); root.geometry('1020x810'); root.minsize(900,720)
         self.appearance=Appearance(root)
-        self.pause_on_blur=load_focus_pause();self.settings_win=None
+        self.pause_on_blur=load_focus_pause();self.auto_update=load_auto_update();self.settings_win=None
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
         self.party_members=[]; self.next_party_members=[]; self.kills=0; self.update_busy=False
         self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False
@@ -377,9 +377,10 @@ class App:
         self.appearance.restyle(root)
         root.after(100,self.tick); root.after(25,self.hud_tick); root.protocol('WM_DELETE_WINDOW',self.close)
     def open_settings(self):
+        if getattr(self,'update_busy',False):return
         if self.settings_win and self.settings_win.winfo_exists():
             self.settings_win.lift();return
-        win=self.settings_win=tk.Toplevel(self.root);win.title('Tracker settings');win.transient(self.root);win.geometry('570x370');win.minsize(520,340)
+        win=self.settings_win=tk.Toplevel(self.root);win.title('Tracker settings');win.transient(self.root);win.geometry('590x525');win.minsize(540,475)
         content=ttk.Frame(win,padding=18);content.pack(fill='both',expand=True)
         ttk.Label(content,text='Settings',style='Title.TLabel').pack(anchor='w')
         ttk.Label(content,text='Tracking',style='Section.TLabel').pack(anchor='w',pady=(14,5))
@@ -390,9 +391,19 @@ class App:
         ttk.Separator(content).pack(fill='x',pady=12)
         ttk.Label(content,text='Appearance',style='Section.TLabel').pack(anchor='w')
         ttk.Checkbutton(content,text='Light mode',variable=self.dark_mode,onvalue=False,offvalue=True,command=self.toggle_appearance).pack(anchor='w',pady=(6,5))
-        ttk.Label(content,text='Theme and focus preferences are saved automatically.',style='Muted.TLabel').pack(anchor='w')
+        ttk.Separator(content).pack(fill='x',pady=12)
+        ttk.Label(content,text='Updates',style='Section.TLabel').pack(anchor='w')
+        self.auto_update_var=tk.BooleanVar(master=win,value=self.auto_update)
+        ttk.Checkbutton(content,text='Automatically install updates',variable=self.auto_update_var,command=self.change_update_policy).pack(anchor='w',pady=(6,3))
+        ttk.Label(content,text='On by default. Checks GitHub on launch and every 30 minutes; installs published releases and restarts only when idle. Turn off to approve updates manually.',style='Muted.TLabel',wraplength=500).pack(anchor='w')
+        ttk.Label(content,text='Preferences are saved automatically.',style='Muted.TLabel').pack(anchor='w',pady=(10,0))
         ttk.Button(content,text='Close',command=win.destroy).pack(side='bottom',anchor='e')
         self.appearance.restyle(win)
+    def change_update_policy(self):
+        value=bool(self.auto_update_var.get())
+        self.auto_update=value
+        try:save_auto_update(value)
+        except OSError as e:messagebox.showwarning('Settings',f'Changed for this run, but could not save: {e}',parent=self.root)
     def change_focus_policy(self):
         value=bool(self.focus_pause_var.get())
         self.pause_on_blur=value;self.pause_gate.set_focus_policy(value)
@@ -404,6 +415,7 @@ class App:
         try:save_mode(mode)
         except OSError as e:messagebox.showwarning('Appearance',f'Theme changed, but preference could not be saved: {e}',parent=self.root)
     def setup_party(self):
+        if getattr(self,'update_busy',False):return
         if self.running or self.pending:
             messagebox.showinfo('Party setup','Stop the current session before changing party composition. Start a new session with the new roster; merge them later.')
             return
@@ -649,6 +661,7 @@ class App:
             first=self.review_tree.get_children()[0]; self.review_tree.selection_set(first); self.review_tree.focus(first); self.show_review()
         elif not wanted:self.show_review()
     def open_reviews(self):
+        if getattr(self,'update_busy',False):return
         if self.review_win and self.review_win.winfo_exists():
             self.review_win.lift(); return
         win=self.review_win=tk.Toplevel(self.root); win.title('Review uncertain OCR messages'); win.geometry('860x610');win.minsize(790,540)
@@ -751,6 +764,7 @@ class App:
         self.move_btn.config(text='Cancel HUD move')
         self.status.set('HUD move armed — return to Lineage 2, move the mouse, then tap Shift to save. Alt-tab again to cancel.')
     def open_position(self):
+        if getattr(self,'update_busy',False):return
         if self.position_win and self.position_win.winfo_exists():self.position_win.lift();return
         if not self.hud or not self.region or not (self.target or self.saved):
             messagebox.showinfo('Position HUD','Bind the game and chat area first.');return
@@ -796,6 +810,7 @@ class App:
         self.move_btn.config(text='Cancel HUD move' if self.hud and self.hud.placement is not None else 'Move HUD in game')
         self.root.after(25,self.hud_tick)
     def export(self):
+        if getattr(self,'update_busy',False):return
         if self.pending: messagebox.showinfo('Export','Stop tracking and allow the OCR queue to finish first.');return
         path=filedialog.asksaveasfilename(defaultextension='.csv',filetypes=[('CSV','*.csv')],initialfile='l2-session.csv')
         if not path:return
@@ -817,12 +832,14 @@ class App:
             else:messagebox.showerror('Session save failed',f'{e}\nYour current session remains in memory. Retry or export CSV before closing.')
             return False
     def open_history(self):
+        if getattr(self,'update_busy',False):return
         if not self.archive:messagebox.showerror('History','Session history is unavailable.');return
         if self.session_id and not self.save_session():return
         if self.history_window and self.history_window.win.winfo_exists():
             self.history_window.refresh();self.history_window.win.lift();return
         self.history_window=HistoryWindow(self)
     def restore_session(self,id):
+        if getattr(self,'update_busy',False):return False
         if self.running or self.pending:
             messagebox.showinfo('History','Stop tracking and wait for buffered OCR before opening a previous session.');return False
         if not self.save_session():return False

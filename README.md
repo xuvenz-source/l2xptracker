@@ -24,7 +24,7 @@ Each recorded personal XP acquisition event counts as one estimated kill, includ
 
 ## Updates (v0.20)
 
-Portable builds check GitHub's latest published stable release on launch. **Check for updates** also checks manually. Downloads require approval and are disabled while tracking or draining OCR. The updater downloads the exact versioned ZIP and SHA-256 sidecar, verifies its digest, extracts it beside the installation and runs its self-test. It then closes the tracker, replaces the dedicated application directory and restarts. The old folder is retained; immediate installation/startup failure attempts rollback. LocalAppData settings and session history are untouched. If the folder contains extra files, extract a new release to a dedicated folder instead. HTTPS and release checksums are not a publisher signature; trust the repository and do not disable security software.
+Portable builds check GitHub's latest published stable release on launch. **Check for updates** also checks manually. In v0.20–v0.23 downloads require approval; v0.24 adds automatic installation as described below. Updates are disabled while tracking or draining OCR. The updater downloads the exact versioned ZIP and SHA-256 sidecar, verifies its digest, extracts it beside the installation and runs its self-test. It then closes the tracker, replaces the dedicated application directory and restarts. The old folder is retained; immediate installation/startup failure attempts rollback. LocalAppData settings and session history are untouched. If the folder contains extra files, extract a new release to a dedicated folder instead. HTTPS and release checksums are not a publisher signature; trust the repository and do not disable security software.
 
 ## Numeric reviews (v0.21)
 
@@ -38,7 +38,11 @@ The desktop dashboard now defaults to a charcoal dark theme with gold Adena, gre
 
 Use the floating HUD Pause/Resume button or the desktop controls to toggle the same manual pause. Settings now contains Light mode and Pause when Lineage 2 loses focus (off by default). Background tracking continues only while the calibrated chat pixels remain visible and unobstructed; covered, minimised or resized clients suspend capture and exclude that time from rates. This is not hidden-window capture. The HUD still hides outside the game. Focus and appearance preferences persist independently of calibration. Native game click routing and background capture require live Windows testing.
 
-## Current status: v0.23
+## Automatic installation (v0.24)
+
+Launch only `L2 Legacy Tracker.exe`. The integrated updater checks for newer published stable releases on startup and every 30 minutes while open. Automatic installation is enabled by default, can be disabled in Settings, and waits for tracking, pending OCR and open tracker dialogs to finish. With automatic installation off, the update button offers manual approval. Each install verifies the ZIP checksum and self-test, saves the session, starts the bundled internal helper, then restarts. A failed attempt is not repeated continuously; the update button permits manual retry. A previous installation is retained. The helper remains bundled beside the main executable for compatibility with earlier updater versions; users never need to open it. The complete extracted folder is required. Draft releases remain invisible until the maintainer publishes them.
+
+## Current status: v0.24
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 
