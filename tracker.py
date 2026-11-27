@@ -16,6 +16,7 @@ from session_pause import PauseGate
 from review import ReviewQueue, candidates, review_fields, correction_message
 from history import Archive, new_id, now, snapshot, totals_for, review_queue, count_kills, rate, consumables_for
 from consumable_costs import key as cost_key, price as validate_price, load_prices, save_prices, clean_prices, cost_report, cost_summary, money, write_cost_csv
+from loot_values import load_loot_prices, save_loot_prices, loot_report, loot_summary, unit_label, write_loot_csv
 from history_ui import HistoryWindow
 from runtime_ocr import configure_ocr
 from version import VERSION
@@ -430,6 +431,7 @@ class App:
         self.hud_opacity=load_hud_opacity();self.hud_opacity_save_job=None
         self.hud_net_adena=load_hud_net_adena()
         self.default_prices=load_prices();self.session_prices=dict(self.default_prices);self.consumable_report=cost_report([])
+        self.default_loot_prices=load_loot_prices();self.session_loot_prices=dict(self.default_loot_prices);self.loot_report=loot_report([]);self.loot_rows={}
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
         self.party_members=[]; self.next_party_members=[]; self.kills=0; self.update_busy=False
         self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False;self.reset_request=None
@@ -468,12 +470,17 @@ class App:
         loot_header=ttk.Frame(dash);loot_header.pack(fill='x',pady=(2,8))
         ttk.Label(loot_header,text='Session loot',style='Section.TLabel').pack(side='left')
         ttk.Button(loot_header,text='Export CSV',command=self.export).pack(side='right')
+        ttk.Button(loot_header,text='Set default value…',command=self.edit_default_loot_value).pack(side='right',padx=5)
+        ttk.Button(loot_header,text='Edit item value…',command=self.edit_loot_value).pack(side='right',padx=5)
         loot=ttk.Frame(dash);loot.pack(fill='both',expand=True)
-        self.tree=ttk.Treeview(loot,columns=('who','item','qty'),show='headings',height=9)
-        for c,t,w in [('who','Player',170),('item','Item',440),('qty','Quantity',145)]:
-            self.tree.heading(c,text=t);self.tree.column(c,width=w,anchor='e' if c=='qty' else 'w',stretch=c=='item')
+        self.tree=ttk.Treeview(loot,columns=('who','item','qty','unit','value'),show='headings',height=9,selectmode='browse')
+        for c,t,w in [('who','Player',120),('item','Item',280),('qty','Quantity',90),('unit','Adena / item',110),('value','Est. sell value',130)]:
+            self.tree.heading(c,text=t);self.tree.column(c,width=w,anchor='e' if c in ('qty','unit','value') else 'w',stretch=c=='item')
+        self.tree.bind('<Double-1>',self.edit_loot_value)
         loot_scroll=ttk.Scrollbar(loot,orient='vertical',command=self.tree.yview);self.tree.configure(yscrollcommand=loot_scroll.set)
         loot_scroll.pack(side='right',fill='y');self.tree.pack(fill='both',expand=True)
+        self.loot_status=tk.StringVar(value='No recorded loot values.')
+        ttk.Label(dash,textvariable=self.loot_status,style='Muted.TLabel',wraplength=870).pack(fill='x',pady=(3,0))
         usage=ttk.LabelFrame(dash,text='Consumables used (observed activations)',padding=6);usage.pack(fill='x',pady=(8,0))
         cost_controls=ttk.Frame(usage);cost_controls.pack(fill='x')
         ttk.Button(cost_controls,text='Edit selected cost…',command=self.edit_consumable_cost).pack(side='left')
@@ -738,6 +745,7 @@ class App:
         if not self.archive:
             messagebox.showerror('Session storage','History storage is unavailable. Restart the tracker after fixing storage.');return
         self.session_prices=dict(rollover['prices'] if rollover is not None else self.default_prices);self.consumable_report=cost_report([])
+        self.session_loot_prices=dict(rollover.get('loot_prices',self.default_loot_prices) if rollover is not None else self.default_loot_prices);self.loot_report=loot_report([]);self.loot_rows={}
         self.party_members=list(rollover['party'] if rollover is not None else self.next_party_members)
         self.party_status.set('Session party: '+(', '.join(self.party_members) or 'solo / no estimates'))
         self.session_id=new_id(); self.session_date=now(); self.session_end=None; self.session_complete=None; self.last_archive_save=0
@@ -747,6 +755,7 @@ class App:
         self.events=[]; self.raw=[]; self.kills=0; self.totals.clear(); self.tree.delete(*self.tree.get_children());
         if hasattr(self,'consumable_tree'):self.consumable_tree.delete(*self.consumable_tree.get_children())
         if hasattr(self,'cost_status'):self.cost_status.set('No recorded consumable costs.')
+        if hasattr(self,'loot_status'):self.loot_status.set('No recorded loot values.')
         self.gaps=0; self.active_seconds=0.0; self.started=time.monotonic(); self.ended=None; self.run_id+=1; self.running=True; self.pending=2
         self.pause_gate=PauseGate(self.pause_on_blur); self.halt=threading.Event(); self.jobs=queue.Queue(maxsize=120); self.start_btn.config(state='disabled'); self.stop_btn.config(state='normal')
         paused=bool(rollover and rollover['paused'])
@@ -859,7 +868,7 @@ class App:
         if not self.running or self.closing or getattr(self,'update_busy',False) or getattr(self,'reset_request',None) is not None:return
         # Keep the active configuration, not unapplied edits in Settings.
         colours=getattr(self,'session_colours',None)
-        self.reset_request=dict(pitch=self.session_pitch, colours=dict(colours) if colours is not None else None, prices=dict(self.session_prices), party=list(self.party_members), paused=self.pause_gate.snapshot()[0])
+        self.reset_request=dict(pitch=self.session_pitch, colours=dict(colours) if colours is not None else None, prices=dict(self.session_prices), loot_prices=dict(getattr(self,'session_loot_prices',{})), party=list(self.party_members), paused=self.pause_gate.snapshot()[0])
         self.stop()
         self.status.set('Resetting — saving this session and finishing buffered OCR…')
     def stop(self):
@@ -937,6 +946,7 @@ class App:
             dur=self.active_seconds; h=max(1,dur)/3600; xp=self.totals[('You','XP / SP')]; sp=self.totals[('You','SP')]; ad=self.totals[('You','Adena')]
             if hasattr(self,'dashboard'):self.dashboard.update_metrics(dur,ad,xp,self.kills)
             if hasattr(self,'cost_status'):self.cost_status.set(cost_summary(self.consumable_report,ad,dur))
+            if hasattr(self,'loot_status'):self.loot_status.set(loot_summary(self.loot_report,dur))
             self.stats.set(f'{"PAUSED  |  " if self.running and self.pause_gate.snapshot()[0] else ""}Active {int(dur)//3600:02}:{int(dur)%3600//60:02}:{int(dur)%60:02}  |  SP {sp:,}  |  Capture/OCR warnings {self.gaps}  |  Pending review {len(self.reviews.pending)}')
             if getattr(self,'party_members',[]):
                 extra=party_summary(live_party_report(self.party_members,dur,self.totals))
@@ -944,6 +954,12 @@ class App:
                 self.stats.set(self.stats.get()+'\n'+extra)
     def refresh_totals(self):
         self.kills=count_kills(self.events)
+        selected_loot=None
+        if hasattr(self,'loot_status'):
+            selected=self.tree.selection()
+            selected_loot=self.loot_rows.get(selected[0]) if selected else None
+            self.loot_report=loot_report([dict(events=self.events,loot_prices=self.session_loot_prices)])
+            self.loot_rows={}
         self.tree.delete(*self.tree.get_children())
         if hasattr(self,'consumable_tree'):
             selected=self.consumable_tree.selection()
@@ -955,11 +971,55 @@ class App:
                 iid=self.consumable_tree.insert('','end',values=(r['item'],f"{r['uses']:,}",unit,money(r['cost']) if r['priced'] else '—'))
                 if r['item']==old:self.consumable_tree.selection_set(iid)
             self.cost_status.set(cost_summary(self.consumable_report,self.totals['You','Adena'],self.active_seconds))
+        valued={(r['who'],r['item']):r for r in self.loot_report['rows']} if hasattr(self,'loot_status') else {}
         for (who,item),qty in sorted(self.totals.items()):
-            if item not in ('XP / SP','SP'):self.tree.insert('','end',values=(who,item,f'{qty:,}'))
+            if item in ('XP / SP','SP'):continue
+            r=valued.get((who,item))
+            if r is None:self.tree.insert('','end',values=(who,item,f'{qty:,}'));continue
+            iid=self.tree.insert('','end',values=(who,item,f'{qty:,}',unit_label(r),money(r['value']) if r['priced'] else '—'))
+            self.loot_rows[iid]=(who,item)
+            if selected_loot==(who,item):self.tree.selection_set(iid)
+        if hasattr(self,'loot_status'):self.loot_status.set(loot_summary(self.loot_report,self.active_seconds))
         for row in party_rows(live_party_report(getattr(self,'party_members',[]),self.active_seconds,self.totals)):
             # Rates use the live timer in the summary; row amounts refresh on events.
             if row[1]!='Adena/hr (estimated)':self.tree.insert('','end',values=row)
+    def edit_loot_value(self,event=None):
+        if getattr(self,'update_busy',False) or getattr(self,'reset_request',None) is not None:return
+        if event is not None and self.tree.identify_region(event.x,event.y)!='cell':return
+        selected=self.tree.selection()
+        pair=self.loot_rows.get(selected[0]) if selected else None
+        if not pair:
+            messagebox.showinfo('Item value','Select an actual item drop, not Adena or an estimated party row.',parent=self.root);return
+        _,item=pair;k=cost_key(item);session_id=self.session_id
+        value=simpledialog.askstring('Item sell value',f'{item}: expected Adena received per individual item (e.g. NPC sell price). Blank removes the value. Applies to all copies of this item in this session.',initialvalue=self.session_loot_prices.get(k,''),parent=self.root)
+        if value is None or self.session_id!=session_id or getattr(self,'reset_request',None) is not None:return
+        try:
+            if value.strip():self.session_loot_prices[k]=validate_price(value)
+            else:self.session_loot_prices.pop(k,None)
+        except ValueError as e:messagebox.showwarning('Item value',str(e),parent=self.root);return
+        if self.running or self.pending:
+            defaults=dict(self.default_loot_prices)
+            if k in self.session_loot_prices:defaults[k]=self.session_loot_prices[k]
+            else:defaults.pop(k,None)
+            try:save_loot_prices(defaults);self.default_loot_prices=defaults
+            except OSError as e:messagebox.showwarning('Item value',f'Session value changed; future default could not be saved: {e}',parent=self.root)
+        self.refresh_totals();self.save_session()
+    def edit_default_loot_value(self):
+        if getattr(self,'update_busy',False):return
+        selected=self.tree.selection()
+        pair=self.loot_rows.get(selected[0]) if selected else None
+        name=simpledialog.askstring('Default item value','Enter the item name exactly as shown in game.',initialvalue=pair[1] if pair else '',parent=self.root)
+        if name is None or not cost_key(name):return
+        k=cost_key(name)
+        value=simpledialog.askstring('Default item value',f'{name}: expected Adena per item for future sessions. Blank removes the default; saved sessions are not repriced.',initialvalue=self.default_loot_prices.get(k,''),parent=self.root)
+        if value is None:return
+        try:
+            defaults=dict(self.default_loot_prices)
+            if value.strip():defaults[k]=validate_price(value)
+            else:defaults.pop(k,None)
+            save_loot_prices(defaults);self.default_loot_prices=defaults
+        except (ValueError,OSError) as e:messagebox.showwarning('Item value',str(e),parent=self.root);return
+        self.status.set('Default item value saved for future sessions. Edit a recorded item to change the current session.')
     def edit_consumable_cost(self,event=None):
         if getattr(self,'update_busy',False):return
         if event is not None and self.consumable_tree.identify_region(event.x,event.y)!='cell':return
@@ -1195,7 +1255,9 @@ class App:
             w=csv.writer(f);w.writerow(['timestamp','status','raw_text']);w.writerows(self.raw)
         costpath=str(Path(path).with_suffix(''))+'-consumables.csv'
         write_cost_csv(costpath,cost_report([dict(events=self.events,consumable_prices=self.session_prices)]))
-        messagebox.showinfo('Exported',f'{path}\n{rawpath}\n{costpath}')
+        lootpath=str(Path(path).with_suffix(''))+'-loot-values.csv'
+        write_loot_csv(lootpath,loot_report([dict(events=self.events,loot_prices=self.session_loot_prices)]))
+        messagebox.showinfo('Exported',f'{path}\n{rawpath}\n{costpath}\n{lootpath}')
     def save_session(self,quiet=False):
         if not self.session_id:return True
         self.last_archive_save=time.monotonic()
@@ -1230,6 +1292,7 @@ class App:
             d=r['data'];events=[tuple(e) for e in d['events']];raw=[tuple(e) for e in d['raw']];reviews=review_queue(d);totals=totals_for(events)
         except Exception as e:messagebox.showerror('History',str(e));return False
         self.session_prices=clean_prices(d.get('consumable_prices',{}))
+        self.session_loot_prices=clean_prices(d.get('loot_prices',{}))
         self.party_members=list(d.get('party_members',[]))
         self.party_status.set('Saved session party: '+(', '.join(self.party_members) or 'not configured'))
         self.session_id=id;self.session_date=d['start'];self.session_end=d['end'];self.session_complete=d['complete'];self.active_seconds=d['seconds'];self.events=events;self.raw=raw;self.reviews=reviews;self.totals=totals;self.gaps=d['gaps'];self.started=time.monotonic();self.ended=self.started

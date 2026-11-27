@@ -288,3 +288,6 @@ New section creates a top-level character section; New folder nests under the se
 
 VERSION 0.38 — VISUAL UPDATER
 The portable tracker checks releases in a startup update manager before opening the dashboard. Known-size downloads show actual percentage and bytes. Verification, installation and testing show stage messages. Offline checks can continue to the current tracker. Auto-update preference remains in effect; manual updates and idle automatic installs also show progress.
+
+VERSION 0.39 — LOOT SELL VALUES
+Double-click a loot item or select Edit item value to enter expected Adena per unit. Estimated sale values remain separate from observed Adena, with personal value/hour and separate party values. Set default value saves future prices; history and reset preserve prices; exports include a loot-values CSV.

@@ -86,7 +86,10 @@ Create top-level character sections and nested folders. Drag sessions or reports
 ## Visual updater (v0.38)
 The portable tracker opens a dedicated update manager before the main dashboard. It checks the latest published release and respects automatic installation preferences. Downloads show measured bytes and percentage when the package size is known; preparation, verification and testing use an indeterminate progress bar. A failed incremental patch switches to the full package. Offline or failed checks can open the current tracker without an update. The separate installation helper shows an installing window during file replacement and restart. An update-triggered restart skips the redundant startup check. Periodic and manual updates also show the visual download window when idle. Upgrading from older versions uses their existing updater once; the new visual manager is available on subsequent launches.
 
-## Current status: v0.38
+## Manual loot sell values (v0.39)
+Double-click an actual item row in Dashboard → Session loot or select Edit item value. Enter expected Adena per individual item (e.g. NPC vendor sell price). Quantity times unit value is shown separately from actual Adena. Personal estimated loot value and its hourly rate exclude other players' drops; unpriced quantities are identified. Live edits become future defaults; stopped/historical edits only change that session. Set default value configures future sessions. Reset preserves active prices and merged reports use each original's own values. Export includes a loot-values CSV. Gross and net cash metrics and HUD remain unchanged; estimated sale value is not confirmed sale proceeds.
+
+## Current status: v0.39
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

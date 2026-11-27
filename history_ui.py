@@ -7,6 +7,7 @@ from history import duration,rate,history_forest,group_drop_plan,Archive,folder_
 from party import display_rows as party_rows, summary_text as party_summary
 from history import consumables_for
 from consumable_costs import cost_summary, money, write_cost_csv
+from loot_values import loot_summary, unit_label, write_loot_csv
 
 class FolderPicker(simpledialog.Dialog):
     def __init__(self,parent,records,title,current=''):
@@ -43,7 +44,7 @@ class HistoryWindow:
         self.destination=tk.StringVar(value='New sessions: History root')
         ttk.Label(self.win,textvariable=self.destination,style='Muted.TLabel',padding=(12,2,12,0)).pack(anchor='w')
         buttons=ttk.Frame(self.win,padding=(10,4,10,4));buttons.pack(fill='x')
-        for title,cmd in [('Refresh',self.refresh),('Merge selected…',self.merge),('Open for review',self.reopen),('Edit costs',self.reopen_costs),('Export CSV',self.export)]:ttk.Button(buttons,text=title,command=cmd).pack(side='left',padx=3)
+        for title,cmd in [('Refresh',self.refresh),('Merge selected…',self.merge),('Open for review',self.reopen),('Edit values/costs',self.reopen_costs),('Export CSV',self.export)]:ttk.Button(buttons,text=title,command=cmd).pack(side='left',padx=3)
         self.details=tk.StringVar(value='Select a saved session.');ttk.Label(self.win,textvariable=self.details,padding=10,wraplength=1020).pack(fill='x')
         f=ttk.Frame(self.win);f.pack(fill='both',expand=True,padx=10,pady=(0,10));self.loot=ttk.Treeview(f,columns=('who','item','qty'),show='headings',height=8)
         for c,t,w in [('who','Player',160),('item','Item',500),('qty','Quantity',140)]:self.loot.heading(c,text=t);self.loot.column(c,width=w)
@@ -170,8 +171,14 @@ class HistoryWindow:
         s=self.summaries[ids[0]];t=s['totals']
         self.details.set(f"{s['name']}  |  {len(s['sources'])} original session(s)  |  Active {duration(s['seconds'])}  |  EXP {t['You','XP / SP']:,}  |  SP {t['You','SP']:,}  |  Adena {t['You','Adena']:,}\nPending reviews: {s['pending']}  |  Capture/OCR warnings: {s['gaps']}"+('\nExpand the group above to inspect individual sessions.' if s['kind']=='merged' else ''))
         self.details.set(self.details.get()+f"\nKills: {s['kills']:,} ({rate(s['kills'],s['seconds'])}/h; XP events)")
+        valued={(r['who'],r['item']):r for r in s['loot_report']['rows']}
         for (who,item),q in sorted(t.items()):
-            if item not in ('XP / SP','SP'):self.loot.insert('','end',values=(who,item,f'{q:,}'))
+            if item in ('XP / SP','SP'):continue
+            r=valued.get((who,item))
+            suffix='' if r is None else (f" | {money(r['value'])} est." if r['priced'] else ' | unpriced')
+            if r and r['priced'] and r['unpriced']:suffix+=f" ({r['unpriced']:,} unpriced)"
+            self.loot.insert('','end',values=(who,item,f'{q:,}'+suffix))
+        self.details.set(self.details.get()+'\n'+loot_summary(s['loot_report'],s['seconds']))
         for r in s['consumable_report']['rows']:
             suffix=f" | {money(r['cost'])} Adena known" if r['priced'] else ' | unpriced'
             if r['priced'] and r['unpriced']:suffix+=f" ({r['unpriced']:,} unpriced)"
@@ -266,5 +273,6 @@ class HistoryWindow:
             with open(str(Path(path).with_suffix(''))+'-summary.csv','w',newline='',encoding='utf-8-sig') as f:
                 w=csv.writer(f);t=s['totals'];w.writerow(['name','active_seconds','xp','sp','adena','xp_per_hour','adena_per_hour','kills','kills_per_hour','pending_reviews']);w.writerow([s['name'],s['seconds'],t['You','XP / SP'],t['You','SP'],t['You','Adena'],rate(t['You','XP / SP'],s['seconds']),rate(t['You','Adena'],s['seconds']),s['kills'],rate(s['kills'],s['seconds']),s['pending']])
             write_cost_csv(str(Path(path).with_suffix(''))+'-consumables.csv',s['consumable_report'])
-            messagebox.showinfo('Export','Events, summary and consumable costs exported.',parent=self.win)
+            write_loot_csv(str(Path(path).with_suffix(''))+'-loot-values.csv',s['loot_report'])
+            messagebox.showinfo('Export','Events, summary, consumable costs and loot values exported.',parent=self.win)
         except Exception as e:messagebox.showerror('Export',str(e),parent=self.win)

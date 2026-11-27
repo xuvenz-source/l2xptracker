@@ -1,4 +1,4 @@
-L2 LEGACY FARMING TRACKER v0.38 — WINDOWS x64 PORTABLE
+L2 LEGACY FARMING TRACKER v0.39 — WINDOWS x64 PORTABLE
 
 1. Extract the ENTIRE ZIP to a normal folder (not directly inside the ZIP viewer).
 2. Double-click L2 Legacy Tracker.exe.
@@ -73,3 +73,5 @@ Reset (v0.36): main window or HUD Reset saves the old session after queued OCR, 
 History (v0.37): create character sections and nested folders, drag or Move to organise, New logs here sets future session destination, Delete removes selected entries after confirmation. Folder deletion keeps contents; report deletion keeps original sessions.
 
 Visual updater (v0.38): startup update check, measured download percentage and installation stages. Automatic updates respect existing preferences; offline users can continue without checking.
+
+Loot values (v0.39): edit item value in Dashboard Session loot. Estimated sale values and hourly rates are separate from observed Adena. Default values apply to future sessions; history preserves its own values.

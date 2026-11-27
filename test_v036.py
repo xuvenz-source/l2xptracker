@@ -11,7 +11,7 @@ class ResetTests(unittest.TestCase):
     def app(self):
         a=App.__new__(App);a.running=True;a.pending=2;a.closing=False;a.update_busy=False
         a.reset_request=None;a.run_id=8;a.session_pitch=19;a.session_colours={'xp':'#FF00FF'}
-        a.session_prices={'shot':'4'};a.party_members=['Friend'];a.pause_gate=PauseGate()
+        a.session_prices={'shot':'4'};a.session_loot_prices={'suede':'50'};a.party_members=['Friend'];a.pause_gate=PauseGate()
         a.inbox=queue.Queue();a.status=Mock();a.hud=None;a.halt=Mock()
         a.stop_btn=Mock();a.pause_btn=Mock();a.start_btn=Mock();a.reset_btn=Mock()
         a.session_id='old';a.started=None;a.last_archive_save=0;a.events=[];a.raw=[]
@@ -27,7 +27,7 @@ class ResetTests(unittest.TestCase):
         a.inbox.put(('done','ocr'));a.process_inbox()
         a.save_session.assert_called_once_with(quiet=False)
         self.assertEqual(a.totals['You','XP / SP'],221)
-        a.start.assert_called_once_with(rollover=dict(pitch=19,colours={'xp':'#FF00FF'},prices={'shot':'4'},party=['Friend'],paused=True))
+        a.start.assert_called_once_with(rollover=dict(pitch=19,colours={'xp':'#FF00FF'},prices={'shot':'4'},loot_prices={'suede':'50'},party=['Friend'],paused=True))
         self.assertIsNone(a.reset_request)
     def test_failed_save_cancels_reset(self):
         a=self.app();a.save_session.return_value=False;a.reset_session()
