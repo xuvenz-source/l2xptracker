@@ -440,7 +440,7 @@ def configured_xp_resolution(row,reads):
         return 'sp_partial',f'You have acquired {sv} SP; XP unknown. [XP conflict or unreadable: {evidence}]'
     return None
 
-def configured_ocr_rows(rows,colours,use_templates=True):
+def configured_ocr_rows(rows,colours,use_templates=False):
     """Respect shared colours: classify by text where a hue is not unique."""
     for row in rows:
         group=row_group(row,colours)
@@ -450,7 +450,9 @@ def configured_ocr_rows(rows,colours,use_templates=True):
         if use_templates:
             kind='xp' if group==('xp',) and colours['xp'].upper()=='#FF00FF' else 'adena' if 'adena' in group and set(group)<= {'adena','item'} and colours['adena'].upper()=='#FFFF00' else None
             if kind:
-                result=recognise_numeric(row,kind)
+                try:result=recognise_numeric(row,kind)
+                except Exception:
+                    diagnostic('Numeric template recognition failed; using standard OCR',exc_info=True);result=None
                 if result is not None:
                     if kind=='xp':yield ('template_line',f'You have acquired {result[0]} XP and {result[1]} SP.')
                     else:yield ('template_line',f'You have earned {result[0]} Adena.')
@@ -638,7 +640,7 @@ class App:
         ttk.Button(controls,text='Apply chat settings',command=self.apply_chat_style).pack(side='left',padx=5)
         self.numeric_templates_var=tk.BooleanVar(value=load_numeric_templates())
         ttk.Checkbutton(content,text='Large-text numeric recognition (experimental)',variable=self.numeric_templates_var,command=self.change_numeric_templates).pack(anchor='w',pady=(3,0))
-        ttk.Label(content,text='Uses verified digit shapes for magenta XP/SP and yellow Adena. Uncertain rows fall back to OCR. Applies from the next session.',style='Muted.TLabel',wraplength=680).pack(anchor='w')
+        ttk.Label(content,text='Experimental; off by default. Uses verified digit shapes for magenta XP/SP and yellow Adena. Uncertain rows fall back to OCR. Applies from the next session.',style='Muted.TLabel',wraplength=680).pack(anchor='w')
         ttk.Label(content,text='Match your game colours and text size; apply before starting a session.',style='Muted.TLabel').pack(anchor='w')
         ttk.Label(content,text='Tracking',style='Section.TLabel').pack(anchor='w',pady=(4,5))
         self.focus_pause_var=tk.BooleanVar(master=win,value=self.pause_on_blur)
@@ -990,12 +992,16 @@ class App:
                         pause(reason or 'Paused — window moved during capture; resynchronising.'); halt.wait(.05); continue
                     rgb=np.asarray(shot)[:,:,:3][:,:,::-1]; colours=getattr(self,'session_colours',None)
                     if colours:
-                        if alignment is None or (tick-last_alignment_check>=2 and (not alignment[2] or failures>=2)):
+                        if alignment is None or tick-last_alignment_check>=2:
                             measured=row_alignment(rgb,pitch,colours);last_alignment_check=tick
                             # Reproject the last committed frame onto the new
                             # lattice instead of dropping messages that scrolled
                             # in while the detector was establishing confidence.
-                            if alignment is None or (measured[2] and measured[:2]!=alignment[:2]):
+                            # Refine an uncertain zero-phase baseline as soon
+                            # as a usable sparse anchor appears. Once confirmed,
+                            # only a confident lattice may replace it.
+                            refine=alignment is not None and not alignment[2] and not measured[2] and measured[1]!=0 and measured[0]==alignment[0] and alignment[1]==0
+                            if alignment is None or refine or (measured[2] and measured[:2]!=alignment[:2]):
                                 if old_rgb is not None and old_rgb.shape==rgb.shape:
                                     old,_=aligned_rows(old_rgb,*measured[:2],colours)
                                 else:old=None
@@ -1059,7 +1065,7 @@ class App:
             try:
                 colours=getattr(self,'session_colours',None)
                 batch=np.concatenate(group)
-                results=(configured_ocr_rows(batch,colours) if getattr(self,'session_templates',True) else configured_ocr_rows(batch,colours,use_templates=False)) if colours else ocr_rows(batch)
+                results=(configured_ocr_rows(batch,colours,use_templates=True) if getattr(self,'session_templates',False) else configured_ocr_rows(batch,colours)) if colours else ocr_rows(batch)
                 for kind,line in results:
                     if line.strip():self.inbox.put((kind,(ts,line)))
             except Exception as e:

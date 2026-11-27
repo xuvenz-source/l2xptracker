@@ -3,7 +3,7 @@ import re
 import numpy as np
 from preferences import read_preferences, write_preference
 
-TEXT_SIZES={'Small':16,'Medium':17,'Large':21}
+TEXT_SIZES={'Small':16,'Medium':17,'Large':19}
 DEFAULT_COLOURS={'xp':'#B09B79','adena':'#FFFF00','item':'#FFFF00','consumable':'#B09B79','other':'#B09B79'}
 CUSTOM_COLOURS={'xp':'#FF00FF','adena':'#FFFF00','item':'#00FF00','consumable':'#00AAFF','other':'#B09B79'}
 LABELS={'xp':'XP / SP','adena':'Adena','item':'Items','consumable':'Consumables','other':'Other messages'}
@@ -87,21 +87,32 @@ def line_centres(mask,pitch):
     return np.array([(x[0]+x[-1])/2 for x in bands if len(x)>=3 and x[-1]-x[0]<max(15,pitch)])
 
 def fit_lattice(centres,pitch):
-    if len(centres)<4:return None
+    if len(centres)<3:return None
     candidates=[]
     for p in range(max(10,pitch-4),min(40,pitch+4)+1):
         distances=np.abs(((centres[:,None]-centres[None,:]+p/2)%p)-p/2)
         scores=(distances<=1.5).sum(axis=0)
         j=int(np.argmax(scores));inliers=distances[:,j]<=1.5
         fit=centres[inliers]
-        if len(fit)<4 or len(fit)/len(centres)<.8 or np.ptp(fit)<3*p:continue
+        if len(fit)<3 or len(fit)/len(centres)<.8 or np.ptp(fit)<(2*p-2 if len(fit)==3 else 3*p-2):continue
         if not np.any(np.abs(np.diff(fit)-p)<=2):continue
+        if len(fit)==3 and max(distances[inliers,j])>1:continue
         err=float(distances[inliers,j].mean())
         candidates.append((len(fit),-err,-abs(p-pitch),p,fit))
     if not candidates:return None
     _,_,_,actual,fit=max(candidates,key=lambda x:x[:3])
     phase=int(round((np.median(fit-np.round((fit-fit[0])/actual)*actual)-actual/2)%actual))%actual
     return actual,phase,True
+
+def sparse_phase(centres,pitch):
+    # A single bright line can establish the vertical phase, but not pitch.
+    # Keep the configured pitch until independent rows establish spacing.
+    if len(centres)==0:return pitch,0,False
+    distances=np.abs(((centres-centres[-1]+pitch/2)%pitch)-pitch/2)
+    fit=centres[distances<=1.5]
+    if len(fit)!=len(centres):return pitch,0,False
+    mid=np.median(fit-np.round((fit-fit[-1])/pitch)*pitch)
+    return pitch,int(round((mid-pitch/2)%pitch))%pitch,False
 
 def row_alignment(rgb,pitch,colours):
     """Infer line geometry from coloured text, or tightly matched full palette.
@@ -124,11 +135,7 @@ def row_alignment(rgb,pitch,colours):
         # Require consistency with any independently visible bright lines.
         p,phase,_=result
         if not len(centres) or np.mean(np.abs(((centres-phase-p/2+p/2)%p)-p/2)<=3)>=.8:return result
-    if len(centres)>=2:
-        delta=np.abs(((centres-centres[0]+pitch/2)%pitch)-pitch/2)
-        if np.max(delta)<=1.5:
-            return pitch,int(round((centres[0]-pitch/2)%pitch))%pitch,False
-    return pitch,0,False
+    return sparse_phase(centres,pitch)
 
 def aligned_rows(rgb,pitch,phase,colours):
     """Return matching mask and RGB rows using identical physical boundaries."""

@@ -113,7 +113,10 @@ Earned item messages such as `You have earned Turek Dog Tag.` are counted as ite
 ## Large-text numeric recognition (v0.44 experimental)
 The supplied Large-text screenshots provide verified masks for every digit and the surrounding personal XP/SP and earned-Adena message shapes. A fast path accepts only complete matching message geometry with high-confidence digit matches and agreement at two colour thresholds. Other messages, colours, font sizes, comma-separated amounts and uncertain matches use the existing OCR pipeline. Settings → Tracking → Large-text numeric recognition (experimental) can disable it for the next session. Activity marks accepted fast-path rows `[digit template]`; raw exports identify them as `template`. Large preset is now 21 px, with automatic alignment and Manual still available. The prototype recognized 59/59 supplied complete reward lines and 3/3 earlier held-out lines; these are limited screenshot tests, not a live capture accuracy guarantee. No self-training from reviews yet; the bundled library contains only generic binary glyph masks.
 
-## Current status: v0.44
+## Capture reliability hotfix (v0.44.1)
+After live reports of garbled full-line OCR, restore the nominal Large pitch of 19 (Manual 21 is still supported), automatically recheck alignment every two seconds, allow three coherent bright lines to establish actual spacing and use sparse bright text to centre row crops. The experimental template engine is opt-in again, with a new preference key so the previous default cannot silently enable it. Template exceptions fall back to standard OCR. These changes address plausible clipping and isolate the experimental engine; the review screenshot itself does not contain raw chat pixels, so the exact live failure is not confirmed.
+
+## Current status: v0.44.1
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

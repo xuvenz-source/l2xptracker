@@ -26,7 +26,7 @@ class NumericTemplateTests(unittest.TestCase):
         for kind,values,row in samples():
             self.assertEqual(recognise(row,kind),values)
             with patch('tracker.single_ocr',side_effect=AssertionError('fast path should not invoke OCR')):
-                result=list(configured_ocr_rows([row],CUSTOM_COLOURS))
+                result=list(configured_ocr_rows([row],CUSTOM_COLOURS,use_templates=True))
             self.assertEqual(len(result),1)
             self.assertEqual(result[0][0],'template_line')
             event=parse(result[0][1])
@@ -37,6 +37,16 @@ class NumericTemplateTests(unittest.TestCase):
         line='You have acquired 398 XP and 19 SP.'
         with patch('tracker.single_ocr',return_value=line):
             self.assertEqual(list(configured_ocr_rows([row],CUSTOM_COLOURS,use_templates=False)),[('line',line)])
+    def test_template_failure_uses_standard_ocr(self):
+        kind,values,row=next(samples())
+        line='You have acquired 398 XP and 19 SP.'
+        with patch('tracker.recognise_numeric',side_effect=RuntimeError('test')),patch('tracker.single_ocr',return_value=line):
+            self.assertEqual(list(configured_ocr_rows([row],CUSTOM_COLOURS,use_templates=True)),[('line',line)])
+    def test_default_uses_standard_ocr(self):
+        kind,values,row=next(samples())
+        line='You have acquired 398 XP and 19 SP.'
+        with patch('tracker.recognise_numeric',side_effect=AssertionError('disabled')),patch('tracker.single_ocr',return_value=line):
+            self.assertEqual(list(configured_ocr_rows([row],CUSTOM_COLOURS)),[('line',line)])
     def test_clipped_and_wrong_geometry_fallback(self):
         kind,values,row=next(samples())
         self.assertIsNone(recognise(row[:19],kind))
@@ -51,6 +61,7 @@ class NumericTemplateTests(unittest.TestCase):
     def test_preference(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'prefs.json'
-            self.assertTrue(load_numeric_templates(path));save_numeric_templates(False,path)
+            self.assertFalse(load_numeric_templates(path));path.write_text('{"numeric_templates":true}')
+            self.assertFalse(load_numeric_templates(path));save_numeric_templates(False,path)
             self.assertFalse(load_numeric_templates(path))
             save_numeric_templates(True,path);self.assertTrue(load_numeric_templates(path))

@@ -77,8 +77,9 @@ def save_backup_retention(value,path=None):
 
 
 def load_numeric_templates(path=None):
-    return read_preferences(path).get('numeric_templates',True) is not False
+    # New opt-in key deliberately resets the v0.44 experimental default.
+    return read_bool('numeric_templates_opt_in',False,path)
 
 def save_numeric_templates(value,path=None):
     if type(value) is not bool:raise ValueError('Expected a boolean')
-    write_preference('numeric_templates',value,path)
+    write_preference('numeric_templates_opt_in',value,path)

@@ -11,13 +11,13 @@ class ChatStyleTests(unittest.TestCase):
         a[3:12,10:90]=[int(colour[i:i+2],16) for i in (1,3,5)]
         return a
     def test_measured_pitches(self):
-        # Full-resolution in-game screenshots: small 16, medium 17, latest Large samples 21.
-        self.assertEqual(TEXT_SIZES,{'Small':16,'Medium':17,'Large':21})
+        # Full-resolution in-game screenshots: small 16, medium 17, Large nominal 19 (auto detects actual pitch).
+        self.assertEqual(TEXT_SIZES,{'Small':16,'Medium':17,'Large':19})
         with tempfile.TemporaryDirectory() as d:
             import json
             p=Path(d)/'prefs.json'
             p.write_text(json.dumps({'chat_style':dict(colours=CUSTOM_COLOURS,size='Large',pitch=18)}))
-            self.assertEqual(load_style(p)['pitch'],21)
+            self.assertEqual(load_style(p)['pitch'],19)
             self.assertEqual(load_style(p)['colours'],CUSTOM_COLOURS)
             save_style(dict(colours=CUSTOM_COLOURS,size='Manual',pitch=18),p)
             self.assertEqual(load_style(p)['pitch'],18)
@@ -25,7 +25,7 @@ class ChatStyleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'prefs.json'
             self.assertEqual(load_style(p)['colours'],DEFAULT_COLOURS)
-            self.assertEqual(load_style(p,21)['size'],'Large')
+            self.assertEqual(load_style(p,21)['size'],'Manual')
             for size,pitch in TEXT_SIZES.items():
                 save_style(dict(colours=CUSTOM_COLOURS,size=size,pitch=20),p)
                 self.assertEqual(load_style(p)['pitch'],pitch)
