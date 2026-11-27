@@ -149,6 +149,10 @@ def xp_like(line):
     return bool(re.search(r'\bacquired\b|(?<=[0-9\s])XP\s*and(?=\s|[0-9])',line,re.I))
 
 
+# Known OCR punctuation after introductory words; never accept a digit
+# suffix of a malformed token such as S67, 8.67 or 86/7.
+XP_TOKEN_START=r'(?:^|(?<=\s)|(?<=®)|(?<=[A-Za-z]\.))'
+
 def xp_numeric_candidate(line):
     # Only use this in the XP retry path, which is gated by xp_like(first).
     # Ignore damaged introductory words, but require both numeric fields and
@@ -160,8 +164,10 @@ def xp_numeric_candidate(line):
     # digit or x after explicit punctuation, not arbitrary trailing text.
     # Do not remove any characters from either numeric field.
     tail = r'(?:\s*[.,;:]+(?:\s+[0-9x])?\s*[.,;:]*)?\s*$'
-    m = re.search(r'(?:^|(?<=\s))'+n+r'\s*XP\s*and\s*'+n+r'\s*S[PF]'+tail,line.strip(),re.I)
+    m = re.search(XP_TOKEN_START+n+r'\s*XP\s*and\s*'+n+r'\s*S[PF]'+tail,line.strip(),re.I)
     if not m: return None
+    prefix=line.strip()[:m.start(1)].strip()
+    if prefix and re.search(r'(?:^|\s)[0-9,./?&+-]+$',prefix):return None
     return tuple(int(x.replace(',', '')) for x in m.groups())
 
 
@@ -389,7 +395,7 @@ def ocr_rows(rows):
 
 def xp_field_candidate(text):
     # Reject numeric suffixes of damaged tokens and split numeric fields.
-    m=re.search(r'(?:^|(?<=\s))([0-9]+(?:,[0-9]{3})*)\s*XP\s*and(?=\s|[0-9&©?])',text.strip(),re.I)
+    m=re.search(XP_TOKEN_START+r'([0-9]+(?:,[0-9]{3})*)\s*XP\s*and(?=\s|[0-9&©?])',text.strip(),re.I)
     if not m:return None
     prefix=text.strip()[:m.start(1)].strip()
     if prefix and re.search(r'(?:^|\s)[0-9,./?&+-]+$',prefix):return None

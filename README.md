@@ -101,10 +101,10 @@ Settings → Tracking → Updates → Keep installation backups defaults to two 
 ## Automatic chat row alignment (v0.43)
 The selected font size is a nominal pitch. At capture startup, several high-contrast colour-matched chat lines can establish a more accurate physical pitch and vertical alignment (including Large rendered at 18 px rather than 19). Mask overlap and OCR crops share the same aligned rows. Weak evidence retains the configured pitch; changed geometry causes a conservative rebaseline, not replay of prior chat. HUD status distinguishes waiting, ready, synchronising and active capture. Existing chat at session start is intentionally not counted.
 
-## XP recognition hotfix (v0.43.3)
+## XP recognition hotfix (v0.43.4)
 The reported screenshot produced 867, 66/ and S67 as OCR interpretations of the XP amount, while SP was consistently 43. Magenta XP messages now retry with two independent colour-contrast masks when numeric agreement is missing. Invalid digit tokens are not treated as valid numeric suffixes. XP and SP are verified independently, preserving an agreed XP amount even when SP is uncertain; conflicting valid values still require review.
 
-## Current status: v0.43.3
+## Current status: v0.43.4
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

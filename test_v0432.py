@@ -18,10 +18,14 @@ class XPRecognitionTests(unittest.TestCase):
         self.assertEqual(result,('line',GOOD))
         self.assertEqual(parse(result[1])[3:],(867,43))
     def test_damaged_tokens_never_vote(self):
-        for token in ('S67','66/','86/7','8?67','8 67','1,22'):
+        for token in ('S67','66/','86/7','8?67','8 67','1,22','8.67','-67','+67','1, 22','867x'):
             text=f'You have acquired {token} XP and 43 SP.'
             self.assertIsNone(xp_field_candidate(text))
-            if token!='8 67':self.assertIsNone(xp_numeric_candidate(text))
+            self.assertIsNone(xp_numeric_candidate(text))
+    def test_known_intro_punctuation_preserved(self):
+        for text,expected in [('You haveyatquired®261 XP and 12 SP.',(261,12)),('You have acquired.291 XP and 9 SP.',(291,9))]:
+            self.assertEqual(xp_numeric_candidate(text),expected)
+            self.assertEqual(xp_field_candidate(text),expected[0])
     def test_conflicting_xp_remains_review(self):
         result=self.recognize([GOOD,'You have acquired 367 XP and 43 SP.',GOOD,GOOD,GOOD])
         self.assertEqual(result[0],'sp_partial')
