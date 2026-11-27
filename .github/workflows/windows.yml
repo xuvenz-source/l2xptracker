@@ -108,7 +108,7 @@ jobs:
           unzip -tq "$NAME"
           # Existing releases are immutable. Only resume a draft belonging
           # to this exact tested commit; do not overwrite mismatched assets.
-          release=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --slurp | jq -ce --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | if length <= 1 then .[0] // null else error("Ambiguous release") end')
+          release=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --slurp | jq -c --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | if length <= 1 then .[0] // null else error("Ambiguous release") end')
           if [[ "$release" != "null" ]]; then
             if [[ "$(jq -r .draft <<< "$release")" == "false" ]]; then
               echo "Release already published; no changes."
