@@ -1,14 +1,12 @@
 # Maintainer release checklist
 
-1. The repository is https://github.com/xuvenz-source/l2xptracker and is already public. Push the files from this folder (including hidden `.github`). Do not upload personal settings, logs or databases.
-2. Check that the Actions test workflow passes. Pushes to main automatically build after successful tests. To rebuild manually, under Actions choose **Windows tests and portable build**, then **Run workflow** on the trusted main branch. The Windows runner installs the pinned Chocolatey Tesseract distribution and invokes the existing builder and frozen-app self-test. The v0.19 Windows build passed; validate the new updater workflow before sharing.
-3. Download the workflow artifact, extract its outer archive, and verify the inner portable ZIP on a clean Windows x64 PC. Test HUD, session saving, pause/resume, and OCR with server permission. Check SHA-256 and compare actual XP/Adena with recorded values.
-4. Check the actual bundled dependency notices and meet all redistribution requirements (including any applicable source-offer requirements); choose a source license separately. Get server approval before recommending use on Reborn. The application remains unsigned.
-5. The workflow creates a draft GitHub Release tagged `v0.29` from the tested commit, with the portable ZIP and `.sha256` file. Verify both assets and edit release notes. Publish only after review. Public release assets can then be downloaded without a GitHub account.
-6. For later releases, update VERSION in version.py, README.md and READ ME - Portable.txt to match the new tag. Repeat the checks. Never commit generated ZIPs or personal data to source control.
+The owner has authorized automatic publication of future versioned updates. The Windows workflow runs on trusted main pushes (and manual dispatches), not untrusted pull requests. Pull requests run tests only. Version v0.31.2 is handled by its already queued separate release workflow; all subsequent versioned updates use the automatic pipeline.
 
-The workflow deliberately does not publish releases automatically. The release is an owner decision after smoke tests, license review, and clean-PC testing. Future automation can create draft releases after builds once this process is validated.
+1. Bump VERSION in version.py for each distributable update, and keep README.md and READ ME - Portable.txt consistent. Never commit generated ZIPs, personal settings, logs, or databases.
+2. The main-branch workflow runs the full test suite, builds the portable Windows x64 program using the pinned Tesseract package, runs the frozen-app self-test, and produces a ZIP and SHA-256.
+3. The release job validates the full ZIP and checksum. An optional delta is built only against the latest public release and reconstructed and compared by delta.py; a failed optional delta does not prevent publishing a full package.
+4. The job uploads a draft tied to the exact tested commit, downloads its archive(s) and checksum(s), checks SHA-256 against the release asset digest, verifies archive integrity, and publishes as latest only after all required checks succeed. Older or already-published versions are skipped. A same-commit draft can be retried; a mismatched or incomplete draft is not silently overwritten. No separate owner approval is needed for each successful version.
+5. If a required check fails, no automatic publication occurs. Inspect Actions, fix the problem and rerun or bump the version. Superseded historical drafts remain unpublished.
+6. Keep bundled dependency notices and redistribution obligations current; the app is unsigned. Automated checks do not replace actual clean-PC, upgrade, HUD, session saving, pause/resume, or live gameplay testing with server permission. These limitations are stated in release notes. Obtain server approval before recommending use on Reborn.
 
-The updater ignores drafts and prereleases. The draft job does not overwrite an existing release; bump the version or deliberately replace a draft after review. Test an upgrade on Windows before relying on automatic installation. Do not publish until the checks above are complete.
-
-If a delta is attached, verify its SHA-256 and reconstruction before publishing. The full ZIP remains mandatory. Old versions use full updates.
+The updater ignores drafts and prereleases, uses the latest public release, and verifies checksums. Old versions can use full updates when there is no exact-version delta. Rebuild manually under Actions → Windows tests and portable build → Run workflow on trusted main.

@@ -62,7 +62,7 @@ jobs:
             Share with friends/*.zip
             Share with friends/*.sha256
           if-no-files-found: error
-  draft_release:
+  publish_release:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: build
     runs-on: ubuntu-latest
@@ -79,7 +79,7 @@ jobs:
         with:
           name: L2-Legacy-Tracker-Windows-x64
           path: release-files
-      - name: Prepare draft for owner review
+      - name: Verify packages and automatically publish versioned release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -87,26 +87,81 @@ jobs:
           VERSION=$(python3 -c 'from version import VERSION; print(VERSION)')
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
           TAG="v$VERSION"
+          # v0.31.2 is already assigned to its separately queued approved
+          # publishing run. This policy applies to every subsequent version.
+          if [[ "$TAG" == "v0.31.2" ]]; then
+            echo "v0.31.2 has its own previously queued publishing workflow."
+            exit 0
+          fi
+          # Do not let an older build replace the latest published version.
+          BASE=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          [[ "$BASE" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
+          if [[ "$BASE" == "$TAG" || "$(printf '%s\n' "$BASE" "$TAG" | sort -V | tail -1)" != "$TAG" ]]; then
+            echo "Version already published or superseded; no release needed."
+            exit 0
+          fi
           NAME="L2_Legacy_Tracker_$TAG""_Windows_x64_Portable.zip"
           cd release-files
           test -f "$NAME"
           test -f "$NAME.sha256"
           sha256sum -c "$NAME.sha256"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release or draft already exists; not overwriting it."
-            exit 0
+          unzip -tq "$NAME"
+          # Existing releases are immutable. Only resume a draft belonging
+          # to this exact tested commit; do not overwrite mismatched assets.
+          release=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --slurp | jq -ce --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | if length <= 1 then .[0] // null else error("Ambiguous release") end')
+          if [[ "$release" != "null" ]]; then
+            if [[ "$(jq -r .draft <<< "$release")" == "false" ]]; then
+              echo "Release already published; no changes."
+              exit 0
+            fi
+            jq -e --arg sha "$GITHUB_SHA" '.target_commitish == $sha' <<< "$release" >/dev/null
           fi
           assets=("$NAME" "$NAME.sha256")
           # Optional, exact-version delta against the latest public release.
           # Failure to download/build a patch never prevents a full installer.
-          if BASE=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name) && [[ "$BASE" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] && [[ "$BASE" != "$TAG" ]]; then
+          if [[ "$release" == "null" && "$BASE" != "$TAG" ]]; then
             OLD="L2_Legacy_Tracker_${BASE}_Windows_x64_Portable.zip"
             PATCH="L2_Legacy_Tracker_${BASE}_to_${TAG}_Windows_x64_Delta.zip"
             if gh release download "$BASE" --repo "$GITHUB_REPOSITORY" --pattern "$OLD" --pattern "$OLD.sha256" && sha256sum -c "$OLD.sha256" && python3 ../delta.py "$OLD" "$NAME" "${BASE#v}" "$VERSION" "$PATCH" && test -f "$PATCH"; then
+              unzip -tq "$PATCH"
               sha256sum "$PATCH" > "$PATCH.sha256"
               assets+=("$PATCH" "$PATCH.sha256")
             else
               echo "::warning::No verified incremental patch; full package remains available."
             fi
           fi
-          gh release create "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title "L2 Legacy Tracker $TAG" --notes "Portable Windows x64 build with in-app updater. Extract the full ZIP and run L2 Legacy Tracker.exe. Review dependency notices and test on a clean Windows PC before publishing."
+          if [[ "$release" == "null" ]]; then
+            gh release create "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title "L2 Legacy Tracker $TAG" --notes "Automated portable Windows x64 release. Unit tests, frozen-app smoke test, ZIP integrity and checksums are required before publication. Unsigned experimental build; live gameplay and clean-PC upgrade testing are not confirmed by CI. Extract the full ZIP into a writable directory. See bundled dependency notices and obtain server approval before use."
+          fi
+          release=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --slurp | jq -ce --arg tag "$TAG" --arg sha "$GITHUB_SHA" '[.[][] | select(.tag_name == $tag and .target_commitish == $sha and .draft == true)] | if length == 1 then .[0] else error("Missing or ambiguous tested draft") end')
+          id=$(jq -er '.id' <<< "$release")
+          dir=$(mktemp -d)
+          trap 'rm -rf -- "$dir"' EXIT
+          verify_archive() {
+            local archive="$1" zip_id hash_id digest actual checksum
+            zip_id=$(jq -er --arg n "$archive" '[.assets[] | select(.name == $n and .state == "uploaded" and .size > 0)] | if length == 1 then .[0].id else error("Missing archive") end' <<< "$release")
+            hash_id=$(jq -er --arg n "$archive.sha256" '[.assets[] | select(.name == $n and .state == "uploaded" and .size > 0 and .size < 4096)] | if length == 1 then .[0].id else error("Missing checksum") end' <<< "$release")
+            digest=$(jq -er --arg n "$archive" '.assets[] | select(.name == $n) | .digest' <<< "$release")
+            gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$zip_id" > "$dir/$archive"
+            gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$hash_id" > "$dir/$archive.sha256"
+            actual=$(sha256sum "$dir/$archive" | cut -d ' ' -f1)
+            checksum=$(tr -d '\r\n' < "$dir/$archive.sha256")
+            [[ "$checksum" == "$actual  $archive" ]]
+            [[ "$digest" == "sha256:$actual" ]]
+            unzip -tq "$dir/$archive"
+          }
+          verify_archive "$NAME"
+          # Every attached incremental archive must have a matching checksum.
+          while IFS= read -r patch; do
+            [[ "$patch" =~ ^L2_Legacy_Tracker_v[0-9]+\.[0-9]+(\.[0-9]+)?_to_${TAG}_Windows_x64_Delta\.zip$ ]]
+            verify_archive "$patch"
+          done < <(jq -r '.assets[].name | select(endswith("_Delta.zip"))' <<< "$release")
+          # Recheck latest immediately before promotion to prevent downgrade.
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          [[ "$latest" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
+          if [[ "$latest" == "$TAG" || "$(printf '%s\n' "$latest" "$TAG" | sort -V | tail -1)" != "$TAG" ]]; then
+            echo "A newer or identical version is public; leave this draft unpublished."
+            exit 0
+          fi
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F draft=false -F prerelease=false -f make_latest=true --jq '{tag_name,draft,html_url}'
+          gh api "repos/$GITHUB_REPOSITORY/releases/$id" --jq '.draft' | grep -qx false
