@@ -2,6 +2,7 @@
 import ctypes as c
 from ctypes import wintypes as w
 import os, time
+from decimal import Decimal
 from diagnostics import diagnostic
 from preferences import HUD_OPACITY_DEFAULT, validate_hud_opacity
 
@@ -41,13 +42,19 @@ def hud_position(geo, chat, desktop=None, preferred=None):
 
 
 def rate_text(total, seconds):
-    return f'{total*3600/max(1,seconds):,.0f}' if seconds>=1 else '—'
+    return f'{Decimal(str(total))*3600/Decimal(str(seconds)):,.0f}' if seconds>=1 else '—'
+
+
+def adena_metric(adena,seconds,consumable_cost=None,unpriced_uses=0):
+    if consumable_cost is None:return 'ADENA / HR',rate_text(adena,seconds)
+    label='NET ADENA/H*' if unpriced_uses else 'NET ADENA/H'
+    return label,rate_text(Decimal(str(adena))-Decimal(str(consumable_cost)),seconds)
 
 
 class Hud:
     def __init__(self, preferred=None, on_move=None, on_pause=None, opacity=HUD_OPACITY_DEFAULT):
         self.opacity=validate_hud_opacity(opacity)
-        self.hwnd=None; self.shown=False; self.position=None; self.values=('—','—','—')
+        self.hwnd=None; self.shown=False; self.position=None; self.values=('—','—','—'); self.adena_label='ADENA / HR'
         self.preferred=preferred; self.on_move=on_move; self.drag=None; self.interactive=False
         self.locked=True; self.lock_first=None; self.press_handled=False; self.native_released=False
         self.last_mouse_down=None; self.placement=None; self.on_pause=on_pause; self.paused=False; self.pause_pressed=False
@@ -185,7 +192,7 @@ class Hud:
                     self.u.FillRect(dc,c.byref(w.RECT(0,0,WIDTH,HEIGHT)),self.brush)
                     for x in (103,206):self.u.FillRect(dc,c.byref(w.RECT(x,12,x+1,50)),self.divider)
                     self.g.SetBkMode(dc,1)
-                    for i,(label,value,colour) in enumerate(zip(('ADENA / HR','EXP / HR','KILLS / HR'),self.values,((247,202,102),(134,224,183),(214,224,245)))):
+                    for i,(label,value,colour) in enumerate(zip((getattr(self,'adena_label','ADENA / HR'),'EXP / HR','KILLS / HR'),self.values,((247,202,102),(134,224,183),(214,224,245)))):
                         x=i*103+8
                         self.text(dc,label,(x,7,288 if i==2 else x+91,24),self.small,(180,190,205))
                         self.text(dc,value,(x,26,x+91,53),self.large,colour)
@@ -238,7 +245,7 @@ class Hud:
             self.preferred=(candidate[0]-geo[0],candidate[1]-geo[1]); self.cancel_placement()
             if self.on_move:self.on_move(self.preferred)
         return candidate
-    def update(self,api,target,chat,running,seconds,adena,xp,kills=0,paused=False):
+    def update(self,api,target,chat,running,seconds,adena,xp,kills=0,paused=False,consumable_cost=None,unpriced_uses=0):
         if not self.hwnd:return
         if not running or not target or not api.usable(target.hwnd) or api.pid(target.hwnd)!=target.pid or api.foreground()!=target.hwnd:
             if not running or (getattr(self,'placement',None) and self.placement['seen']):self.cancel_placement()
@@ -270,9 +277,10 @@ class Hud:
                         pos=candidate; self.preferred=(pos[0]-geo[0],pos[1]-geo[1])
                 else:self.finish_drag()
         if pos is None:self.hide();return
-        values=(rate_text(adena,seconds),rate_text(xp,seconds),rate_text(kills,seconds))
-        if values!=self.values or paused!=getattr(self,'paused',False):
-            self.values=values;self.paused=paused;self.u.InvalidateRect(self.hwnd,None,False)
+        label,adena_rate=adena_metric(adena,seconds,consumable_cost,unpriced_uses)
+        values=(adena_rate,rate_text(xp,seconds),rate_text(kills,seconds))
+        if values!=self.values or paused!=getattr(self,'paused',False) or label!=getattr(self,'adena_label','ADENA / HR'):
+            self.values=values;self.paused=paused;self.adena_label=label;self.u.InvalidateRect(self.hwnd,None,False)
         if not self.shown or pos!=self.position:
             if self.u.SetWindowPos(self.hwnd,c.c_void_p(-1),*pos,WIDTH,HEIGHT,0x0010|0x0040|0x0200):
                 self.shown=True;self.position=pos

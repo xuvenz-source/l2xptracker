@@ -21,7 +21,7 @@ from runtime_ocr import configure_ocr
 from version import VERSION
 from diagnostics import setup_diagnostics, diagnostic
 from appearance import Appearance, Dashboard, save_mode
-from preferences import load_focus_pause, save_focus_pause, load_auto_update, save_auto_update, load_hud_opacity, save_hud_opacity, HUD_OPACITY_MIN, HUD_OPACITY_MAX, HUD_OPACITY_DEFAULT
+from preferences import load_focus_pause, save_focus_pause, load_auto_update, save_auto_update, load_hud_opacity, save_hud_opacity, HUD_OPACITY_MIN, HUD_OPACITY_MAX, HUD_OPACITY_DEFAULT, load_hud_net_adena, save_hud_net_adena
 from party_setup_ui import PartySetup
 from update_ui import UpdateUI
 from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows
@@ -428,6 +428,7 @@ class App:
         self.appearance=Appearance(root)
         self.pause_on_blur=load_focus_pause();self.auto_update=load_auto_update();self.settings_win=None
         self.hud_opacity=load_hud_opacity();self.hud_opacity_save_job=None
+        self.hud_net_adena=load_hud_net_adena()
         self.default_prices=load_prices();self.session_prices=dict(self.default_prices);self.consumable_report=cost_report([])
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
         self.party_members=[]; self.next_party_members=[]; self.kills=0; self.update_busy=False
@@ -557,6 +558,9 @@ class App:
         self.opacity_slider=ttk.Scale(hudappearance,from_=HUD_OPACITY_MIN,to=HUD_OPACITY_MAX,variable=self.hud_opacity_var,command=self.change_hud_opacity,length=160);self.opacity_slider.pack(side='left')
         ttk.Label(hudappearance,textvariable=self.hud_opacity_label,width=5).pack(side='left',padx=5)
         ttk.Button(hudappearance,text='Reset',command=self.reset_hud_opacity).pack(side='left')
+        self.hud_net_adena_var=tk.BooleanVar(value=self.hud_net_adena)
+        ttk.Checkbutton(content,text='Subtract consumable costs from HUD Adena/hr (net)',variable=self.hud_net_adena_var,command=self.change_hud_net_adena).pack(anchor='w')
+        ttk.Label(content,text='Net Adena/h* indicates some recorded uses have no price. Only known costs are deducted.',style='Muted.TLabel',wraplength=760).pack(anchor='w',pady=(0,2))
         ttk.Separator(content).pack(fill='x',pady=12)
         ttk.Label(content,text='Appearance',style='Section.TLabel').pack(anchor='w')
         ttk.Checkbutton(content,text='Light mode',variable=self.dark_mode,onvalue=False,offvalue=True,command=self.toggle_appearance).pack(anchor='w',pady=(6,5))
@@ -629,6 +633,10 @@ class App:
             self.root.after_cancel(self.hud_opacity_save_job);self.hud_opacity_save_job=None
         try:save_hud_opacity(self.hud_opacity)
         except OSError as e:self.status.set(f'HUD opacity changed, but could not save: {e}')
+    def change_hud_net_adena(self):
+        self.hud_net_adena=bool(self.hud_net_adena_var.get())
+        try:save_hud_net_adena(self.hud_net_adena)
+        except OSError as e:self.status.set(f'HUD Adena display changed, but could not save: {e}')
     def change_focus_policy(self):
         value=bool(self.focus_pause_var.get())
         self.pause_on_blur=value;self.pause_gate.set_focus_policy(value)
@@ -1131,7 +1139,10 @@ class App:
         ttk.Button(buttons,text='Cancel',command=win.destroy).pack(side='right',padx=8)
     def hud_tick(self):
         if self.hud and self.api:
-            try: self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get(),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills,paused=self.pause_gate.snapshot()[0])
+            try:
+                report=getattr(self,'consumable_report',{})
+                net=getattr(self,'hud_net_adena',False)
+                self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get(),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills,paused=self.pause_gate.snapshot()[0],consumable_cost=report.get('cost',0) if net else None,unpriced_uses=report.get('unpriced',0) if net else 0)
             except Exception as e:
                 diagnostic('HUD update exception',exc_info=True)
                 hud,self.hud=self.hud,None

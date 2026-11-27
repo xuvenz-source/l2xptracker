@@ -1,4 +1,4 @@
-L2 LEGACY FARMING TRACKER v0.34.1 — WINDOWS x64 PORTABLE
+L2 LEGACY FARMING TRACKER v0.35 — WINDOWS x64 PORTABLE
 
 1. Extract the ENTIRE ZIP to a normal folder (not directly inside the ZIP viewer).
 2. Double-click L2 Legacy Tracker.exe.
@@ -63,3 +63,5 @@ HUD movement (v0.32): double-click the top-right padlock to unlock; left-click a
 HUD opacity (v0.33): Settings → Tracking → HUD opacity. Choose 20–100%; Reset returns to 92%. Saved automatically; return to the foreground game to see the new opacity.
 
 Consumable costs (v0.34): double-click a Dashboard consumable to enter Adena per observed activation. Set default cost preconfigures future sessions. History retains each original session's prices. Unpriced uses are marked, not assumed free. Separate consumable CSV is included in exports.
+
+HUD net Adena (v0.35): Settings → Tracking → Subtract consumable costs from HUD Adena/hr (net). Replaces gross HUD rate with net of known costs; * marks unpriced uses. Default off; saves automatically.

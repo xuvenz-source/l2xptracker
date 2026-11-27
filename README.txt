@@ -273,3 +273,6 @@ Settings → Tracking → HUD opacity adjusts the entire floating HUD (20–100%
 
 VERSION 0.34 — CONSUMABLE COSTS
 Dashboard: double-click a consumable and enter Adena per observed activation; blank removes a price, zero means free. Cost and cost/hour, Adena after known costs and unpriced activations are shown. Set default cost saves future prices; historical sessions retain their own prices and can be edited individually. Exports include a consumable costs CSV.
+
+VERSION 0.35 — OPTIONAL NET ADENA HUD
+Settings → Tracking → Subtract consumable costs from HUD Adena/hr (net). Replaces the existing HUD rate, not a new column. NET ADENA/H* flags incomplete pricing. Gross dashboard/history figures remain unchanged. Saved preference, default off.

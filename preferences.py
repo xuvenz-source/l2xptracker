@@ -59,3 +59,9 @@ def load_hud_opacity(path=None):
 
 def save_hud_opacity(value,path=None):
     write_preference('hud_opacity',validate_hud_opacity(value),path)
+
+def load_hud_net_adena(path=None):return read_bool('hud_net_adena',False,path)
+
+def save_hud_net_adena(value,path=None):
+    if type(value) is not bool:raise ValueError('Expected a boolean')
+    write_preference('hud_net_adena',value,path)

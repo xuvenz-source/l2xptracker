@@ -71,7 +71,10 @@ Settings → Tracking → HUD opacity adjusts the entire floating HUD from 20% t
 ## Consumable costs (v0.34)
 Double-click a consumable in the Dashboard or select Edit selected cost to assign Adena per observed activation. Enter the combined cost if a weapon uses several units per activation; no automatic inventory quantity is assumed. Blank means unpriced, zero means free. Prices apply retroactively to the selected session. During active tracking, edits also save as a future default; historical edits change only that session. Set default cost lets you preconfigure prices by exact item name for future sessions. History keeps each original session's prices, even when merged. Reports show known cost, cost/hour, Adena after known costs (not total profit), and unpriced uses. Exports include a separate consumables CSV. Old sessions remain unpriced until edited.
 
-## Current status: v0.34.1
+## Optional net Adena HUD (v0.35)
+Settings → Tracking → Subtract consumable costs from HUD Adena/hr (net) replaces the existing HUD Adena rate with (personal Adena earned minus known consumable expenses) divided by active hours. Default is off (gross earnings). The preference saves locally and applies immediately; negative net rates remain visible. NET ADENA/H* indicates unpriced uses, so the figure is only net of known expenses. The dashboard and history retain gross earnings and expense reports; no additional HUD column is added.
+
+## Current status: v0.35
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 
