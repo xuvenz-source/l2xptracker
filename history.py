@@ -143,13 +143,14 @@ class Archive:
     def sources(ids,records):
         out=[]
         for id in ids:
+            if id not in records:raise ValueError('Entry no longer exists.')
             r=records[id]
             if r['kind']=='folder':raise ValueError('Folders organise sessions; select sessions or merged reports to merge.')
             for source in ([id] if r['kind']=='original' else r['data']['sources']):
                 if source not in out: out.append(source)
         return out
     def merge(self,ids,name):
-        records=self.records(); ids=list(dict.fromkeys(ids)); sources=self.sources(ids,records)
+        records=self.organised_records(); ids=list(dict.fromkeys(ids)); sources=self.sources(ids,records)
         if len(sources)<2: raise ValueError('Select at least two distinct original sessions.')
         # Keep the selected report hierarchy separately from the immutable,
         # deduplicated original source list used for all calculations.

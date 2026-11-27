@@ -16,7 +16,7 @@ class AutoUpdateTests(unittest.TestCase):
             self.assertFalse(load_auto_update(p));self.assertTrue(load_focus_pause(p))
     def ui(self):
         u=UpdateUI.__new__(UpdateUI);u.app=Mock()
-        u.app.running=False;u.app.pending=0;u.app.selecting=False;u.app.closing=False;u.app.update_busy=False
+        u.app.running=False;u.app.pending=0;u.app.selecting=False;u.app.closing=False;u.app.update_busy=False;u.app.reset_request=None
         u.app.auto_update=True;u.app.root.grab_current.return_value=None;u.app.root.winfo_children.return_value=[]
         u.checking=False;u.available={'version':'0.99','notes':''};u.attempted=set();u.failed_version=''
         u.begin_install=Mock();u.button=Mock()
@@ -30,6 +30,9 @@ class AutoUpdateTests(unittest.TestCase):
             with self.subTest(name=name):
                 u=self.ui();setattr(u.app,name,value);u.maybe_auto_install();u.begin_install.assert_not_called()
                 setattr(u.app,name,False);u.maybe_auto_install();u.begin_install.assert_called_once()
+    def test_defers_session_rollover(self):
+        u=self.ui();u.app.reset_request={'pitch':19};u.maybe_auto_install();u.begin_install.assert_not_called()
+        u.app.reset_request=None;u.maybe_auto_install();u.begin_install.assert_called_once()
     def test_defers_dialog(self):
         u=self.ui();u.app.root.grab_current.return_value=object()
         u.maybe_auto_install();u.begin_install.assert_not_called()

@@ -60,3 +60,4 @@ class FolderTests(unittest.TestCase):
     def test_folder_not_mergeable(self):
         f=self.a.create_folder('A')
         with self.assertRaises(ValueError):Archive.sources([f],self.a.organised_records())
+        with self.assertRaises(ValueError):self.a.merge([f,'a'],'Invalid')
