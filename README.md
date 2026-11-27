@@ -89,7 +89,10 @@ The portable tracker opens a dedicated update manager before the main dashboard.
 ## Manual loot sell values (v0.39)
 Double-click an actual item row in Dashboard → Session loot or select Edit item value. Enter expected Adena per individual item (e.g. NPC vendor sell price). Quantity times unit value is shown separately from actual Adena. Personal estimated loot value and its hourly rate exclude other players' drops; unpriced quantities are identified. Live edits become future defaults; stopped/historical edits only change that session. Set default value configures future sessions. Reset preserves active prices and merged reports use each original's own values. Export includes a loot-values CSV. Gross and net cash metrics and HUD remain unchanged; estimated sale value is not confirmed sale proceeds.
 
-## Current status: v0.39
+## Modular HUD and player progress (v0.40)
+Settings now contains Tracking, HUD and Player status tabs. HUD widgets, order (arrow controls), font size, one/two rows, visibility and controls are saved; the lock remains available. Select level digits and XP percentage separately while stopped, or enter manual progress. C1 XP requirements are bundled, with configurable cap. Automatic reading uses passive screenshots and repeated OCR agreement; stale readings are marked. ETA uses active XP/hour after 30 seconds. Manual mode estimates progress from recorded XP and must be recalibrated after death or character changes. Status-region and chat protection adapt to HUD dimensions. Live Windows/game OCR and dragging still require verification.
+
+## Current status: v0.40
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

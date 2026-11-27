@@ -1,4 +1,4 @@
-L2 LEGACY FARMING TRACKER v0.39 — WINDOWS x64 PORTABLE
+L2 LEGACY FARMING TRACKER v0.40 — WINDOWS x64 PORTABLE
 
 1. Extract the ENTIRE ZIP to a normal folder (not directly inside the ZIP viewer).
 2. Double-click L2 Legacy Tracker.exe.
@@ -75,3 +75,5 @@ History (v0.37): create character sections and nested folders, drag or Move to o
 Visual updater (v0.38): startup update check, measured download percentage and installation stages. Automatic updates respect existing preferences; offline users can continue without checking.
 
 Loot values (v0.39): edit item value in Dashboard Session loot. Estimated sale values and hourly rates are separate from observed Adena. Default values apply to future sessions; history preserves its own values.
+
+Modular HUD and leveling (v0.40): Settings → HUD or Player status. Configure widgets/order/font/layout, select numeric level and XP regions or manually enter progress. ETA uses active session XP/hr. Stale automatic readings are marked *.

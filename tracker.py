@@ -25,6 +25,9 @@ from appearance import Appearance, Dashboard, save_mode
 from preferences import load_focus_pause, save_focus_pause, load_auto_update, save_auto_update, load_hud_opacity, save_hud_opacity, HUD_OPACITY_MIN, HUD_OPACITY_MAX, HUD_OPACITY_DEFAULT, load_hud_net_adena, save_hud_net_adena
 from party_setup_ui import PartySetup
 from update_ui import UpdateUI
+from player_ui import PlayerStatus
+from hud_layout import WIDGETS, PRESETS, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
+from hud import rate_text
 from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows
 from party import roster, live_report as live_party_report, display_rows as party_rows, summary_text as party_summary
 
@@ -429,13 +432,13 @@ class App:
         self.appearance=Appearance(root)
         self.pause_on_blur=load_focus_pause();self.auto_update=load_auto_update();self.settings_win=None
         self.hud_opacity=load_hud_opacity();self.hud_opacity_save_job=None
-        self.hud_net_adena=load_hud_net_adena()
+        self.hud_net_adena=load_hud_net_adena();self.hud_config=load_hud()
         self.default_prices=load_prices();self.session_prices=dict(self.default_prices);self.consumable_report=cost_report([])
         self.default_loot_prices=load_loot_prices();self.session_loot_prices=dict(self.default_loot_prices);self.loot_report=loot_report([]);self.loot_rows={}
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
         self.party_members=[]; self.next_party_members=[]; self.kills=0; self.update_busy=False
         self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False;self.reset_request=None
-        self.pause_gate=PauseGate(self.pause_on_blur); self.position_win=None; self.reviews=ReviewQueue(); self.review_win=None; self.review_count=tk.StringVar(value="Review (0)"); self.saved=None; self.hud=None; self.api=None; self.hud_enabled=tk.BooleanVar(value=True)
+        self.pause_gate=PauseGate(self.pause_on_blur); self.position_win=None; self.reviews=ReviewQueue(); self.review_win=None; self.review_count=tk.StringVar(value="Review (0)"); self.saved=None; self.hud=None; self.api=None; self.hud_enabled=tk.BooleanVar(value=self.hud_config['visible'])
         try:
             self.api=Windows()
             self.saved=settings.load()
@@ -447,6 +450,8 @@ class App:
         self.chat_style=load_style(fallback_pitch=int(self.pitch.get()));self.pitch.set(str(self.chat_style['pitch']))
         try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.queue_hud_move,on_pause=self.queue_hud_pause,opacity=self.hud_opacity,on_reset=self.queue_hud_reset)
         except Exception as e: self.hud_enabled.set(False); self.status.set(self.status.get()+f' HUD unavailable: {e}')
+        if self.hud:self.hud.configure_layout(self.hud_config)
+        self.player=PlayerStatus(self)
         try: self.archive=Archive()
         except Exception as e: messagebox.showerror("Session storage",f"Could not open session history: {e}")
         header=ttk.Frame(root,padding=(20,15,20,6));header.pack(fill='x')
@@ -465,7 +470,8 @@ class App:
         for key,label in [('dashboard','Dashboard'),('activity','Activity'),('review','Reviews (0)'),('history','History'),('party','Party'),('settings','Settings')]:
             page=ttk.Frame(self.tabs,padding=12);self.pages[key]=page;self.tabs.add(page,text=label)
         dash=self.pages['dashboard']
-        self.dashboard=Dashboard(dash);self.dashboard.pack(fill='x',pady=(0,10))
+        self.dashboard=Dashboard(dash);self.dashboard.pack(fill='x',pady=(0,4))
+        ttk.Label(dash,textvariable=self.player.summary,style='Section.TLabel',wraplength=870).pack(fill='x',pady=(0,4))
         ttk.Label(dash,textvariable=self.stats,wraplength=880,padding=(0,3,0,12),style='Muted.TLabel').pack(fill='x')
         loot_header=ttk.Frame(dash);loot_header.pack(fill='x',pady=(2,8))
         ttk.Label(loot_header,text='Session loot',style='Section.TLabel').pack(side='left')
@@ -527,8 +533,11 @@ class App:
     def open_settings(self):
         self.navigate('settings')
     def build_settings(self,win):
-        content=ttk.Frame(win,padding=18);content.pack(fill='both',expand=True)
-        ttk.Label(content,text='Settings',style='Title.TLabel').pack(anchor='w')
+        settings_tabs=ttk.Notebook(win);settings_tabs.pack(fill='both',expand=True)
+        content=ttk.Frame(settings_tabs,padding=12);settings_tabs.add(content,text='Tracking')
+        hudpage=ttk.Frame(settings_tabs,padding=12);settings_tabs.add(hudpage,text='HUD')
+        playerpage=ttk.Frame(settings_tabs,padding=12);settings_tabs.add(playerpage,text='Player status')
+        ttk.Label(content,text='Tracking settings',style='Title.TLabel').pack(anchor='w')
         ttk.Label(content,text='Game capture',style='Section.TLabel').pack(anchor='w',pady=(14,5))
         calibration=ttk.Frame(content);calibration.pack(fill='x',pady=(0,6))
         ttk.Button(calibration,text='Bind game / chat area',command=self.select).pack(side='left')
@@ -537,7 +546,7 @@ class App:
         sizes=ttk.Combobox(calibration,textvariable=self.text_size,values=(*TEXT_SIZES,'Manual'),state='readonly',width=9);sizes.pack(side='left');sizes.bind('<<ComboboxSelected>>',self.select_text_size)
         ttk.Label(calibration,text='Line spacing (px):').pack(side='left',padx=(12,4))
         self.pitch_entry=ttk.Entry(calibration,textvariable=self.pitch,width=5,state='normal' if self.text_size.get()=='Manual' else 'readonly');self.pitch_entry.pack(side='left')
-        hudtools=ttk.Frame(content);hudtools.pack(fill='x',pady=(0,8))
+        hudtools=ttk.Frame(hudpage);hudtools.pack(fill='x',pady=(0,8))
         ttk.Button(hudtools,text='Position HUD…',command=self.open_position).pack(side='left')
         self.move_btn=ttk.Button(hudtools,text='Move HUD in game',command=self.arm_hud_move);self.move_btn.pack(side='left',padx=8)
         ttk.Label(hudtools,text='HUD: double-click lock to unlock; drag; click to lock.',style='Muted.TLabel').pack(side='left',padx=4)
@@ -558,8 +567,8 @@ class App:
         self.focus_pause_var=tk.BooleanVar(master=win,value=self.pause_on_blur)
         ttk.Checkbutton(content,text='Pause when Lineage 2 loses focus',variable=self.focus_pause_var,command=self.change_focus_policy).pack(anchor='w')
         ttk.Label(content,text='Off by default. Capture continues if the game chat is visible; covered, minimised or resized game windows still wait safely.',style='Muted.TLabel',wraplength=500).pack(anchor='w',pady=(3,10))
-        hudappearance=ttk.Frame(content);hudappearance.pack(fill='x',pady=(0,2))
-        ttk.Checkbutton(hudappearance,text='Show floating game HUD',variable=self.hud_enabled).pack(side='left')
+        hudappearance=ttk.Frame(hudpage);hudappearance.pack(fill='x',pady=(0,2))
+        ttk.Checkbutton(hudappearance,text='Show floating game HUD',variable=self.hud_enabled,command=self.apply_hud_config).pack(side='left')
         ttk.Label(hudappearance,text='HUD opacity:').pack(side='left',padx=(16,5))
         self.hud_opacity_var=tk.DoubleVar(value=self.hud_opacity)
         self.hud_opacity_label=tk.StringVar(value=f'{self.hud_opacity}%')
@@ -567,8 +576,10 @@ class App:
         ttk.Label(hudappearance,textvariable=self.hud_opacity_label,width=5).pack(side='left',padx=5)
         ttk.Button(hudappearance,text='Reset',command=self.reset_hud_opacity).pack(side='left')
         self.hud_net_adena_var=tk.BooleanVar(value=self.hud_net_adena)
-        ttk.Checkbutton(content,text='Subtract consumable costs from HUD Adena/hr (net)',variable=self.hud_net_adena_var,command=self.change_hud_net_adena).pack(anchor='w')
-        ttk.Label(content,text='Net Adena/h* indicates some recorded uses have no price. Only known costs are deducted.',style='Muted.TLabel',wraplength=760).pack(anchor='w',pady=(0,2))
+        ttk.Checkbutton(hudpage,text='Subtract consumable costs from HUD Adena/hr (net)',variable=self.hud_net_adena_var,command=self.change_hud_net_adena).pack(anchor='w')
+        ttk.Label(hudpage,text='Net Adena/h* indicates some recorded uses have no price. Only known costs are deducted.',style='Muted.TLabel',wraplength=760).pack(anchor='w',pady=(0,2))
+        self.build_hud_widgets(hudpage)
+        self.player.build(playerpage)
         ttk.Separator(content).pack(fill='x',pady=12)
         ttk.Label(content,text='Appearance',style='Section.TLabel').pack(anchor='w')
         ttk.Checkbutton(content,text='Light mode',variable=self.dark_mode,onvalue=False,offvalue=True,command=self.toggle_appearance).pack(anchor='w',pady=(6,5))
@@ -580,6 +591,62 @@ class App:
         ttk.Label(content,text='Preferences are saved automatically.',style='Muted.TLabel').pack(anchor='w',pady=(10,0))
         ttk.Button(content,text='Open diagnostic folder',command=self.open_diagnostic_folder).pack(anchor='w',pady=(7,0))
         self.appearance.restyle(win)
+    def build_hud_widgets(self,parent):
+        row=ttk.Frame(parent);row.pack(fill='x',pady=4)
+        self.hud_size=tk.StringVar(value=self.hud_config['size']);self.hud_rows=tk.StringVar(value=self.hud_config['layout'])
+        for label,var,options in [('Font',self.hud_size,('compact','standard','large')),('Layout',self.hud_rows,('single','double'))]:
+            ttk.Label(row,text=label).pack(side='left',padx=4)
+            cb=ttk.Combobox(row,textvariable=var,values=options,state='readonly',width=10);cb.pack(side='left');cb.bind('<<ComboboxSelected>>',self.apply_hud_config)
+        for name in PRESETS:ttk.Button(row,text=name,command=lambda n=name:self.hud_preset(n)).pack(side='left',padx=3)
+        self.hud_order=list(self.hud_config['order']);self.hud_vars={k:tk.BooleanVar(value=k in self.hud_config['enabled']) for k in WIDGETS}
+        self.hud_list=ttk.Frame(parent);self.hud_list.pack(fill='x')
+        self.draw_hud_list()
+        row=ttk.Frame(parent);row.pack(fill='x',pady=4)
+        self.hud_controls={k:tk.BooleanVar(value=self.hud_config[k]) for k in ('status','pause','reset')}
+        for k,v in self.hud_controls.items():ttk.Checkbutton(row,text='Show '+k,variable=v,command=self.apply_hud_config).pack(side='left',padx=4)
+        ttk.Button(row,text='Restore defaults',command=self.hud_defaults).pack(side='right')
+        self.hud_preview= tk.Canvas(parent,height=110,bg='#454f35',highlightthickness=0);self.hud_preview.pack(fill='x',pady=4)
+        self.preview_hud()
+    def draw_hud_list(self):
+        for child in self.hud_list.winfo_children():child.destroy()
+        for i,k in enumerate(self.hud_order):
+            r=ttk.Frame(self.hud_list);r.grid(row=i%4,column=i//4,sticky='ew',padx=5)
+            ttk.Checkbutton(r,text=WIDGETS[k][0],variable=self.hud_vars[k],command=self.apply_hud_config,width=24).pack(side='left')
+            ttk.Button(r,text='↑',width=2,command=lambda j=i:self.move_widget(j,-1)).pack(side='left')
+            ttk.Button(r,text='↓',width=2,command=lambda j=i:self.move_widget(j,1)).pack(side='left')
+    def move_widget(self,i,d):
+        j=i+d
+        if 0<=j<len(self.hud_order):
+            self.hud_order[i],self.hud_order[j]=self.hud_order[j],self.hud_order[i];self.draw_hud_list();self.apply_hud_config()
+    def hud_preset(self,name):
+        for k,v in self.hud_vars.items():v.set(k in PRESETS[name])
+        self.apply_hud_config()
+    def hud_defaults(self):
+        self.hud_order=list(WIDGETS);self.hud_size.set('compact');self.hud_rows.set('single')
+        self.hud_enabled.set(True)
+        for v in self.hud_controls.values():v.set(True)
+        self.draw_hud_list();self.hud_preset('Classic');self.reset_hud_opacity()
+        self.hud_net_adena_var.set(False);self.change_hud_net_adena()
+    def apply_hud_config(self,*_):
+        self.hud_config=clean_hud(dict(order=self.hud_order,enabled=[k for k,v in self.hud_vars.items() if v.get()],size=self.hud_size.get(),layout=self.hud_rows.get(),visible=self.hud_enabled.get(),**{k:v.get() for k,v in self.hud_controls.items()}))
+        try:save_hud(self.hud_config)
+        except OSError as e:self.status.set('HUD preferences not saved: '+str(e))
+        if self.hud:self.hud.configure_layout(self.hud_config)
+        self.preview_hud()
+    def preview_hud(self):
+        if not hasattr(self,'hud_preview'):return
+        g=hud_geometry(self.hud_config);cv=self.hud_preview;cv.delete('all');cv.configure(height=g['height']+6)
+        cv.create_rectangle(2,2,g['width']+2,g['height']+2,fill='#141921',outline='')
+        sample={'ad':'12,500','xp':'35,000','kills':'120','eta':'3h 48m','level':'19','progress':'16.91%','loot':'4,500','cost':'3,200'}
+        for k,x,y,w,rh in g['cells']:
+            cv.create_text(x+2,y+3,text=WIDGETS[k][1],anchor='nw',font=('Segoe UI',-g['small']),fill='#B4BECD')
+            cv.create_text(x+2,y+21,text=sample[k],anchor='nw',font=('Segoe UI',-g['large'],'bold'),fill='#%02x%02x%02x'%WIDGETS[k][2])
+        cv.create_text(g['width']-10,12,text='▣',fill='white')
+        if g['footer']:
+            if g['status']:cv.create_text(9,g['height']-14,text='SESSION ACTIVE',anchor='w',fill='#86E0B7')
+            for k in ('pause','reset'):
+                if g[k]:
+                    l,t,r,b=g[k];cv.create_rectangle(l,t,r,b,fill='#2E3D4E',outline='');cv.create_text((l+r)//2,(t+b)//2,text=k.title(),fill='white')
     def select_text_size(self,*_):
         size=self.text_size.get()
         self.pitch_entry.configure(state='normal')
@@ -942,6 +1009,7 @@ class App:
         if self.closing and not self.pending:
             self.closing=False
             if self.close():return
+        if hasattr(self,'player'):self.player.tick()
         if self.started is not None:
             dur=self.active_seconds; h=max(1,dur)/3600; xp=self.totals[('You','XP / SP')]; sp=self.totals[('You','SP')]; ad=self.totals[('You','Adena')]
             if hasattr(self,'dashboard'):self.dashboard.update_metrics(dur,ad,xp,self.kills)
@@ -1195,9 +1263,10 @@ class App:
         if self.position_win and self.position_win.winfo_exists():self.position_win.lift();return
         if not self.hud or not self.region or not (self.target or self.saved):
             messagebox.showinfo('Position HUD','Bind the game and chat area first.');return
+        WIDTH,HEIGHT=self.hud.dimensions();extra=self.player.protected()
         width,height=(self.target.width,self.target.height) if self.target else (self.saved['width'],self.saved['height'])
         geo=(0,0,width,height); region=dict(self.region)
-        if not hud_position(geo,region):
+        if not hud_position(geo,region,size=(WIDTH,HEIGHT),extra=extra):
             messagebox.showinfo('Position HUD','The calibrated game window is too small for the HUD.');return
         self.hud.cancel_placement()
         win=tk.Toplevel(self.root); self.position_win=win; win.title('Position game HUD'); win.transient(self.root); self.appearance.restyle(win)
@@ -1207,23 +1276,24 @@ class App:
         l,t,r,b=(region[k] for k in ('left','top','width','height'))
         canvas.create_rectangle(l*scale,t*scale,(l+r)*scale,(t+b)*scale,fill='#583b36',outline='#be796a')
         canvas.create_text((l+r/2)*scale,(t+b/2)*scale,text='OCR chat area',fill='white')
-        pos=list(hud_position(geo,region,preferred=self.hud.preferred)); offset=[]
+        for r in extra:canvas.create_rectangle(r['left']*scale,r['top']*scale,(r['left']+r['width'])*scale,(r['top']+r['height'])*scale,fill='#365e83',outline='cyan')
+        pos=list(hud_position(geo,region,preferred=self.hud.preferred,size=(WIDTH,HEIGHT),extra=extra)); offset=[]
         def draw():
             canvas.delete('hud'); x,y=pos
             canvas.create_rectangle(x*scale,y*scale,(x+WIDTH)*scale,(y+HEIGHT)*scale,fill='#151a22',outline='#98a6b8',width=2,tags='hud')
-            canvas.create_text((x+WIDTH/2)*scale,(y+27)*scale,text='ADENA / HR  |  EXP / HR  |  KILLS / HR',fill='#f4d183',font=('Segoe UI',max(7,int(12*scale)),'bold'),tags='hud')
+            canvas.create_text((x+WIDTH/2)*scale,(y+27)*scale,text='  |  '.join(WIDGETS[k][1] for k in self.hud_config['enabled']),fill='#f4d183',font=('Segoe UI',max(7,int(12*scale)),'bold'),tags='hud')
             canvas.create_text((x+WIDTH-54)*scale,(y+71)*scale,text='Pause',fill='#e6edf5',font=('Segoe UI',max(7,int(10*scale))),tags='hud')
         def down(e):
             x,y=e.x/scale,e.y/scale
             if pos[0]<=x<pos[0]+WIDTH and pos[1]<=y<pos[1]+HEIGHT:offset[:]=[x-pos[0],y-pos[1]]
         def drag(e):
             if offset:
-                candidate=safe_position(geo,region,None,(round(e.x/scale-offset[0]),round(e.y/scale-offset[1])))
+                candidate=safe_position(geo,region,None,(round(e.x/scale-offset[0]),round(e.y/scale-offset[1])),(WIDTH,HEIGHT),extra)
                 if candidate is not None:pos[:]=candidate;draw()
         def save():
             self.hud.preferred=tuple(pos); self.save_hud_position(tuple(pos));win.destroy()
         def reset():
-            pos[:]=hud_position(geo,region);draw()
+            pos[:]=hud_position(geo,region,size=(WIDTH,HEIGHT),extra=extra);draw()
         canvas.bind('<Button-1>',down); canvas.bind('<B1-Motion>',drag);canvas.bind('<ButtonRelease-1>',lambda e:offset.clear());draw()
         buttons=ttk.Frame(win,padding=10); buttons.pack(fill='x')
         ttk.Button(buttons,text='Reset to default',command=reset).pack(side='left')
@@ -1234,7 +1304,9 @@ class App:
             try:
                 report=getattr(self,'consumable_report',{})
                 net=getattr(self,'hud_net_adena',False)
-                self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get(),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills,paused=self.pause_gate.snapshot()[0],consumable_cost=report.get('cost',0) if net else None,unpriced_uses=report.get('unpriced',0) if net else 0)
+                player=getattr(self,'player',None)
+                widgets=dict(getattr(player,'widgets',{}),loot=('LOOT/H',rate_text(getattr(self,'loot_report',{}).get('value',0),self.active_seconds)),cost=('COST/H',rate_text(report.get('cost',0),self.active_seconds)))
+                self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get(),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills,paused=self.pause_gate.snapshot()[0],consumable_cost=report.get('cost',0) if net else None,unpriced_uses=report.get('unpriced',0) if net else 0,widgets=widgets,protected=player.protected() if player else ())
             except Exception as e:
                 diagnostic('HUD update exception',exc_info=True)
                 hud,self.hud=self.hud,None

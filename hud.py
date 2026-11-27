@@ -5,6 +5,7 @@ import os, time
 from decimal import Decimal
 from diagnostics import diagnostic
 from preferences import HUD_OPACITY_DEFAULT, validate_hud_opacity
+from hud_layout import geometry as layout_geometry, WIDGETS, overlaps
 
 WIDTH, HEIGHT = 310, 86
 PAUSE_RECT = (174, 60, 244, 82)
@@ -13,7 +14,8 @@ LOCK_RECT = (288, 2, 309, 24)
 
 
 
-def safe_position(geo, chat, desktop, preferred):
+def safe_position(geo, chat, desktop, preferred, size=(WIDTH,HEIGHT), extra=()):
+    WIDTH,HEIGHT=size
     x,y,width,height=geo
     low_x,low_y=0,0
     high_x,high_y=width-WIDTH,height-HEIGHT
@@ -23,20 +25,20 @@ def safe_position(geo, chat, desktop, preferred):
         high_y=min(high_y,desktop['top']+desktop['height']-y-HEIGHT)
     if low_x>high_x or low_y>high_y:return None
     a=min(high_x,max(low_x,preferred[0])); d=min(high_y,max(low_y,preferred[1]))
-    l,t,r,b=(chat[k] for k in ('left','top','width','height'))
-    if a<l+r and a+WIDTH>l and d<t+b and d+HEIGHT>t:return None
+    if any(overlaps(a,d,WIDTH,HEIGHT,r) for r in (chat,*extra) if r):return None
     return x+a,y+d
 
 
-def hud_position(geo, chat, desktop=None, preferred=None):
+def hud_position(geo, chat, desktop=None, preferred=None, size=(WIDTH,HEIGHT), extra=()):
+    WIDTH,HEIGHT=size
     if preferred is not None:
-        pos=safe_position(geo,chat,desktop,preferred)
+        pos=safe_position(geo,chat,desktop,preferred,size,extra)
         if pos is not None:return pos
     x,y,width,height=geo
     if width<WIDTH+24 or height<HEIGHT+24: return None
     l,t,r,b=chat['left'],chat['top'],chat['width'],chat['height']
     for a,d in ((width-WIDTH-12,12),(12,12),(width-WIDTH-12,height-HEIGHT-12),(12,height-HEIGHT-12)):
-        if a<l+r and a+WIDTH>l and d<t+b and d+HEIGHT>t: continue
+        if any(overlaps(a,d,WIDTH,HEIGHT,r) for r in (chat,*extra) if r):continue
         if desktop and not (desktop['left']<=x+a and desktop['top']<=y+d and x+a+WIDTH<=desktop['left']+desktop['width'] and y+d+HEIGHT<=desktop['top']+desktop['height']): continue
         return x+a,y+d
     return None
@@ -115,6 +117,24 @@ class Hud:
         if not self.hwnd: self.close(); raise c.WinError(c.get_last_error())
         try:self.set_opacity(self.opacity)
         except Exception:self.close();raise
+    def dimensions(self):
+        g=getattr(self,'layout',None)
+        return (g['width'],g['height']) if g else (WIDTH,HEIGHT)
+    def protected(self):return getattr(self,'protected_regions',())
+    def rect(self,name,default):
+        g=getattr(self,'layout',None)
+        return g[name] if g else default
+    def configure_layout(self,config):
+        g=layout_geometry(config)
+        if g==getattr(self,'layout',None):return
+        self.finish_drag()
+        old=(self.small,self.large)
+        self.small=self.font(g['small'],400);self.large=self.font(g['large'],600)
+        for f in old:self.g.DeleteObject(f)
+        self.layout=g
+        if self.hwnd:
+            self.u.SetWindowPos(self.hwnd,None,0,0,g['width'],g['height'],0x0002|0x0004|0x0010)
+            self.u.InvalidateRect(self.hwnd,None,False)
     def set_opacity(self,percent):
         percent=validate_hud_opacity(percent)
         if self.hwnd and not self.u.SetLayeredWindowAttributes(self.hwnd,0,round(255*percent/100),2):
@@ -130,15 +150,15 @@ class Hud:
         self.u.DrawTextW(dc,string,-1,c.byref(r),0x00000020|0x00000004|0x00000800) # single line, vertical centre, no prefix
         self.g.SelectObject(dc,prev)
     def hit_rect(self,point,rect):
-        if not self.shown or not self.position or point is None or getattr(self,'placement',None) is not None:return False
+        if rect is None or not self.shown or not self.position or point is None or getattr(self,'placement',None) is not None:return False
         x,y=self.position;l,t,r,b=rect
         return x+l<=point[0]<x+r and y+t<=point[1]<y+b
     def lock_hit(self,point):
-        return self.hit_rect(point,LOCK_RECT)
+        return self.hit_rect(point,self.rect('lock',LOCK_RECT))
     def reset_hit(self,point):
-        return bool(getattr(self,'on_reset',None)) and self.hit_rect(point,RESET_RECT)
+        return bool(getattr(self,'on_reset',None)) and self.hit_rect(point,self.rect('reset',RESET_RECT))
     def body_hit(self,point):
-        return self.hit_rect(point,(0,0,WIDTH,HEIGHT)) and not self.lock_hit(point) and not self.pause_hit(point) and not self.reset_hit(point)
+        return self.hit_rect(point,(0,0,*self.dimensions())) and not self.lock_hit(point) and not self.pause_hit(point) and not self.reset_hit(point)
     def wants_input(self,point):
         return self.drag is not None or self.lock_hit(point) or self.pause_hit(point) or self.reset_hit(point) or (not self.locked and self.body_hit(point))
     def toggle_lock_press(self):
@@ -182,7 +202,7 @@ class Hud:
         ctx=getattr(self,'drag_context',None)
         if ctx is None:return
         geo,chat,desktop=ctx
-        candidate=safe_position(geo,chat,desktop,(point[0]-self.drag[0]-geo[0],point[1]-self.drag[1]-geo[1]))
+        candidate=safe_position(geo,chat,desktop,(point[0]-self.drag[0]-geo[0],point[1]-self.drag[1]-geo[1]),self.dimensions(),self.protected())
         if candidate is None:
             if not getattr(self,'drag_rejected',False):diagnostic('HUD drag destination rejected: intersects selected chat or invalid bounds')
             self.drag_rejected=True;return
@@ -190,15 +210,14 @@ class Hud:
         if candidate==self.position:return
         self.moving=True
         try:
-            if self.u.SetWindowPos(self.hwnd,c.c_void_p(-1),*candidate,WIDTH,HEIGHT,0x0010|0x0040|0x0200):
+            if self.u.SetWindowPos(self.hwnd,c.c_void_p(-1),*candidate,*self.dimensions(),0x0010|0x0040|0x0200):
                 self.position=candidate;self.shown=True
                 self.preferred=(candidate[0]-geo[0],candidate[1]-geo[1])
             else:diagnostic('HUD SetWindowPos failed during drag')
         finally:self.moving=False
     def pause_hit(self,point):
         if not getattr(self,'on_pause',None) or not self.shown or not self.position or point is None or getattr(self,'placement',None) is not None:return False
-        x,y=self.position;l,t,r,b=PAUSE_RECT
-        return x+l<=point[0]<x+r and y+t<=point[1]<y+b
+        return self.hit_rect(point,self.rect('pause',PAUSE_RECT))
     def pause_click(self):
         if not getattr(self,'on_pause',None) or getattr(self,'pause_pressed',False):return
         self.pause_pressed=True
@@ -245,6 +264,8 @@ class Hud:
             ps=self.PAINTSTRUCT();dc=self.u.BeginPaint(h,c.byref(ps))
             if dc:
                 try:
+                    if getattr(self,'layout',None):
+                        self.paint_layout(dc);return 0
                     self.u.FillRect(dc,c.byref(w.RECT(0,0,WIDTH,HEIGHT)),self.brush)
                     for x in (103,206):self.u.FillRect(dc,c.byref(w.RECT(x,12,x+1,50)),self.divider)
                     self.g.SetBkMode(dc,1)
@@ -267,6 +288,25 @@ class Hud:
                 finally:self.u.EndPaint(h,c.byref(ps))
             return 0
         return self.u.DefWindowProcW(h,msg,wp,lp)
+    def paint_layout(self,dc):
+        g=self.layout;width,height=self.dimensions()
+        fill=lambda rect,brush:self.u.FillRect(dc,c.byref(w.RECT(*rect)),brush)
+        fill((0,0,width,height),self.brush);self.g.SetBkMode(dc,1)
+        values=getattr(self,'widget_values',{})
+        for k,x,y,cw,rh in g['cells']:
+            _,label,colour=WIDGETS[k]
+            label,value=values.get(k,(label,'—'))
+            self.text(dc,label,(x,y,x+cw-3,y+18),self.small,(180,190,205))
+            self.text(dc,value,(x,y+18,x+cw-3,y+rh-2),self.large,colour)
+        x=width-15
+        parts=[(x,11,x+9,12),(x,18,x+9,19),(x,12,x+1,18),(x+8,12,x+9,18),(x+4,14,x+5,17)]
+        parts += [(x+2,7,x+7,8),(x+2,8,x+3,11),(x+6,8,x+7,11 if self.locked else 9)]
+        for part in parts:fill(part,self.lock_brush)
+        if g['footer']:
+            fill((8,height-31,width-8,height-30),self.divider)
+            if g['status']:self.text(dc,'PAUSED' if self.paused else 'SESSION ACTIVE',(8,height-28,122,height-4),self.small,(247,202,102) if self.paused else (134,224,183))
+            for k,label in [('pause','  Resume' if self.paused else '  Pause'),('reset','  Reset')]:
+                if g[k]:fill(g[k],self.control);self.text(dc,label,g[k],self.small,(235,240,248))
     def key_down(self,key):
         return bool(self.u.GetAsyncKeyState(key)&0x8000)
     def cursor(self):
@@ -285,7 +325,8 @@ class Hud:
         # Also used by polling when the layered popup does not receive mouse messages.
         if self.locked or self.drag is not None or not self.body_hit(point):return
         x,y=self.position
-        if x<=point[0]<x+WIDTH and y<=point[1]<y+HEIGHT:
+        width,height=self.dimensions()
+        if x<=point[0]<x+width and y<=point[1]<y+height:
             self.drag=(point[0]-x,point[1]-y)
             self.drag_poll_seen=False;self.drag_rejected=False
             diagnostic('HUD drag started')
@@ -304,12 +345,13 @@ class Hud:
     def placement_position(self,geo,chat,desktop,shift,point):
         state=self.placement; state['seen']=True
         if not shift:state['shift_ready']=True
-        candidate=None if point is None else safe_position(geo,chat,desktop,(point[0]-geo[0]-WIDTH//2,point[1]-geo[1]-HEIGHT//2))
+        width,height=self.dimensions()
+        candidate=None if point is None else safe_position(geo,chat,desktop,(point[0]-geo[0]-width//2,point[1]-geo[1]-height//2),self.dimensions(),self.protected())
         if candidate is not None and shift and state['shift_ready']:
             self.preferred=(candidate[0]-geo[0],candidate[1]-geo[1]); self.cancel_placement()
             if self.on_move:self.on_move(self.preferred)
         return candidate
-    def update(self,api,target,chat,running,seconds,adena,xp,kills=0,paused=False,consumable_cost=None,unpriced_uses=0):
+    def update(self,api,target,chat,running,seconds,adena,xp,kills=0,paused=False,consumable_cost=None,unpriced_uses=0,widgets=None,protected=()):
         if not self.hwnd:return
         if not running or not target or not api.usable(target.hwnd) or api.pid(target.hwnd)!=target.pid or api.foreground()!=target.hwnd:
             if not running or (getattr(self,'placement',None) and self.placement['seen']):self.cancel_placement()
@@ -321,6 +363,7 @@ class Hud:
         mouse_down=self.key_down(0x01)
         previous=getattr(self,'last_mouse_down',None)
         self.last_mouse_down=mouse_down
+        self.protected_regions=protected
         self.drag_context=(geo,chat,desktop)
         # Do not cancel a native drag just because the game/OS reports no
         # asynchronous button state. Native mouse messages remain authoritative.
@@ -329,13 +372,13 @@ class Hud:
             native=getattr(self,'native_drag',False)
             if not native or getattr(self,'drag_poll_seen',False):
                 self.release_press()
-            elif time.monotonic()-self.native_activity>2 and self.u.GetCapture()!=self.hwnd and not self.hit_rect(self.cursor(),(0,0,WIDTH,HEIGHT)):
+            elif time.monotonic()-self.native_activity>2 and self.u.GetCapture()!=self.hwnd and not self.hit_rect(self.cursor(),(0,0,*self.dimensions())):
                 self.release_press()
         if getattr(self,'placement',None) is not None:
             self.set_interactive(False)
             # No overlay clicks or mouse routing: move with pointer and tap Shift.
             candidate=self.placement_position(geo,chat,desktop,shift,self.cursor())
-            pos=candidate or hud_position(geo,chat,desktop,self.preferred)
+            pos=candidate or hud_position(geo,chat,desktop,self.preferred,self.dimensions(),self.protected())
         else:
             point=self.cursor()
             self.set_interactive(self.wants_input(point))
@@ -347,14 +390,17 @@ class Hud:
                     self.drag_poll_seen=True
                     self.move_drag(point)
                 elif not getattr(self,'native_drag',False):self.finish_drag()
-            pos=hud_position(geo,chat,desktop,self.preferred)
+            pos=hud_position(geo,chat,desktop,self.preferred,self.dimensions(),self.protected())
         if pos is None:self.hide();return
         label,adena_rate=adena_metric(adena,seconds,consumable_cost,unpriced_uses)
         values=(adena_rate,rate_text(xp,seconds),rate_text(kills,seconds))
-        if values!=self.values or paused!=getattr(self,'paused',False) or label!=getattr(self,'adena_label','ADENA / HR'):
+        new_widgets=dict(widgets or {},ad=(label.replace(' / HR','/H'),adena_rate),xp=('EXP/H',values[1]),kills=('KILLS/H',values[2]))
+        widget_changed=bool(getattr(self,'layout',None)) and new_widgets!=getattr(self,'widget_values',{})
+        self.widget_values=new_widgets
+        if widget_changed or values!=self.values or paused!=getattr(self,'paused',False) or label!=getattr(self,'adena_label','ADENA / HR'):
             self.values=values;self.paused=paused;self.adena_label=label;self.u.InvalidateRect(self.hwnd,None,False)
         if not self.shown or pos!=self.position:
-            if self.u.SetWindowPos(self.hwnd,c.c_void_p(-1),*pos,WIDTH,HEIGHT,0x0010|0x0040|0x0200):
+            if self.u.SetWindowPos(self.hwnd,c.c_void_p(-1),*pos,*self.dimensions(),0x0010|0x0040|0x0200):
                 self.shown=True;self.position=pos
         # Recheck after showing; never intentionally keep HUD over another app.
         if api.foreground()!=target.hwnd:
