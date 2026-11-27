@@ -5,6 +5,7 @@ from tkinter import ttk, messagebox
 import tkinter as tk
 from updater import check_release, stage_update, launch_helper
 from preferences import failed_update
+from updater_view import UpdateView
 
 CHECK_INTERVAL_MS=30*60*1000
 
@@ -12,11 +13,11 @@ class UpdateUI:
     def __init__(self,app,frame):
         self.app=app;self.queue=queue.Queue();self.checking=False
         self.frozen=getattr(sys,'frozen',False)
-        self.available=None;self.attempted=set();self.failed_version=failed_update()
+        self.available=None;self.attempted=set();self.failed_version=failed_update();self.progress_window=None;self.progress_view=None
         self.button=ttk.Button(frame,text='Check for updates',command=lambda:self.check(True))
         self.button.pack(side='right',padx=6)
         app.root.after(200,self.poll)
-        if self.frozen:app.root.after(1200,self.periodic_check)
+        if self.frozen:app.root.after(CHECK_INTERVAL_MS,self.periodic_check)
 
     def periodic_check(self):
         self.check(False)
@@ -82,13 +83,17 @@ class UpdateUI:
         self.button.configure(text=f'Downloading v{version}…',state='disabled')
         self.app.start_btn.configure(state='disabled')
         self.app.status.set(f'Updating to v{version} — verifying download; the tracker will restart.')
+        self.progress_window=tk.Toplevel(self.app.root);self.progress_window.title('L2 Legacy Tracker — updating');self.progress_window.resizable(False,False);self.progress_window.transient(self.app.root)
+        self.progress_window.protocol('WM_DELETE_WINDOW',lambda:None)
+        self.progress_view=UpdateView(self.progress_window,version);self.progress_view.pack(fill='both',expand=True);self.progress_view.stage('Preparing update…')
         root=Path(sys.executable).resolve().parent
         def work():
-            try:self.queue.put(('staged',(root,stage_update(info,root,lambda msg:self.queue.put(('progress',msg,False))),version),True))
+            try:self.queue.put(('staged',(root,stage_update(info,root,lambda msg:self.queue.put(('progress',msg,False)),lambda n,total:self.queue.put(('bytes',(n,total),False))),version),True))
             except Exception as e:self.queue.put(('install_error',str(e),True))
         threading.Thread(target=work,daemon=True).start()
 
     def reset(self):
+        if getattr(self,'progress_window',None):self.progress_window.destroy();self.progress_window=None;self.progress_view=None
         self.app.update_busy=False;self.app.start_btn.configure(state='normal')
         self.button.configure(text='Check for updates',state='normal',command=lambda:self.check(True))
         self.show_available()
@@ -116,13 +121,17 @@ class UpdateUI:
                         if manual:messagebox.showinfo('Updates','No newer published release is available.',parent=self.app.root)
                 elif kind=='progress':
                     self.app.status.set(payload)
+                    if self.progress_view:self.progress_view.stage(payload)
                     self.app.append('UPDATE: '+payload)
+                elif kind=='bytes':
+                    if self.progress_view:self.progress_view.bytes(*payload)
                 elif kind=='install_error':
                     self.fail(payload)
                 elif kind=='staged':
                     root,staging,version=payload
                     try:
                         if not self.app.save_session():raise RuntimeError('Session could not be saved')
+                        if self.progress_view:self.progress_view.stage('Installing verified update…')
                         launch_helper(root,staging,version)
                     except Exception as e:
                         shutil.rmtree(staging,ignore_errors=True);self.fail(str(e));continue

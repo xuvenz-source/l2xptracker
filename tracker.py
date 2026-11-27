@@ -1291,7 +1291,13 @@ if __name__=='__main__':
         diagnostic('Tk callback exception',exc_info=(exc,value,tb))
         messagebox.showerror('Tracker error','A control failed. See tracker-diagnostics.log in the tracker data folder.',parent=root)
     root.report_callback_exception=callback_error
-    try: configure_ocr()
-    except Exception as e:
-        root.withdraw(); messagebox.showerror('OCR setup', str(e)); root.destroy(); sys.exit(1)
-    App(root); root.mainloop()
+    def open_tracker():
+        try:configure_ocr()
+        except Exception as e:
+            root.withdraw();messagebox.showerror('OCR setup',str(e));root.destroy();return
+        App(root)
+    if getattr(sys,'frozen',False) and '--after-update' not in sys.argv:
+        from startup_update import StartupUpdater
+        startup=StartupUpdater(root,open_tracker)
+    else:open_tracker()
+    root.mainloop()

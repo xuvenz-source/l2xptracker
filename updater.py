@@ -1,5 +1,5 @@
 """Release-only updates; no game or session information is transmitted."""
-import hashlib, json, os, re, shutil, stat, subprocess, sys, tempfile, uuid, zipfile
+import hashlib, json, os, re, shutil, stat, subprocess, sys, tempfile, uuid, zipfile, time
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -55,6 +55,8 @@ def release_info(data,current=VERSION):
             raise ValueError('Release missing expected portable ZIP or checksum')
         return url
     info=dict(version=version,name=name,url=asset(name),checksum=asset(name+'.sha256'),notes=str(data.get('body') or '')[:1200])
+    sizes={a.get('name'):a.get('size') for a in data.get('assets',[])}
+    if type(sizes.get(name)) is int and 0<sizes[name]<=MAX_ZIP:info['size']=sizes[name]
     # Older releases and skipped versions still use the verified full package.
     from delta import delta_name
     patch=delta_name(current,version)
@@ -77,14 +79,22 @@ def expected_hash(data,name):
     if not m:raise ValueError('Invalid release checksum')
     return m[1].lower()
 
-def download(url,dest,digest):
-    total=0;h=hashlib.sha256()
+def download(url,dest,digest,progress=None,expected_size=None):
+    total=0;h=hashlib.sha256();last=0
     with open_url(url) as response,dest.open('xb') as out:
+        try:length=int(response.headers.get('Content-Length','0'))
+        except (ValueError,TypeError,AttributeError):length=0
+        size=expected_size if type(expected_size) is int and 0<expected_size<=MAX_ZIP else length if 0<length<=MAX_ZIP else None
+        if progress:progress(0,size)
         while chunk:=response.read(256*1024):
             total+=len(chunk)
             if total>MAX_ZIP:raise ValueError('Update archive too large')
             h.update(chunk);out.write(chunk)
+            now=time.monotonic()
+            if progress and now-last>=.1:progress(total,size);last=now
+        if size is not None and total!=size:raise ValueError('Incomplete update download')
     if h.hexdigest()!=digest:raise ValueError('Checksum mismatch; nothing installed')
+    if progress:progress(total,size)
 
 def valid_part(p):
     reserved={'CON','PRN','AUX','NUL',*(f'COM{x}' for x in '123456789¹²³'),*(f'LPT{x}' for x in '123456789¹²³')}
@@ -146,7 +156,11 @@ def smoke_test(root,report):
     if proc.returncode or not report.is_file() or not json.loads(report.read_text(encoding='utf-8')).get('ok'):
         raise RuntimeError('New application failed its self-test; current version unchanged')
 
-def stage_update(info,root,progress=lambda text:None):
+def stage_update(info,root,progress=lambda text:None,byte_progress=None):
+    def fetch(asset,archive,digest):
+        if byte_progress is None:download(asset['url'],archive,digest)
+        else:download(asset['url'],archive,digest,progress=byte_progress,expected_size=asset.get('size'))
+    progress('Checking installation and preparing update…')
     validate_install(root,VERSION)
     if version_key(info['version'])<=version_key(VERSION):raise ValueError('Update is not newer')
     staging=Path(tempfile.mkdtemp(prefix='.l2tracker-update-',dir=root.parent)).resolve()
@@ -157,8 +171,10 @@ def stage_update(info,root,progress=lambda text:None):
                 from delta import reconstruct
                 progress(f"Downloading incremental patch ({patch['size']/1024**2:.1f} MiB)…")
                 digest=expected_hash(small(patch['checksum'],4096),patch['name'])
-                archive=staging/patch['name'];download(patch['url'],archive,digest)
+                archive=staging/patch['name'];fetch(patch,archive,digest)
+                progress('Verifying and reconstructing incremental update…')
                 new=reconstruct(archive,root,staging,VERSION,info['version'])
+                progress('Testing the updated application…')
                 smoke_test(new,staging/'smoke.json');archive.unlink();return staging
             except Exception as exc:
                 progress(f'Incremental patch unavailable: {exc}. Using full package.')
@@ -166,9 +182,10 @@ def stage_update(info,root,progress=lambda text:None):
                 staging.mkdir()
         progress('Downloading full update package…')
         digest=expected_hash(small(info['checksum'],4096),info['name'])
-        archive=staging/info['name'];download(info['url'],archive,digest)
+        archive=staging/info['name'];fetch(info,archive,digest)
+        progress('Extracting and verifying update files…')
         new=extract_portable(archive,staging)
-        validate_install(new,info['version']);smoke_test(new,staging/'smoke.json')
+        validate_install(new,info['version']);progress('Testing the updated application…');smoke_test(new,staging/'smoke.json')
         archive.unlink();return staging
     except Exception:
         shutil.rmtree(staging,ignore_errors=True);raise
@@ -195,7 +212,7 @@ def wait_for_exit(pid,timeout=60):
     finally:k.CloseHandle(h)
 
 def launch_app(root):
-    proc=subprocess.Popen([str(root/EXE_NAME)],cwd=root,env=clean_env(),close_fds=True)
+    proc=subprocess.Popen([str(root/EXE_NAME),'--after-update'],cwd=root,env=clean_env(),close_fds=True)
     try:code=proc.wait(timeout=4)
     except subprocess.TimeoutExpired:return
     raise RuntimeError(f'Updated application exited during startup ({code})')
@@ -224,16 +241,42 @@ def helper_main():
         Path(sys.argv[2]).write_text('ok',encoding='utf-8');return 0
     if len(sys.argv)!=6 or sys.argv[1]!='--apply' or os.name!='nt':return 1
     _,_,pid,old,staged,version=sys.argv
-    try:
-        wait_for_exit(int(pid));switch_install(Path(old),Path(staged),version)
-        shutil.rmtree(staged,ignore_errors=True);return 0
-    except Exception as exc:
-        try:mark_failed_update(version)
-        except OSError:pass
-        import tkinter as tk
-        from tkinter import messagebox
-        root=tk.Tk();root.withdraw()
-        messagebox.showerror('Tracker update',str(exc)+'\nSettings and session history were not modified.')
-        root.destroy();return 1
+    # A separate visible window survives the old application's exit.
+    import tkinter as tk
+    from updater_view import UpdateView
+    import queue, threading
+    root=tk.Tk();root.title('L2 Legacy Tracker — installing update')
+    root.resizable(False,False)
+    view=UpdateView(root,version)
+    view.pack(fill='both',expand=True)
+    view.stage('Waiting for the old tracker to close…')
+    root.protocol('WM_DELETE_WINDOW',lambda:None)
+    q=queue.Queue();result=[1]
+    def work():
+        try:
+            wait_for_exit(int(pid))
+            q.put(('stage','Installing verified files and retaining a backup…'))
+            switch_install(Path(old),Path(staged),version)
+            shutil.rmtree(staged,ignore_errors=True)
+            q.put(('done',None))
+        except Exception as exc:
+            try:mark_failed_update(version)
+            except OSError:pass
+            q.put(('error',str(exc)))
+    def poll():
+        try:
+            while True:
+                kind,value=q.get_nowait()
+                if kind=='stage':view.stage(value)
+                elif kind=='done':
+                    result[0]=0;view.complete('Update installed. Tracker launched.')
+                    root.after(450,root.destroy);return
+                else:
+                    view.error(value+'\nSettings and session history were not modified.')
+                    view.actions([('Close',root.destroy)])
+                    root.protocol('WM_DELETE_WINDOW',root.destroy);return
+        except queue.Empty:root.after(75,poll)
+    threading.Thread(target=work,daemon=True).start()
+    root.after(75,poll);root.mainloop();return result[0]
 
 if __name__=='__main__':sys.exit(helper_main())

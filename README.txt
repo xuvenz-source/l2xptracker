@@ -285,3 +285,6 @@ Reset in the main window or HUD saves the original log after buffered OCR and st
 
 VERSION 0.37 — HISTORY ORGANISATION
 New section creates a top-level character section; New folder nests under the selected section/folder. Drag to folders or use Move to; merge reports remains independent. New logs here sets the future destination. Confirmed deletion removes original records from reports; folder and report deletion keep original contents unless explicitly selected. Active session deletion is blocked.
+
+VERSION 0.38 — VISUAL UPDATER
+The portable tracker checks releases in a startup update manager before opening the dashboard. Known-size downloads show actual percentage and bytes. Verification, installation and testing show stage messages. Offline checks can continue to the current tracker. Auto-update preference remains in effect; manual updates and idle automatic installs also show progress.

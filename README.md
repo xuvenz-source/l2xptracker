@@ -83,7 +83,10 @@ Reset in the main control bar or HUD stops the active capture, drains buffered O
 ## Organised session history (v0.37)
 Create top-level character sections and nested folders. Drag sessions or reports into folders or use Move to; moving does not merge or modify statistics. New logs here chooses the destination for future sessions (including Reset). Drag onto another session or report still merges as before. Delete requires confirmation: originals are removed from every report, empty reports are removed, deleting a report retains its sources, and deleting a folder promotes its remaining contents. Active/draining sessions cannot be deleted. Existing archives migrate in place; original session data and merged-report links are preserved.
 
-## Current status: v0.37.1
+## Visual updater (v0.38)
+The portable tracker opens a dedicated update manager before the main dashboard. It checks the latest published release and respects automatic installation preferences. Downloads show measured bytes and percentage when the package size is known; preparation, verification and testing use an indeterminate progress bar. A failed incremental patch switches to the full package. Offline or failed checks can open the current tracker without an update. The separate installation helper shows an installing window during file replacement and restart. An update-triggered restart skips the redundant startup check. Periodic and manual updates also show the visual download window when idle. Upgrading from older versions uses their existing updater once; the new visual manager is available on subsequent launches.
+
+## Current status: v0.38
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

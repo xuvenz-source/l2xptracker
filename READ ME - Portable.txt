@@ -1,4 +1,4 @@
-L2 LEGACY FARMING TRACKER v0.37.1 — WINDOWS x64 PORTABLE
+L2 LEGACY FARMING TRACKER v0.38 — WINDOWS x64 PORTABLE
 
 1. Extract the ENTIRE ZIP to a normal folder (not directly inside the ZIP viewer).
 2. Double-click L2 Legacy Tracker.exe.
@@ -71,3 +71,5 @@ HUD drag hotfix (v0.35.1): native mouse movement and capture support unlocked dr
 Reset (v0.36): main window or HUD Reset saves the old session after queued OCR, then creates a fresh session with the same party and prices. Manual pause is preserved. No old chat is replayed; avoid fighting during the short transition.
 
 History (v0.37): create character sections and nested folders, drag or Move to organise, New logs here sets future session destination, Delete removes selected entries after confirmation. Folder deletion keeps contents; report deletion keeps original sessions.
+
+Visual updater (v0.38): startup update check, measured download percentage and installation stages. Automatic updates respect existing preferences; offline users can continue without checking.
