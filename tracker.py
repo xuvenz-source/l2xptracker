@@ -27,6 +27,7 @@ from party_setup_ui import PartySetup
 from update_ui import UpdateUI
 from preferences import load_backup_retention,save_backup_retention,load_numeric_templates,save_numeric_templates
 from numeric_templates import recognise as recognise_numeric
+from ocr_evidence import OcrEvidence, png as evidence_png
 from scroll_ui import ScrollPage,table_scroll
 from player_ui import PlayerStatus
 from hud_layout import WIDGETS, PRESETS, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
@@ -414,7 +415,8 @@ def xp_field_candidate(text):
     value=int(m[1].replace(',',''))
     return value if value>0 else None
 
-def configured_xp_resolution(row,reads):
+def configured_xp_resolution(row,reads,read= None):
+    if read is None:read=single_ocr
     # A second independent preprocessing family is particularly useful for
     # magenta text, where exact RGB thresholds can fragment thin digits.
     # Keep any conflicting *valid* values in the evidence: never outvote XP.
@@ -428,7 +430,7 @@ def configured_xp_resolution(row,reads):
         if colour_category(row)=='xp':
             for threshold,contrast in ((110,72),(170,110)):
                 m=colour_masks(row,threshold=threshold,contrast=contrast)['xp']
-                reads.append(single_ocr(np.where(m,0,255).astype(np.uint8)))
+                reads.append(read(np.where(m,0,255).astype(np.uint8)))
             x,sp=fields()
     xv,sv=agreed(x),agreed(sp)
     evidence=' | '.join(text or '(blank)' for text in reads)
@@ -440,11 +442,21 @@ def configured_xp_resolution(row,reads):
         return 'sp_partial',f'You have acquired {sv} SP; XP unknown. [XP conflict or unreadable: {evidence}]'
     return None
 
-def configured_ocr_rows(rows,colours,use_templates=False):
+def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
     """Respect shared colours: classify by text where a hue is not unique."""
     for row in rows:
         group=row_group(row,colours)
         if not group or group==('other',):continue
+        passes=[]
+        def read(im,nearest=False):
+            result=single_ocr(im,nearest=nearest)
+            if evidence is not None:
+                try:passes.append((evidence_png(padded(im,nearest=nearest)),result,nearest))
+                except Exception:pass
+            return result
+        def report(kind,text):
+            if evidence is not None:evidence.record(row,group,passes,kind,text)
+            return kind,text
         # Fast path is restricted to the exact calibrated reward colours and
         # verified word shapes. Any uncertainty uses the established OCR path.
         if use_templates:
@@ -454,8 +466,8 @@ def configured_ocr_rows(rows,colours,use_templates=False):
                 except Exception:
                     diagnostic('Numeric template recognition failed; using standard OCR',exc_info=True);result=None
                 if result is not None:
-                    if kind=='xp':yield ('template_line',f'You have acquired {result[0]} XP and {result[1]} SP.')
-                    else:yield ('template_line',f'You have earned {result[0]} Adena.')
+                    if kind=='xp':yield report('template_line',f'You have acquired {result[0]} XP and {result[1]} SP.')
+                    else:yield report('template_line',f'You have earned {result[0]} Adena.')
                     continue
         # Quest rewards share the cash hue in some clients. The words, not
         # the hue alone, distinguish an earned item from an Adena amount.
@@ -465,7 +477,7 @@ def configured_ocr_rows(rows,colours,use_templates=False):
         for tolerance,nearest in ((40,False),(55,True),(30,False)):
             m=pixel_masks(row,colours,tolerance).get(group)
             if m is None:break
-            text=single_ocr(np.where(m,0,255).astype(np.uint8),nearest=nearest)
+            text=read(np.where(m,0,255).astype(np.uint8),nearest=nearest)
             reads.append(text)
             e=parse(text)
             # Default beige also includes ordinary skill and status messages.
@@ -476,12 +488,12 @@ def configured_ocr_rows(rows,colours,use_templates=False):
                 break
             valid=[x for text in reads if (x:=parse(text)) and x[0] in allowed and x[3]>0]
             if len(valid)>=2 and len(set(valid))==1 and valid[0][0]!='xp':
-                yield ('line',next(text for text in reads if parse(text)==valid[0]))
+                yield report('line',next(text for text in reads if parse(text)==valid[0]))
                 break
         else:
             if 'xp' in group and (len(group)==1 or any(xp_like(x) for x in reads)):
-                resolved=configured_xp_resolution(row,reads)
-                if resolved:yield resolved;continue
+                resolved=configured_xp_resolution(row,reads,read=read if evidence is not None else None)
+                if resolved:yield report(*resolved);continue
             targets=[k for k in group if k!='other']
             if 'adena' in targets and 'item' not in targets:
                 if any((e:=parse(text)) and e[0]=='item' for text in reads):targets.append('item')
@@ -492,8 +504,8 @@ def configured_ocr_rows(rows,colours,use_templates=False):
             elif 'adena' in targets and 'item' not in targets and any(adena_like(x) for x in reads):category='adena'
             elif 'consumable' in targets and any(re.match(r'(?:Use|You have used)\b',x,re.I) for x in reads):category='consumable'
             else:category=None
-            evidence=f'{reads[0] or "(blank)"} [colour OCR: {" | ".join(x or "(blank)" for x in reads[1:])}]'
-            yield ('uncertain:'+category if category else 'uncertain',evidence)
+            review_text=f'{reads[0] or "(blank)"} [colour OCR: {" | ".join(x or "(blank)" for x in reads[1:])}]'
+            yield report('uncertain:'+category if category else 'uncertain',review_text)
 
 
 class App:
@@ -673,6 +685,12 @@ class App:
         backup_picker=ttk.Combobox(backup_row,textvariable=self.backup_retention_var,values=('1 previous version','2 previous versions','Keep all'),state='readonly',width=22);backup_picker.pack(side='left');backup_picker.bind('<<ComboboxSelected>>',self.change_backup_retention)
         ttk.Label(content,text='Older recognised installation backups are removed on normal startup and after successful updates. Session history and preferences are stored separately.',style='Muted.TLabel',wraplength=620).pack(anchor='w')
         ttk.Label(content,text='Preferences are saved automatically.',style='Muted.TLabel').pack(anchor='w',pady=(10,0))
+        ttk.Separator(content).pack(fill='x',pady=10)
+        ttk.Label(content,text='OCR troubleshooting',style='Section.TLabel').pack(anchor='w')
+        self.ocr_evidence_var=tk.BooleanVar(value=False)
+        ttk.Checkbutton(content,text='Collect OCR evidence for next session',variable=self.ocr_evidence_var).pack(anchor='w')
+        ttk.Label(content,text='Optional: retains up to 12 failed and 4 successful chat rows and the latest queued chat crop in memory. Export manually to share for diagnosis. Chat may contain player names. Nothing is uploaded automatically.',style='Muted.TLabel',wraplength=650).pack(anchor='w')
+        ttk.Button(content,text='Export OCR evidence…',command=self.export_ocr_evidence).pack(anchor='w',pady=(6,0))
         ttk.Button(content,text='Open diagnostic folder',command=self.open_diagnostic_folder).pack(anchor='w',pady=(7,0))
         self.appearance.restyle(win)
     def build_hud_widgets(self,parent):
@@ -792,6 +810,20 @@ class App:
         except (ValueError,OSError) as e:
             messagebox.showwarning('Chat settings',str(e),parent=self.root);return False
 
+    def export_ocr_evidence(self):
+        data=getattr(self,'ocr_evidence',None)
+        if data is None or not any(data.count()):
+            messagebox.showinfo('OCR evidence','Enable collection in Tracking settings, start a new session and generate chat messages first.',parent=self.root);return
+        if not messagebox.askokcancel('Export OCR evidence','This ZIP contains selected game chat images, OCR results and capture settings. Review its contents before sharing. Export now?',parent=self.root):return
+        path=filedialog.asksaveasfilename(parent=self.root,defaultextension='.zip',filetypes=[('ZIP','*.zip')],initialfile='l2-ocr-evidence.zip')
+        if not path:return
+        try:
+            metadata=dict(colours=getattr(self,'session_colours',None),pitch=getattr(self,'session_pitch',None),templates=getattr(self,'session_templates',False))
+            try:metadata['tesseract']=str(pytesseract.get_tesseract_version())
+            except Exception:metadata['tesseract']='unavailable'
+            data.export(path,metadata)
+            messagebox.showinfo('OCR evidence','Saved '+path,parent=self.root)
+        except Exception as e:messagebox.showerror('OCR evidence',str(e),parent=self.root)
     def open_diagnostic_folder(self):
         try:
             folder=settings.settings_path().parent;folder.mkdir(parents=True,exist_ok=True);os.startfile(folder)
@@ -953,6 +985,7 @@ class App:
             return
         self.session_pitch=pitch;self.capture_state='WAITING FOR CHAT'
         self.session_templates=load_numeric_templates()
+        self.ocr_evidence=OcrEvidence() if hasattr(self,'ocr_evidence_var') and self.ocr_evidence_var.get() else None
         self.session_colours=rollover['colours'] if rollover is not None else (dict(self.chat_style['colours']) if hasattr(self,'chat_style') else None)
         threading.Thread(target=self.capture,args=(self.target,dict(self.region),pitch,self.halt,self.jobs,self.pause_gate),daemon=True).start(); threading.Thread(target=self.worker,args=(self.jobs,),daemon=True).start()
     def capture(self,target,region,pitch,halt,jobs,gate):
@@ -1036,6 +1069,7 @@ class App:
                                 if shift:
                                     try:
                                         jobs.put_nowait((datetime.now().isoformat(timespec='seconds'),row_rgb[-shift:].copy()));batches+=1;capture_state('SESSION ACTIVE')
+                                        if getattr(self,'ocr_evidence',None) is not None:self.ocr_evidence.frame(rgb,alignment,pitch)
                                     except queue.Full: self.inbox.put(('gap','OCR backlog full; some lines dropped.'))
                                 old=new;old_rgb=rgb.copy() if colours else None
                     halt.wait(max(0,.05-(time.monotonic()-tick)))
@@ -1065,7 +1099,9 @@ class App:
             try:
                 colours=getattr(self,'session_colours',None)
                 batch=np.concatenate(group)
-                results=(configured_ocr_rows(batch,colours,use_templates=True) if getattr(self,'session_templates',False) else configured_ocr_rows(batch,colours)) if colours else ocr_rows(batch)
+                evidence=getattr(self,'ocr_evidence',None)
+                if colours and evidence is not None:results=configured_ocr_rows(batch,colours,use_templates=getattr(self,'session_templates',False),evidence=evidence)
+                else:results=(configured_ocr_rows(batch,colours,use_templates=True) if getattr(self,'session_templates',False) else configured_ocr_rows(batch,colours)) if colours else ocr_rows(batch)
                 for kind,line in results:
                     if line.strip():self.inbox.put((kind,(ts,line)))
             except Exception as e:
@@ -1557,11 +1593,15 @@ def portable_self_test(report):
         ImageDraw.Draw(image).text((16, 16), '221 XP and 9 SP', font=font, fill='black')
         result = pytesseract.image_to_string(image, config='--psm 7', timeout=15).strip()
         if result != '221 XP and 9 SP': raise RuntimeError(f'OCR smoke test mismatch: {result!r}')
+        # Include actual small game glyphs, not just clean Arial text.
+        from ocr_fixture import reward_mask, EXPECTED
+        game_result=single_ocr(reward_mask())
+        if game_result!=EXPECTED:raise RuntimeError(f'Game glyph OCR smoke test mismatch: {game_result!r}')
         root = tk.Tk(); root.withdraw(); root.update_idletasks(); root.destroy()
         with sqlite3.connect(':memory:') as db: db.execute('SELECT 1').fetchone()
         with mss.mss() as capture:
             if not capture.monitors: raise RuntimeError('Screen capture unavailable')
-        output.write_text(json.dumps({'ok': True, 'ocr': version, 'text': result}, indent=2), encoding='utf-8')
+        output.write_text(json.dumps({'ok': True, 'ocr': version, 'text': result, 'game_text': game_result}, indent=2), encoding='utf-8')
         return 0
     except Exception as exc:
         output.write_text(json.dumps({'ok': False, 'error': repr(exc)}, indent=2), encoding='utf-8')

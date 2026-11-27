@@ -116,7 +116,10 @@ The supplied Large-text screenshots provide verified masks for every digit and t
 ## Capture reliability hotfix (v0.44.1)
 After live reports of garbled full-line OCR, restore the nominal Large pitch of 19 (Manual 21 is still supported), automatically recheck alignment every two seconds, allow three coherent bright lines to establish actual spacing and use sparse bright text to centre row crops. The experimental template engine is opt-in again, with a new preference key so the previous default cannot silently enable it. Template exceptions fall back to standard OCR. These changes address plausible clipping and isolate the experimental engine; the review screenshot itself does not contain raw chat pixels, so the exact live failure is not confirmed.
 
-## Current status: v0.44.1
+## OCR evidence (v0.44.2)
+Settings → Tracking → OCR troubleshooting enables bounded in-memory diagnostic collection for the next session. Export OCR evidence saves the last 12 failed and 4 successful row crops, actual padded OCR inputs and results, latest queued chat crop and alignment metadata in a user-selected ZIP. No automatic upload or disk image collection. A new session replaces collected evidence; export before resetting. The portable smoke test also checks a real in-game XP glyph fixture. This is diagnostic instrumentation, not a claim that the live OCR problem is fixed.
+
+## Current status: v0.44.2
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 
