@@ -104,7 +104,10 @@ The selected font size is a nominal pitch. At capture startup, several high-cont
 ## XP recognition hotfix (v0.43.4)
 The reported screenshot produced 867, 66/ and S67 as OCR interpretations of the XP amount, while SP was consistently 43. Magenta XP messages now retry with two independent colour-contrast masks when numeric agreement is missing. Invalid digit tokens are not treated as valid numeric suffixes. XP and SP are verified independently, preserving an agreed XP amount even when SP is uncertain; conflicting valid values still require review.
 
-## Current status: v0.43.4
+## Sparse chat alignment (v0.43.5)
+The latest user screenshot shows 21-pixel chat spacing with only three bright reward messages. The detector now falls back to tightly palette-matched ordinary chat lines and tests nearby pitches through ±4 pixels. It reprojects the previous committed screenshot when alignment changes, rather than throwing away intervening messages. Identical frames are still not counted twice.
+
+## Current status: v0.43.5
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

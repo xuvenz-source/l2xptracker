@@ -921,7 +921,7 @@ class App:
     def capture(self,target,region,pitch,halt,jobs,gate):
         revision=None; old=None; failures=0; last_active=None; last_status=None
         frames=0; batches=0; last_report=time.monotonic()
-        alignment=None; last_alignment_check=0; state=None
+        alignment=None; last_alignment_check=0; state=None; old_rgb=None
         def capture_state(value):
             nonlocal state
             if value!=state:self.inbox.put(('capture_state',value));state=value
@@ -931,8 +931,8 @@ class App:
                 self.inbox.put(('status',message)); last_status=message
                 diagnostic('capture status: %s',message.replace(target.title,'[game]') if target.title else message)
         def pause(message):
-            nonlocal old, failures, last_active, alignment
-            old=None; failures=0; last_active=None;alignment=None
+            nonlocal old, failures, last_active, alignment, old_rgb
+            old=None; old_rgb=None; failures=0; last_active=None;alignment=None
             capture_state('WAITING FOR CHAT');status(message)
         try:
             api=Windows()
@@ -941,7 +941,7 @@ class App:
                     tick=time.monotonic()
                     manual,current,pause_on_blur=gate.capture_policy()
                     if current!=revision:
-                        old=None; failures=0; last_active=None; revision=current;alignment=None
+                        old=None;old_rgb=None; failures=0; last_active=None; revision=current;alignment=None
                         capture_state('WAITING FOR CHAT')
                     if manual:
                         pause('Manually paused — click Resume to continue.'); halt.wait(.05); continue
@@ -957,12 +957,14 @@ class App:
                     if colours:
                         if alignment is None or (tick-last_alignment_check>=2 and (not alignment[2] or failures>=2)):
                             measured=row_alignment(rgb,pitch,colours);last_alignment_check=tick
-                            # Adopt a better lattice only with enough evidence;
-                            # discard an incompatible baseline, never replay it.
+                            # Reproject the last committed frame onto the new
+                            # lattice instead of dropping messages that scrolled
+                            # in while the detector was establishing confidence.
                             if alignment is None or (measured[2] and measured[:2]!=alignment[:2]):
-                                if old is not None and alignment is not None:
-                                    self.inbox.put(('gap','Chat spacing/alignment changed; establishing a fresh baseline.'))
-                                old=None;failures=0;alignment=measured
+                                if old_rgb is not None and old_rgb.shape==rgb.shape:
+                                    old,_=aligned_rows(old_rgb,*measured[:2],colours)
+                                else:old=None
+                                failures=0;alignment=measured
                                 diagnostic('Chat row calibration: configured=%d detected=%d phase=%d confident=%s',pitch,*alignment)
                             elif measured[2] and measured[:2]==alignment[:2]:alignment=measured
                         new,row_rgb=aligned_rows(rgb,*alignment[:2],colours)
@@ -972,7 +974,7 @@ class App:
                     # A pause/resume during screen capture discards the stale frame.
                     with gate.lock:
                         if halt.is_set() or not gate.accepts(revision):
-                            old=None; failures=0; last_active=None; alignment=None;continue
+                            old=None;old_rgb=None; failures=0; last_active=None; alignment=None;continue
                         now=time.monotonic()
                         if last_active is not None: self.active_seconds+=max(0,now-last_active)
                         last_active=now;frames+=1
@@ -981,20 +983,20 @@ class App:
                             last_report=now
                         status(f'Tracking {target.title} — '+('focused only.' if pause_on_blur else 'visible chat, including in background.'))
                         if old is None:
-                            old=new;capture_state('CHAT READY' if new.sum()>=24 else 'WAITING FOR CHAT')
+                            old=new;old_rgb=rgb.copy() if colours else None;capture_state('CHAT READY' if new.sum()>=24 else 'WAITING FOR CHAT')
                         else:
                             shift=overlap(old,new)
                             if shift is None:
                                 failures+=1;capture_state('SYNCING CHAT')
                                 if failures>=4:
-                                    self.inbox.put(('gap','No reliable row overlap; resynchronised without counting ambiguous lines.')); old=new; failures=0
+                                    self.inbox.put(('gap','No reliable row overlap; resynchronised without counting ambiguous lines.')); old=new;old_rgb=rgb.copy() if colours else None; failures=0
                             else:
                                 failures=0;capture_state('SESSION ACTIVE' if batches else 'CHAT READY')
                                 if shift:
                                     try:
                                         jobs.put_nowait((datetime.now().isoformat(timespec='seconds'),row_rgb[-shift:].copy()));batches+=1;capture_state('SESSION ACTIVE')
                                     except queue.Full: self.inbox.put(('gap','OCR backlog full; some lines dropped.'))
-                                old=new
+                                old=new;old_rgb=rgb.copy() if colours else None
                     halt.wait(max(0,.05-(time.monotonic()-tick)))
         except Exception as e:
             diagnostic('capture exception',exc_info=True)

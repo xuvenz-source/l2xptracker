@@ -73,55 +73,61 @@ def row_group(rgb,colours):
     if not counts or counts[0][0]<20 or (len(counts)>1 and counts[0][0]<2*counts[1][0]):return ()
     return counts[0][1]
 
-def styled_rows(rgb,pitch,colours):
+def styled_rows(rgb,pitch,colours,tolerance=40):
     m=np.zeros(rgb.shape[:2],dtype=bool)
-    for mask in pixel_masks(rgb,colours).values():m|=mask
+    for mask in pixel_masks(rgb,colours,tolerance).values():m|=mask
     n=len(m)//pitch
     return m[:n*pitch].reshape(n,pitch,m.shape[1])
 
 
-def row_alignment(rgb,pitch,colours):
-    """Find line pitch and top-edge phase using high-chroma text anchors.
-
-    Several separated lines must support a single lattice. Beige game
-    background pixels are excluded from inference. Sparse/ambiguous crops
-    fall back to the configured pitch, never an invented calibration.
-    """
-    groups=pixel_masks(rgb,colours,tolerance=30)
-    anchors=np.zeros(rgb.shape[:2],dtype=bool)
-    for (hexcolour,kinds) in palette_groups(colours).items():
-        colour=[int(hexcolour[i:i+2],16) for i in (1,3,5)]
-        if max(colour)-min(colour)>=120:anchors|=groups[kinds]
-    profile=anchors.sum(axis=1)
-    active=np.flatnonzero(profile>=max(5,round(rgb.shape[1]*.012)))
+def line_centres(mask,pitch):
+    profile=mask.sum(axis=1)
+    active=np.flatnonzero(profile>=max(5,round(mask.shape[1]*.012)))
     bands=np.split(active,np.where(np.diff(active)>2)[0]+1)
-    bands=[x for x in bands if len(x)>=3 and x[-1]-x[0]<max(15,pitch)]
-    centres=np.array([(x[0]+x[-1])/2 for x in bands])
-    if len(centres)<2:return pitch,0,False
-    # Search local variations only, unless users explicitly choose another
-    # manual pitch; preserve their configured value as the fallback.
+    return np.array([(x[0]+x[-1])/2 for x in bands if len(x)>=3 and x[-1]-x[0]<max(15,pitch)])
+
+def fit_lattice(centres,pitch):
+    if len(centres)<4:return None
     candidates=[]
-    for p in range(max(10,pitch-3),min(40,pitch+3)+1):
-        # A valid line lattice has a common midpoint modulo p.
+    for p in range(max(10,pitch-4),min(40,pitch+4)+1):
         distances=np.abs(((centres[:,None]-centres[None,:]+p/2)%p)-p/2)
         scores=(distances<=1.5).sum(axis=0)
         j=int(np.argmax(scores));inliers=distances[:,j]<=1.5
         fit=centres[inliers]
         if len(fit)<4 or len(fit)/len(centres)<.8 or np.ptp(fit)<3*p:continue
-        # Avoid divisors/multiples of the real pitch: at least one
-        # neighbouring pair must be an observed single-line step.
         if not np.any(np.abs(np.diff(fit)-p)<=2):continue
         err=float(distances[inliers,j].mean())
         candidates.append((len(fit),-err,-abs(p-pitch),p,fit))
-    if candidates:
-        _,_,_,actual,fit=max(candidates,key=lambda x:x[:3])
-        phase=int(round((fit[0]-actual/2)%actual))%actual
-        return actual,phase,True
-    # With fewer anchors, align the configured pitch only when agreement is
-    # strong; do not infer an alternative pitch from insufficient evidence.
-    delta=np.abs(((centres-centres[0]+pitch/2)%pitch)-pitch/2)
-    if np.max(delta)<=1.5:
-        return pitch,int(round((centres[0]-pitch/2)%pitch))%pitch,False
+    if not candidates:return None
+    _,_,_,actual,fit=max(candidates,key=lambda x:x[:3])
+    phase=int(round((np.median(fit-np.round((fit-fit[0])/actual)*actual)-actual/2)%actual))%actual
+    return actual,phase,True
+
+def row_alignment(rgb,pitch,colours):
+    """Infer line geometry from coloured text, or tightly matched full palette.
+
+    Ordinary beige messages provide important anchors when XP and loot are
+    sparse. A strict palette mask and periodic fit reject most terrain noise.
+    """
+    groups=pixel_masks(rgb,colours,tolerance=30)
+    anchors=np.zeros(rgb.shape[:2],dtype=bool)
+    for hexcolour,kinds in palette_groups(colours).items():
+        colour=[int(hexcolour[i:i+2],16) for i in (1,3,5)]
+        if max(colour)-min(colour)>=120:anchors|=groups[kinds]
+    centres=line_centres(anchors,pitch)
+    result=fit_lattice(centres,pitch)
+    if result:return result
+    full=np.logical_or.reduce(list(pixel_masks(rgb,colours,tolerance=22).values()))
+    all_centres=line_centres(full,pitch)
+    result=fit_lattice(all_centres,pitch)
+    if result:
+        # Require consistency with any independently visible bright lines.
+        p,phase,_=result
+        if not len(centres) or np.mean(np.abs(((centres-phase-p/2+p/2)%p)-p/2)<=3)>=.8:return result
+    if len(centres)>=2:
+        delta=np.abs(((centres-centres[0]+pitch/2)%pitch)-pitch/2)
+        if np.max(delta)<=1.5:
+            return pitch,int(round((centres[0]-pitch/2)%pitch))%pitch,False
     return pitch,0,False
 
 def aligned_rows(rgb,pitch,phase,colours):
@@ -135,4 +141,4 @@ def aligned_rows(rgb,pitch,phase,colours):
     if any(pad):cropped=np.pad(cropped,((pad[0],pad[1]),(0,0),(0,0)))
     n=len(cropped)//pitch
     rows=cropped[:n*pitch].reshape(n,pitch,rgb.shape[1],3)
-    return styled_rows(cropped,pitch,colours),rows
+    return styled_rows(cropped,pitch,colours,tolerance=25),rows
