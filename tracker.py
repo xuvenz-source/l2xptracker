@@ -521,6 +521,7 @@ class App:
         hudtools=ttk.Frame(content);hudtools.pack(fill='x',pady=(0,8))
         ttk.Button(hudtools,text='Position HUD…',command=self.open_position).pack(side='left')
         self.move_btn=ttk.Button(hudtools,text='Move HUD in game',command=self.arm_hud_move);self.move_btn.pack(side='left',padx=8)
+        ttk.Label(hudtools,text='HUD: double-click lock to unlock; drag; click to lock.',style='Muted.TLabel').pack(side='left',padx=4)
         palette=ttk.LabelFrame(content,text='In-game system message colours',padding=6);palette.pack(fill='x',pady=(0,6))
         self.colour_vars={};self.colour_swatches={}
         for i,(key,label) in enumerate(LABELS.items()):

@@ -62,7 +62,10 @@ Restores the original focused-game screen capture path, avoiding false-positive 
 
 In History, drag an original session onto another session to create a named parent, or drop a session or group onto an existing parent to add it immediately. Drag multiple selected rows together, using Ctrl/Shift first. Valid targets are highlighted. Existing memberships are preserved; dragging a shared session adds a reference, not a copy or destructive move. Duplicate sources and circular groups are rejected, and nested parent totals are refreshed atomically. Merge selected remains available.
 
-## Current status: v0.29
+## Lockable HUD (v0.32)
+The in-game HUD starts locked. Double-click its top-right padlock to unlock, then left-click and drag its body. Single-click the open padlock to lock it again. Pause/Resume remains interactive in both states. The locked body is click-through; the lock and Pause/Resume remain interactive. Positions are saved on release, constrained to the game client and kept away from captured chat. The explicit Settings positioning tools remain available as a fallback.
+
+## Current status: v0.32
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

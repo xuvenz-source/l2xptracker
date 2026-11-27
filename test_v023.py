@@ -44,8 +44,8 @@ class FocusSettingsTests(unittest.TestCase):
         h.keys=set();tick();h.keys={1};h.wndproc(33,0x201,0,0);tick()
         self.assertEqual(h.on_pause.call_count,2)
         api.foreground.return_value=2;tick();self.assertFalse(h.shown)
-    def test_shift_does_not_pause(self):
+    def test_pause_independent_of_lock(self):
         h,api,tick=test_v08.DragTests().make_hud();h.on_pause=Mock();tick()
         l,t,_,_=PAUSE_RECT;h.cursor.return_value=(h.position[0]+l+2,h.position[1]+t+2)
-        h.keys={0x10,1};tick();h.wndproc(33,0x201,0,0)
-        h.on_pause.assert_not_called();self.assertIsNotNone(h.drag)
+        h.locked=False;h.keys={1};tick();h.wndproc(33,0x201,0,0)
+        h.on_pause.assert_called_once();self.assertIsNone(h.drag)

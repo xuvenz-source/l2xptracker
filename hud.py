@@ -1,11 +1,13 @@
 """Separate native, click-through, non-activating Windows HUD. No game hooks."""
 import ctypes as c
 from ctypes import wintypes as w
-import os
+import os, time
 from diagnostics import diagnostic
 
 WIDTH, HEIGHT = 310, 86
 PAUSE_RECT = (210, 60, 304, 82)
+LOCK_RECT = (288, 2, 309, 24)
+
 
 
 def safe_position(geo, chat, desktop, preferred):
@@ -45,6 +47,7 @@ class Hud:
     def __init__(self, preferred=None, on_move=None, on_pause=None):
         self.hwnd=None; self.shown=False; self.position=None; self.values=('—','—','—')
         self.preferred=preferred; self.on_move=on_move; self.drag=None; self.interactive=False
+        self.locked=True; self.lock_first=None; self.press_handled=False
         self.last_mouse_down=None; self.placement=None; self.on_pause=on_pause; self.paused=False; self.pause_pressed=False
         self.u=c.WinDLL('user32',use_last_error=True); self.g=c.WinDLL('gdi32',use_last_error=True); self.k=c.WinDLL('kernel32',use_last_error=True)
         H=w.HANDLE; L=c.c_ssize_t; U=c.c_size_t
@@ -71,6 +74,7 @@ class Hud:
         sig(self.u,'FillRect',[H,c.POINTER(w.RECT),H],c.c_int)
         sig(self.u,'DrawTextW',[H,w.LPCWSTR,c.c_int,c.POINTER(w.RECT),w.UINT],c.c_int)
         sig(self.u,'GetSystemMetrics',[c.c_int],c.c_int)
+        sig(self.u,'GetDoubleClickTime',[],w.UINT)
         sig(self.u,'GetAsyncKeyState',[c.c_int],c.c_short)
         sig(self.u,'GetCursorPos',[c.POINTER(w.POINT)],w.BOOL)
         sig(self.u,'GetWindowLongW',[H,c.c_int],c.c_long)
@@ -90,6 +94,7 @@ class Hud:
         self.divider=self.g.CreateSolidBrush(self.rgb(75,84,97))
         self.small=self.font(14,400); self.large=self.font(19,600)
         self.control=self.g.CreateSolidBrush(self.rgb(46,61,78))
+        self.lock_brush=self.g.CreateSolidBrush(self.rgb(235,240,248))
         # layered + transparent + noactivate + toolwindow + topmost
         ex=0x80000|0x20|0x08000000|0x80|8
         self.hwnd=self.u.CreateWindowExW(ex,self.name,'L2 Farming HUD',0x80000000,0,0,WIDTH,HEIGHT,None,None,self.instance,None)
@@ -104,6 +109,42 @@ class Hud:
         self.g.SetTextColor(dc,self.rgb(*colour)); r=w.RECT(*rect)
         self.u.DrawTextW(dc,string,-1,c.byref(r),0x00000020|0x00000004|0x00000800) # single line, vertical centre, no prefix
         self.g.SelectObject(dc,prev)
+    def hit_rect(self,point,rect):
+        if not self.shown or not self.position or point is None or getattr(self,'placement',None) is not None:return False
+        x,y=self.position;l,t,r,b=rect
+        return x+l<=point[0]<x+r and y+t<=point[1]<y+b
+    def lock_hit(self,point):
+        return self.hit_rect(point,LOCK_RECT)
+    def body_hit(self,point):
+        return self.hit_rect(point,(0,0,WIDTH,HEIGHT)) and not self.lock_hit(point) and not self.pause_hit(point)
+    def wants_input(self,point):
+        return self.drag is not None or self.lock_hit(point) or self.pause_hit(point) or (not self.locked and self.body_hit(point))
+    def toggle_lock_press(self):
+        # Unlock requires two distinct presses within Windows' double-click interval.
+        # Lock immediately on the first click while unlocked.
+        now=time.monotonic()
+        if not self.locked:
+            self.finish_drag();self.locked=True;self.lock_first=None
+        elif self.lock_first is not None and 0<=now-self.lock_first<=self.double_click_seconds():
+            self.locked=False;self.lock_first=None
+        else:
+            self.lock_first=now;return
+        self.u.InvalidateRect(self.hwnd,None,False)
+    def double_click_seconds(self):
+        try:return max(.1,min(2.,int(self.u.GetDoubleClickTime())/1000))
+        except (ValueError,TypeError):return .5
+    def handle_press(self,point):
+        # Native messages and polling share one latch: one physical press
+        # cannot be counted twice or accidentally unlock the HUD.
+        if self.press_handled:return
+        self.press_handled=True
+        if self.lock_hit(point):
+            self.toggle_lock_press();return
+        self.lock_first=None
+        if self.pause_hit(point):self.pause_click()
+        elif not self.locked and self.body_hit(point):self.begin_drag(point)
+    def release_press(self):
+        self.finish_drag();self.press_handled=False;self.pause_pressed=False
     def pause_hit(self,point):
         if not getattr(self,'on_pause',None) or not self.shown or not self.position or point is None or getattr(self,'placement',None) is not None:return False
         x,y=self.position;l,t,r,b=PAUSE_RECT
@@ -118,15 +159,12 @@ class Hud:
             diagnostic('Native HUD callback exception, message=%s',msg,exc_info=True)
             return self.u.DefWindowProcW(h,msg,wp,lp)
     def wndproc(self,h,msg,wp,lp):
-        if msg==0x84:return 1 if self.interactive and (self.key_down(0x10) or self.pause_hit(self.cursor())) else -1 # HTCLIENT / HTTRANSPARENT
-        if msg==0x201: # WM_LBUTTONDOWN on our HUD only
-            if self.interactive and self.key_down(0x10):
-                self.begin_drag(self.cursor())
-            elif self.interactive and self.pause_hit(self.cursor()):
-                self.pause_click()
+        if msg==0x84:return 1 if self.interactive and self.wants_input(self.cursor()) else -1 # HTCLIENT / HTTRANSPARENT
+        if msg in (0x201,0x203): # WM_LBUTTONDOWN / DBLCLK
+            if self.interactive:self.handle_press(self.cursor())
             return 0
-        if msg==0x202: # WM_LBUTTONUP; polling also detects release outside HUD
-            self.finish_drag();return 0 # polling clears the press latch on release
+        if msg==0x202: # polling also detects release outside HUD
+            self.release_press();return 0
         if msg==0x21:return 3 # MA_NOACTIVATE
         if msg==0x14:return 1
         if msg==0xF:
@@ -138,8 +176,12 @@ class Hud:
                     self.g.SetBkMode(dc,1)
                     for i,(label,value,colour) in enumerate(zip(('ADENA / HR','EXP / HR','KILLS / HR'),self.values,((247,202,102),(134,224,183),(214,224,245)))):
                         x=i*103+8
-                        self.text(dc,label,(x,7,x+91,24),self.small,(180,190,205))
+                        self.text(dc,label,(x,7,288 if i==2 else x+91,24),self.small,(180,190,205))
                         self.text(dc,value,(x,26,x+91,53),self.large,colour)
+                    # Small vector padlock: no emoji/font dependency.
+                    parts=[(295,11,304,12),(295,18,304,19),(295,12,296,18),(303,12,304,18),(299,14,300,17)]
+                    parts += ([(297,7,302,8),(297,8,298,11),(301,8,302,11)] if self.locked else [(297,6,302,7),(297,7,298,11),(301,7,302,9)])
+                    for part in parts:self.u.FillRect(dc,c.byref(w.RECT(*part)),self.lock_brush)
                     self.u.FillRect(dc,c.byref(w.RECT(8,56,302,57)),self.divider)
                     self.u.FillRect(dc,c.byref(w.RECT(*PAUSE_RECT)),self.control)
                     paused=getattr(self,'paused',False)
@@ -164,7 +206,7 @@ class Hud:
         self.interactive=enabled
     def begin_drag(self,point):
         # Also used by polling when the layered popup does not receive mouse messages.
-        if self.drag is not None or not self.shown or not self.position or point is None:return
+        if self.locked or self.drag is not None or not self.body_hit(point):return
         x,y=self.position
         if x<=point[0]<x+WIDTH and y<=point[1]<y+HEIGHT:
             self.drag=(point[0]-x,point[1]-y)
@@ -173,7 +215,7 @@ class Hud:
         self.drag=None
         if self.preferred is not None and self.on_move:self.on_move(self.preferred)
     def arm_placement(self):
-        self.finish_drag(); self.set_interactive(False)
+        self.finish_drag(); self.lock_first=None; self.set_interactive(False)
         self.placement={'seen':False,'shift_ready':False}
     def cancel_placement(self):
         self.placement=None
@@ -197,25 +239,21 @@ class Hud:
         mouse_down=self.key_down(0x01)
         previous=getattr(self,'last_mouse_down',None)
         self.last_mouse_down=mouse_down
-        if not mouse_down:self.pause_pressed=False
+        if not mouse_down:self.release_press()
         if getattr(self,'placement',None) is not None:
             self.set_interactive(False)
             # No overlay clicks or mouse routing: move with pointer and tap Shift.
             candidate=self.placement_position(geo,chat,desktop,shift,self.cursor())
             pos=candidate or hud_position(geo,chat,desktop,self.preferred)
         else:
-            point=self.cursor() if shift or self.drag is not None or getattr(self,'on_pause',None) else None
-            # Keep the existing native hit-test path, but do not depend on the
-            # window manager delivering WM_LBUTTONDOWN to a layered overlay.
-            button=self.pause_hit(point) and not shift and self.drag is None
-            was_interactive=self.interactive
-            self.set_interactive(shift or button)
-            if button and was_interactive and mouse_down and previous is False:self.pause_click()
-            if shift and mouse_down and previous is False:
-                self.begin_drag(point)
+            point=self.cursor()
+            self.set_interactive(self.wants_input(point))
+            # Polling fallback catches missed native mouse messages without
+            # starting a drag when the button was already held on entry.
+            if mouse_down and previous is False:self.handle_press(point)
             pos=hud_position(geo,chat,desktop,self.preferred)
             if self.drag is not None:
-                if shift and mouse_down and point is not None:
+                if not self.locked and mouse_down and point is not None:
                     candidate=safe_position(geo,chat,desktop,(point[0]-self.drag[0]-geo[0],point[1]-self.drag[1]-geo[1]))
                     if candidate is not None:
                         pos=candidate; self.preferred=(pos[0]-geo[0],pos[1]-geo[1])
@@ -232,11 +270,11 @@ class Hud:
             if getattr(self,"placement",None) and self.placement["seen"]:self.cancel_placement()
             self.hide()
     def hide(self):
-        self.finish_drag();self.set_interactive(False);self.last_mouse_down=None;self.pause_pressed=False
+        self.release_press();self.set_interactive(False);self.last_mouse_down=None;self.lock_first=None
         if self.hwnd and self.shown:self.u.ShowWindow(self.hwnd,0);self.shown=False;self.position=None
     def close(self):
         self.cancel_placement(); self.finish_drag()
         if self.hwnd:self.u.DestroyWindow(self.hwnd);self.hwnd=None
-        for obj in (self.brush,self.divider,self.small,self.large,self.control):
+        for obj in (self.brush,self.divider,self.small,self.large,self.control,self.lock_brush):
             if obj:self.g.DeleteObject(obj)
         self.u.UnregisterClassW(self.name,self.instance)

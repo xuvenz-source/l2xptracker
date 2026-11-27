@@ -264,3 +264,6 @@ v0.17 — Independent SP verification
 - Review the pending XP with the known SP; approving adds only XP. Session history, merges and exports retain the partial event. Blank XP in an export means unknown, not zero.
 - Older saved sessions load without migration. Use v0.17 or newer to open sessions containing the new SP-only events.
 - Windows portable build kit included. Rebuild the executable using Build Portable.bat.
+
+VERSION 0.32 — LOCKABLE HUD
+The in-game HUD starts locked. Double-click the top-right padlock to unlock; left-click and drag the body, then release to save. Single-click the unlocked padlock to lock. Locked body clicks pass through; Pause/Resume works in both states. This supersedes the Shift-drag instructions above. Explicit Settings positioning is still available.
