@@ -49,7 +49,7 @@ class Hud:
         self.opacity=validate_hud_opacity(opacity)
         self.hwnd=None; self.shown=False; self.position=None; self.values=('—','—','—')
         self.preferred=preferred; self.on_move=on_move; self.drag=None; self.interactive=False
-        self.locked=True; self.lock_first=None; self.press_handled=False
+        self.locked=True; self.lock_first=None; self.press_handled=False; self.native_released=False
         self.last_mouse_down=None; self.placement=None; self.on_pause=on_pause; self.paused=False; self.pause_pressed=False
         self.u=c.WinDLL('user32',use_last_error=True); self.g=c.WinDLL('gdi32',use_last_error=True); self.k=c.WinDLL('kernel32',use_last_error=True)
         H=w.HANDLE; L=c.c_ssize_t; U=c.c_size_t
@@ -152,7 +152,7 @@ class Hud:
         if self.pause_hit(point):self.pause_click()
         elif not self.locked and self.body_hit(point):self.begin_drag(point)
     def release_press(self):
-        self.finish_drag();self.press_handled=False;self.pause_pressed=False
+        self.finish_drag();self.press_handled=False;self.pause_pressed=False;self.native_released=False
     def pause_hit(self,point):
         if not getattr(self,'on_pause',None) or not self.shown or not self.position or point is None or getattr(self,'placement',None) is not None:return False
         x,y=self.position;l,t,r,b=PAUSE_RECT
@@ -169,10 +169,13 @@ class Hud:
     def wndproc(self,h,msg,wp,lp):
         if msg==0x84:return 1 if self.interactive and self.wants_input(self.cursor()) else -1 # HTCLIENT / HTTRANSPARENT
         if msg in (0x201,0x203): # WM_LBUTTONDOWN / DBLCLK
-            if self.interactive:self.handle_press(self.cursor())
+            if self.interactive:
+                if getattr(self,'native_released',False):self.release_press()
+                self.handle_press(self.cursor())
             return 0
-        if msg==0x202: # polling also detects release outside HUD
-            self.release_press();return 0
+        if msg==0x202: # native up ends movement, but the poll may still see down
+            self.finish_drag();self.native_released=True
+            return 0
         if msg==0x21:return 3 # MA_NOACTIVATE
         if msg==0x14:return 1
         if msg==0xF:

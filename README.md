@@ -68,7 +68,7 @@ The in-game HUD starts locked. Double-click its top-right padlock to unlock, the
 ## HUD opacity (v0.33)
 Settings → Tracking → HUD opacity adjusts the entire floating HUD from 20% to 100%, including text and buttons. The default is 92%, matching the previous appearance; Reset restores it. Changes apply immediately to the HUD and save locally, independently of chat calibration. The HUD is visible when the game is foreground, so return to the game to inspect changes. Lock, drag, pause and focus rules are unchanged.
 
-## Current status: v0.33
+## Current status: v0.33.1
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

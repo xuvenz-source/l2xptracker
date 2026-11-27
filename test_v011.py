@@ -19,6 +19,14 @@ class PollDragTests(unittest.TestCase):
             self.click(h,tick,True);self.assertFalse(h.locked)
             self.click(h,tick,True);self.assertTrue(h.locked)
         self.assertIsNone(h.drag);h.on_move.assert_not_called()
+    def test_native_double_click_between_polls(self):
+        h,api,tick=self.make_hud();tick();self.move_to(h,LOCK_RECT);tick()
+        with patch('hud.time.monotonic',side_effect=[1,1.2]):
+            h.wndproc(33,0x201,0,0);h.wndproc(33,0x202,0,0)
+            h.wndproc(33,0x201,0,0);h.wndproc(33,0x202,0,0)
+        self.assertFalse(h.locked)
+        h.keys={1};tick();self.assertFalse(h.locked)
+        h.keys=set();tick()
     def test_slow_clicks_do_not_unlock(self):
         h,api,tick=self.make_hud();tick();self.move_to(h,LOCK_RECT)
         with patch('hud.time.monotonic',side_effect=[1,2]):
