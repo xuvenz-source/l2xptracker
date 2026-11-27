@@ -1,4 +1,4 @@
-VERSION = '0.44.3'
+VERSION = '0.44.4'
 APP_NAME = 'L2 Legacy Tracker'
 EXE_NAME = APP_NAME + '.exe'
 HELPER_NAME = 'L2 Tracker Updater.exe'

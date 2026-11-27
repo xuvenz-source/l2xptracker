@@ -25,7 +25,7 @@ def score(glyph,templates):
     return max((1-float(np.mean(glyph!=t)) for t in templates if t.shape==glyph.shape),default=0.)
 
 @lru_cache(maxsize=1024)
-def classify_digit(height,width,packed):
+def classify_digit(height,width,packed,strict=False):
     glyph=np.unpackbits(np.frombuffer(packed,dtype=np.uint8),count=height*width).reshape(height,width).astype(bool)
     scores=sorted(((score(glyph,v),k) for k,v in library()['digits'].items()),reverse=True)
     best,digit=scores[0]
@@ -33,14 +33,14 @@ def classify_digit(height,width,packed):
         pad=7-m.shape[1];return np.pad(m,((0,0),(pad//2,pad-pad//2)))
     centered=center(glyph)
     other=max((1-float(np.mean(centered!=center(t))) for k,v in library()['digits'].items() if k!=digit for t in v),default=0.)
-    return digit if best>=.90 and best-other>=.10 else None
+    return digit if best>=(.97 if strict else .90) and best-other>=(.17 if strict else .10) else None
 
 def groups(mask,gap):
     xs=np.flatnonzero(mask.any(0))
     if not len(xs):return []
     return [(int(g[0]),int(g[-1])+1) for g in np.split(xs,np.where(np.diff(xs)>gap)[0]+1)]
 
-def number(mask):
+def number(mask,strict=False):
     pieces=groups(mask,1)
     if not 1<=len(pieces)<=7:return None
     if any(b-c>4 or b-c<1 for (_,c),(b,_) in zip(pieces,pieces[1:])):return None
@@ -48,7 +48,7 @@ def number(mask):
     for a,b in pieces:
         g=trim(mask[:,a:b])
         if g is None or g.shape[0]!=12 or not 5<=g.shape[1]<=7:return None
-        d=classify_digit(*g.shape,np.packbits(g).tobytes())
+        d=classify_digit(*g.shape,np.packbits(g).tobytes(),strict)
         if d is None:return None
         out.append(d)
     if len(out)>1 and out[0]=='0':return None
@@ -57,8 +57,8 @@ def number(mask):
 XP_PATTERN=('You','have','acquired',None,'XP','and',None,'SP.')
 AD_PATTERN=('You','have','earned',None,'Adena.')
 
-def match_mask(mask,kind):
-    if mask.ndim!=2 or mask.shape[0] not in (20,21,22):return None
+def match_mask(mask,kind,strict=False,fields=None):
+    if mask.ndim!=2 or mask.shape[0] not in (20,21,22,23):return None
     ys,xs=np.nonzero(mask)
     if not len(xs) or ys.min()==0 or ys.max()==len(mask)-1 or xs.min()==0 or xs.max()==mask.shape[1]-1:return None
     band=np.flatnonzero(mask.sum(axis=1)>=4)
@@ -72,18 +72,19 @@ def match_mask(mask,kind):
     for label,(a,b) in zip(pattern,words):
         part=mask[:,a:b]
         if label is None:
-            n=number(part)
+            n=number(part,strict)
             if n is None:return None
             values.append(n)
+            if fields is not None:fields.append(part.copy())
         else:
             glyph=trim(part)
-            if glyph is None or score(glyph,library()['words'][label])<.92:return None
+            if glyph is None or score(glyph,library()['words'][label])<(.97 if strict else .92):return None
     if not values or values[0]<=0:return None
     return tuple(values)
 
 def recognise(row,kind):
     """Two contrast thresholds must agree; unsupported layouts fall back."""
-    if kind not in ('xp','adena') or row.ndim!=3 or row.shape[2]!=3 or row.shape[0] not in (20,21,22):return None
+    if kind not in ('xp','adena') or row.ndim!=3 or row.shape[2]!=3 or row.shape[0] not in (20,21,22,23):return None
     r,g,b=row.transpose(2,0,1)
     results=[]
     for threshold in (175,180):
@@ -92,3 +93,17 @@ def recognise(row,kind):
         if result is None:return None
         results.append(result)
     return results[0] if results[0]==results[1] else None
+
+
+def strict_adena(row):
+    """Return the value and isolated field only for a complete verified line."""
+    if row.ndim!=3 or row.shape[2]!=3 or row.shape[0] not in (20,21,22,23):return None
+    r,g,b=row.transpose(2,0,1)
+    results=[];crops=[]
+    for threshold in (175,180):
+        fields=[]
+        v=match_mask((r>threshold)&(g>threshold)&(b<100),'adena',strict=True,fields=fields)
+        if v is None or len(fields)!=1:return None
+        results.append(v[0]);crops.append(fields[0])
+    if results[0]!=results[1]:return None
+    return results[0],crops[0]

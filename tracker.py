@@ -26,7 +26,7 @@ from preferences import load_focus_pause, save_focus_pause, load_auto_update, sa
 from party_setup_ui import PartySetup
 from update_ui import UpdateUI
 from preferences import load_backup_retention,save_backup_retention,load_numeric_templates,save_numeric_templates
-from numeric_templates import recognise as recognise_numeric
+from numeric_templates import recognise as recognise_numeric, strict_adena
 from ocr_evidence import OcrEvidence, png as evidence_png
 from scroll_ui import ScrollPage,table_scroll
 from player_ui import PlayerStatus
@@ -442,6 +442,35 @@ def configured_xp_resolution(row,reads,read= None):
         return 'sp_partial',f'You have acquired {sv} SP; XP unknown. [XP conflict or unreadable: {evidence}]'
     return None
 
+def recover_adena_digits(row,reads,read_number):
+    """Conservative second opinion for known 6/8 and 7/slash ambiguities.
+
+    Never accept a number from a guessed string. Require the complete
+    personal earned-Adena word shapes and a strict match at both thresholds.
+    Conflicts beyond 6/8 substitutions stay in review.
+    """
+    try:result=strict_adena(row)
+    except Exception:
+        diagnostic('Adena digit verification failed',exc_info=True);return None
+    if result is None:return None
+    value,crop=result
+    events=[e for text in reads if (e:=parse(text)) is not None]
+    if any(e[0]!='adena' or e[1]!='You' for e in events):return None
+    valid={e[3] for e in events}
+    if valid=={value}:return value
+    if valid and value not in valid:return None
+    def close(other):
+        a,b=str(value),str(other)
+        return len(a)==len(b) and all(x==y or {x,y}=={'6','8'} for x,y in zip(a,b))
+    if any(not close(v) for v in valid):return None
+    if not valid and not any(re.search(r'\d[/]|[/]\d',text) for text in reads):return None
+    # Numeric-only OCR provides an independent check before settling a
+    # valid 6/8 conflict or accepting a field containing a damaged slash.
+    try:
+        results=[read_number(crop,nearest) for nearest in (True,False)]
+    except Exception:return None
+    return value if all(x==str(value) for x in results) else None
+
 def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
     """Respect shared colours: classify by text where a hue is not unique."""
     for row in rows:
@@ -491,6 +520,23 @@ def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
                 yield report('line',next(text for text in reads if parse(text)==valid[0]))
                 break
         else:
+            if 'adena' in group and set(group)<={'adena','item'} and colours['adena'].upper()=='#FFFF00':
+                def read_number(crop,nearest):
+                    # Use the same isolated digits and sixfold scaling as
+                    # the screenshot benchmark; no replacement of / with 7.
+                    im=np.where(crop,0,255).astype(np.uint8)
+                    # Match the verified benchmark's compact white margin.
+                    im=np.pad(im,((6,6),(8,8)),constant_values=255)
+                    image=Image.fromarray(im).resize((im.shape[1]*6,im.shape[0]*6),Image.Resampling.NEAREST if nearest else Image.Resampling.LANCZOS)
+                    text=pytesseract.image_to_string(image,config='--psm 8 -c tessedit_char_whitelist=0123456789',timeout=5).strip()
+                    if evidence is not None:
+                        try:passes.append((evidence_png(image),text,nearest))
+                        except Exception:pass
+                    return text
+                recovered=recover_adena_digits(row,reads,read_number)
+                if recovered is not None:
+                    yield report('template_line',f'You have earned {recovered} Adena.')
+                    continue
             if 'xp' in group and (len(group)==1 or any(xp_like(x) for x in reads)):
                 resolved=configured_xp_resolution(row,reads,read=read if evidence is not None else None)
                 if resolved:yield report(*resolved);continue

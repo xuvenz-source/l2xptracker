@@ -122,7 +122,10 @@ Settings → Tracking → OCR troubleshooting enables bounded in-memory diagnost
 ## Clipped bottom-row fix (v0.44.3)
 Live diagnostic evidence established the exact failure: a 187-pixel chat crop, measured 22-pixel pitch and phase 20 produced a final row containing only 13 real pixel rows and nine artificial black rows. The previous rounding-up calculation submitted the clipped reward text to OCR. Aligned extraction now floors the row count, never pads the bottom and warns when the crop cuts through visible text. Incomplete final messages are deferred until scrolling brings them into a complete row. Rebind the chat area to include the entire final line and a small margin for immediate recognition. This fixes the demonstrated extraction defect; live verification is still required. Experimental templates remain off by default.
 
-## Current status: v0.44.3
+## Targeted Adena digit recovery (v0.44.4)
+Five live failed rows contained 67, 84, 81, 84 and 76 Adena. The existing digit templates matched all five at both thresholds, but the previous experimental engine did not support 23-pixel rows. The experimental engine now accepts that geometry. Independently of the experimental fast-path setting, uncertain yellow personal earned-Adena messages can use a stricter complete-word and digit match at both thresholds. A lone matching valid full-line reading is sufficient with strict template agreement; competing valid 6/8 readings or damaged slash fields additionally require two isolated numeric OCR readings to agree. Other conflicts remain reviewable. No global digit substitutions, no capture geometry changes. Verified binary masks from the evidence are regression fixtures; no names or backgrounds included.
+
+## Current status: v0.44.4
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 
