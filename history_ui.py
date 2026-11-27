@@ -3,26 +3,47 @@ import csv, json
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
 from pathlib import Path
-from history import duration,rate,history_forest,group_drop_plan,Archive
+from history import duration,rate,history_forest,group_drop_plan,Archive,folder_move_plan,folder_options,deletion_plan
 from party import display_rows as party_rows, summary_text as party_summary
 from history import consumables_for
 from consumable_costs import cost_summary, money, write_cost_csv
+
+class FolderPicker(simpledialog.Dialog):
+    def __init__(self,parent,records,title,current=''):
+        self.options=folder_options(records);self.current=current
+        super().__init__(parent,title)
+    def body(self,master):
+        ttk.Label(master,text='Choose a destination:').pack(anchor='w')
+        self.list=tk.Listbox(master,width=55,height=min(12,max(4,len(self.options))),exportselection=False)
+        self.list.pack(fill='both',expand=True,pady=6)
+        for _,label in self.options:self.list.insert('end',label)
+        index=next((i for i,(k,_) in enumerate(self.options) if k==self.current),0)
+        self.list.selection_set(index);self.list.see(index)
+        self.list.bind('<Double-1>',lambda e:self.ok())
+        return self.list
+    def validate(self):return bool(self.list.curselection())
+    def apply(self):self.result=self.options[self.list.curselection()[0]][0]
+
 
 class HistoryWindow:
     def __init__(self,app,parent=None):
         self.app=app;self.archive=app.archive;self.embedded=parent is not None;self.win=parent if self.embedded else tk.Toplevel(app.root)
         if not self.embedded:self.win.title('Farming session history');self.win.geometry('1110x710');self.win.minsize(950,600)
         ttk.Label(self.win,text='Session history',style='Title.TLabel',padding=(12,10,12,0)).pack(anchor='w')
-        ttk.Label(self.win,text='Drag a session onto another to merge, or onto a group to add it. Ctrl/Shift selects multiple rows. Expand groups to see their sessions.',padding=10).pack(fill='x')
+        ttk.Label(self.win,text='Create sections for characters and folders for farming locations. Drag into a folder to organise; drag onto sessions or reports to merge. Ctrl/Shift selects multiple entries.',padding=10).pack(fill='x')
         frame=ttk.Frame(self.win);frame.pack(fill='both',expand=True,padx=10)
         cols=[('kind','Type',90),('start','Started',145),('active','Active time',80),('xp','EXP/hr',100),('ad','Adena/hr',100),('kills','Kills/hr',85),('review','Reviews',65)]
         self.tree=ttk.Treeview(frame,columns=[c[0] for c in cols],show='tree headings',selectmode='extended',height=10)
-        self.tree.heading('#0',text='Session name');self.tree.column('#0',width=270,minwidth=180,stretch=True)
+        self.tree.heading('#0',text='Section / folder / session');self.tree.column('#0',width=235,minwidth=140,stretch=True)
         self.row_records={};self.drag_origin=None;self.drag_ids=[];self.dragging=False;self.drop_row=None
         for c,t,w in cols:self.tree.heading(c,text=t);self.tree.column(c,width=w,minwidth=50)
         scroll=ttk.Scrollbar(frame,orient='vertical',command=self.tree.yview);self.tree.config(yscrollcommand=scroll.set);scroll.pack(side='right',fill='y');self.tree.pack(fill='both',expand=True)
-        buttons=ttk.Frame(self.win,padding=10);buttons.pack(fill='x')
-        for title,cmd in [('Refresh',self.refresh),('Rename…',self.rename),('Merge selected…',self.merge),('Open original for review',self.reopen),('Edit costs',self.reopen_costs),('Export selected CSV',self.export)]:ttk.Button(buttons,text=title,command=cmd).pack(side='left',padx=3)
+        tools=ttk.Frame(self.win,padding=(10,6,10,0));tools.pack(fill='x')
+        for title,cmd in [('New section',self.new_section),('New folder',self.new_folder),('Move to…',self.move_selected),('Rename…',self.rename),('Delete…',self.delete_selected),('New logs here…',self.choose_destination)]:ttk.Button(tools,text=title,command=cmd).pack(side='left',padx=3)
+        self.destination=tk.StringVar(value='New sessions: History root')
+        ttk.Label(self.win,textvariable=self.destination,style='Muted.TLabel',padding=(12,2,12,0)).pack(anchor='w')
+        buttons=ttk.Frame(self.win,padding=(10,4,10,4));buttons.pack(fill='x')
+        for title,cmd in [('Refresh',self.refresh),('Merge selected…',self.merge),('Open for review',self.reopen),('Edit costs',self.reopen_costs),('Export CSV',self.export)]:ttk.Button(buttons,text=title,command=cmd).pack(side='left',padx=3)
         self.details=tk.StringVar(value='Select a saved session.');ttk.Label(self.win,textvariable=self.details,padding=10,wraplength=1020).pack(fill='x')
         f=ttk.Frame(self.win);f.pack(fill='both',expand=True,padx=10,pady=(0,10));self.loot=ttk.Treeview(f,columns=('who','item','qty'),show='headings',height=8)
         for c,t,w in [('who','Player',160),('item','Item',500),('qty','Quantity',140)]:self.loot.heading(c,text=t);self.loot.column(c,width=w)
@@ -34,12 +55,14 @@ class HistoryWindow:
         self.tree.bind('<B1-Motion>',self.drag_motion)
         self.tree.bind('<ButtonRelease-1>',self.drag_end,add='+')
         self.tree.bind('<Escape>',self.cancel_drag)
+        self.tree.bind('<Delete>',lambda e:self.delete_selected())
         self.tree.bind('<<TreeviewSelect>>',self.detail);self.refresh()
         if hasattr(app,'appearance'):app.appearance.restyle(self.win)
     def refresh(self,select=None):
         self.cancel_drag()
         try:
-            self.records=self.archive.records(); self.summaries={i:self.archive.summary(i,self.records) for i in self.records}
+            self.records=self.archive.organised_records(); self.summaries={i:self.archive.summary(i,self.records) for i,r in self.records.items() if r['kind']!='folder'}
+            self.destination.set('New sessions: '+dict(folder_options(self.records)).get(self.archive.default_folder(),'History root'))
         except Exception as e:messagebox.showerror('History',str(e),parent=self.win);return
         old_paths=tuple(self.tree.selection())
         old_records=[self.row_records.get(i) for i in old_paths]
@@ -47,11 +70,16 @@ class HistoryWindow:
         self.tree.delete(*self.tree.get_children());self.row_records={}
         preferred={}
         for path in history_forest(self.records,self.summaries):
-            i=path[-1];s=self.summaries[i];t=s['totals']
+            i=path[-1];record=self.records[i]
             row=json.dumps(path,separators=(',',':'));parent=json.dumps(path[:-1],separators=(',',':')) if len(path)>1 else ''
-            typ=f"Group ({len(s['sources'])})" if s['kind']=='merged' else ('Original' if s['complete'] else 'Checkpoint')
-            self.tree.insert(parent,'end',iid=row,text=s['name'],open=row in opened,
-                values=(typ,s['start'].replace('T',' '),duration(s['seconds']),rate(t['You','XP / SP'],s['seconds']),rate(t['You','Adena'],s['seconds']),rate(s['kills'],s['seconds']),s['pending']))
+            if record['kind']=='folder':
+                typ='Section' if not record.get('folder') else 'Folder'
+                self.tree.insert(parent,'end',iid=row,text=record['name'],open=row in opened or i in (select or []),values=(typ,'','','','','',''))
+            else:
+                s=self.summaries[i];t=s['totals']
+                typ=f"Report ({len(s['sources'])})" if s['kind']=='merged' else ('Session' if s['complete'] else 'Checkpoint')
+                self.tree.insert(parent,'end',iid=row,text=s['name'],open=row in opened,
+                    values=(typ,s['start'].replace('T',' '),duration(s['seconds']),rate(t['You','XP / SP'],s['seconds']),rate(t['You','Adena'],s['seconds']),rate(s['kills'],s['seconds']),s['pending']))
             self.row_records[row]=i;preferred.setdefault(i,row)
         if select is None:
             selected=[r for r in old_paths if r in self.row_records]
@@ -72,6 +100,10 @@ class HistoryWindow:
     def drop_action(self,row):
         target=self.row_records.get(row)
         if not target or target in self.drag_ids:return None
+        if self.records[target]['kind']=='folder':
+            try:return ('move',target) if folder_move_plan(self.records,self.drag_ids,target) else None
+            except ValueError:return None
+        if any(self.records[i]['kind']=='folder' for i in self.drag_ids):return None
         if self.records[target]['kind']=='merged':
             try:return ('add',target) if group_drop_plan(self.records,target,self.drag_ids) else None
             except ValueError:return None
@@ -98,15 +130,15 @@ class HistoryWindow:
         action=self.drop_action(row)
         self.set_drop_target(row if action else None)
         if action:
-            verb='Add to' if action[0]=='add' else 'Merge with'
+            verb={'add':'Add to report','merge':'Merge with','move':'Move into'}[action[0]]
             self.drag_hint.set(f"{verb} {self.records[action[1]]['name']} — release to confirm.")
-        else:self.drag_hint.set('Drag onto another session or a compatible group.')
+        else:self.drag_hint.set('Drag onto a folder, another session or a compatible report.')
         return 'break'
     def cancel_drag(self,*_):
         self.set_drop_target(None)
         self.drag_origin=None;self.drag_ids=[];self.dragging=False
         self.tree.configure(cursor='')
-        self.drag_hint.set('Drag sessions to organise groups.')
+        self.drag_hint.set('Drag to folders to organise, or to sessions/reports to merge.')
     def drag_end(self,event):
         if not self.dragging:self.cancel_drag();return
         row=self.tree.identify_row(event.y) if 0<=event.x<self.tree.winfo_width() and 0<=event.y<self.tree.winfo_height() else ''
@@ -115,19 +147,26 @@ class HistoryWindow:
         if not action:return 'break'
         kind,target=action
         try:
-            if kind=='add':
+            if kind=='move':
+                self.archive.move_entries(ids,target);self.refresh([target])
+            elif kind=='add':
                 if self.archive.add_to_group(target,ids):self.refresh([target])
             else:
                 name=simpledialog.askstring('Merge sessions','Name the parent session:',initialvalue=self.records[target]['name'],parent=self.win)
                 if name is not None:
                     group=self.archive.merge([target,*ids],name);self.refresh([group])
-        except Exception as e:messagebox.showerror('Merge',str(e),parent=self.win)
+        except Exception as e:messagebox.showerror('History',str(e),parent=self.win)
         return 'break'
     def selected_records(self):
         return list(dict.fromkeys(self.row_records[r] for r in self.tree.selection() if r in self.row_records))
     def detail(self,*_):
         ids=self.selected_records();self.loot.delete(*self.loot.get_children())
         if len(ids)!=1:self.details.set(f'{len(ids)} selected. Select one to inspect loot, or merge two or more.');return
+        record=self.records[ids[0]]
+        if record['kind']=='folder':
+            children=[r for r in self.records.values() if r.get('folder')==record['id']]
+            self.details.set(f"{record['name']}  |  {sum(r['kind']=='folder' for r in children)} folders  |  {sum(r['kind']!='folder' for r in children)} sessions/reports\nOrganisational folder — statistics are not merged.")
+            return
         s=self.summaries[ids[0]];t=s['totals']
         self.details.set(f"{s['name']}  |  {len(s['sources'])} original session(s)  |  Active {duration(s['seconds'])}  |  EXP {t['You','XP / SP']:,}  |  SP {t['You','SP']:,}  |  Adena {t['You','Adena']:,}\nPending reviews: {s['pending']}  |  Capture/OCR warnings: {s['gaps']}"+('\nExpand the group above to inspect individual sessions.' if s['kind']=='merged' else ''))
         self.details.set(self.details.get()+f"\nKills: {s['kills']:,} ({rate(s['kills'],s['seconds'])}/h; XP events)")
@@ -145,16 +184,57 @@ class HistoryWindow:
         ids=self.selected_records()
         if len(ids)!=1:messagebox.showinfo('History','Select exactly one entry.',parent=self.win);return None
         return ids[0]
+    def selected_folder(self):
+        ids=self.selected_records()
+        if len(ids)!=1:return ''
+        r=self.records[ids[0]]
+        return r['id'] if r['kind']=='folder' else r.get('folder','')
+    def make_folder(self,parent,title):
+        name=simpledialog.askstring(title,'Name:',parent=self.win)
+        if name is None:return
+        try:i=self.archive.create_folder(name,parent);self.refresh([i])
+        except Exception as e:messagebox.showerror(title,str(e),parent=self.win)
+    def new_section(self):self.make_folder('','New character / section')
+    def new_folder(self):self.make_folder(self.selected_folder(),'New folder')
+    def move_selected(self):
+        ids=self.selected_records()
+        if not ids:return
+        picker=FolderPicker(self.win,self.records,'Move selected entries',self.selected_folder())
+        if picker.result is None:return
+        try:self.archive.move_entries(ids,picker.result);self.refresh(ids)
+        except Exception as e:messagebox.showerror('Move',str(e),parent=self.win)
+    def choose_destination(self):
+        picker=FolderPicker(self.win,self.records,'Save new sessions in',self.selected_folder() or self.archive.default_folder())
+        if picker.result is None:return
+        try:self.archive.set_default_folder(picker.result);self.refresh()
+        except Exception as e:messagebox.showerror('New sessions',str(e),parent=self.win)
+    def delete_selected(self):
+        ids=self.selected_records()
+        if not ids:return
+        current=getattr(self.app,'session_id',None)
+        protected=[current] if self.app.running or self.app.pending else []
+        try:removed,_,_=deletion_plan(self.records,ids,protected)
+        except ValueError as e:messagebox.showwarning('Delete',str(e),parent=self.win);return
+        originals=sum(self.records[i]['kind']=='original' for i in removed)
+        groups=sum(self.records[i]['kind']=='merged' for i in removed)
+        folders=sum(self.records[i]['kind']=='folder' for i in removed)
+        if not messagebox.askyesno('Delete selected entries',f'Delete {originals} saved session(s), {groups} merged report(s) and {folders} folder(s)?\n\nDeleted sessions are permanently removed from all reports. Deleting a report keeps its original sessions. Deleting a folder moves its remaining contents up one level.',parent=self.win):return
+        try:
+            removed=self.archive.delete_entries(ids,protected)
+            if current in removed:self.app.clear_deleted_session()
+            self.refresh()
+        except Exception as e:messagebox.showerror('Delete',str(e),parent=self.win)
     def rename(self):
         i=self.single()
         if not i:return
-        n=simpledialog.askstring('Rename session','Session name:',initialvalue=self.records[i]['name'],parent=self.win)
+        n=simpledialog.askstring('Rename entry','Name:',initialvalue=self.records[i]['name'],parent=self.win)
         if n is None:return
         try:self.archive.rename(i,n);self.refresh([i])
         except Exception as e:messagebox.showerror('Rename',str(e),parent=self.win)
     def merge(self):
         ids=self.selected_records()
         if len(ids)<2:messagebox.showinfo('Merge','Select at least two entries with Ctrl or Shift.',parent=self.win);return
+        if any(self.records[i]['kind']=='folder' for i in ids):messagebox.showinfo('Merge','Select sessions or merged reports, not organisational folders.',parent=self.win);return
         n=simpledialog.askstring('Merge sessions','Name the parent session:',parent=self.win)
         if n is None:return
         try:i=self.archive.merge(ids,n);self.refresh([i])
@@ -177,6 +257,7 @@ class HistoryWindow:
     def export(self):
         i=self.single()
         if not i:return
+        if self.records[i]['kind']=='folder':messagebox.showinfo('Export','Select a session or merged report to export.',parent=self.win);return
         s=self.archive.summary(i);path=filedialog.asksaveasfilename(parent=self.win,defaultextension='.csv',filetypes=[('CSV','*.csv')],initialfile='l2-history.csv')
         if not path:return
         try:

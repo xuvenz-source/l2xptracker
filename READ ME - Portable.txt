@@ -1,4 +1,4 @@
-L2 LEGACY FARMING TRACKER v0.36 — WINDOWS x64 PORTABLE
+L2 LEGACY FARMING TRACKER v0.37 — WINDOWS x64 PORTABLE
 
 1. Extract the ENTIRE ZIP to a normal folder (not directly inside the ZIP viewer).
 2. Double-click L2 Legacy Tracker.exe.
@@ -69,3 +69,5 @@ HUD net Adena (v0.35): Settings → Tracking → Subtract consumable costs from 
 HUD drag hotfix (v0.35.1): native mouse movement and capture support unlocked dragging even when asynchronous button polling is unreliable. Drag outside the selected chat area; local diagnostics record drag lifecycle.
 
 Reset (v0.36): main window or HUD Reset saves the old session after queued OCR, then creates a fresh session with the same party and prices. Manual pause is preserved. No old chat is replayed; avoid fighting during the short transition.
+
+History (v0.37): create character sections and nested folders, drag or Move to organise, New logs here sets future session destination, Delete removes selected entries after confirmation. Folder deletion keeps contents; report deletion keeps original sessions.

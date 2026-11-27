@@ -282,3 +282,6 @@ Native mouse movement and optional capture supplement button polling; position i
 
 VERSION 0.36 — RESET SESSION
 Reset in the main window or HUD saves the original log after buffered OCR and starts a new session. Old history/reviews remain. Same active party, prices and calibration; manual pause remains paused. No replay of old chat. Messages during transition may be missed.
+
+VERSION 0.37 — HISTORY ORGANISATION
+New section creates a top-level character section; New folder nests under the selected section/folder. Drag to folders or use Move to; merge reports remains independent. New logs here sets the future destination. Confirmed deletion removes original records from reports; folder and report deletion keep original contents unless explicitly selected. Active session deletion is blocked.

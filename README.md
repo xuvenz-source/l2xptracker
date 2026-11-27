@@ -80,7 +80,10 @@ Unlocked HUD movement now handles native mouse-down, mouse-move and mouse-up dir
 ## Reset session (v0.36)
 Reset in the main control bar or HUD stops the active capture, drains buffered OCR, saves the original session with its pending reviews and costs, then creates a fresh session. It preserves active party, prices, capture configuration and manual pause state. Existing on-screen chat is used as a baseline, not replayed. Reset is disabled while draining; if saving fails, no new session is started. Messages appearing between capture stop and the new baseline may not be recorded. Reset is non-destructive and does not require confirmation.
 
-## Current status: v0.36
+## Organised session history (v0.37)
+Create top-level character sections and nested folders. Drag sessions or reports into folders or use Move to; moving does not merge or modify statistics. New logs here chooses the destination for future sessions (including Reset). Drag onto another session or report still merges as before. Delete requires confirmation: originals are removed from every report, empty reports are removed, deleting a report retains its sources, and deleting a folder promotes its remaining contents. Active/draining sessions cannot be deleted. Existing archives migrate in place; original session data and merged-report links are preserved.
+
+## Current status: v0.37
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

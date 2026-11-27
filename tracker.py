@@ -1207,6 +1207,16 @@ class App:
             if quiet:self.append(f'WARNING: Session checkpoint failed: {e}')
             else:messagebox.showerror('Session save failed',f'{e}\nYour current session remains in memory. Retry or export CSV before closing.')
             return False
+    def clear_deleted_session(self):
+        # The stopped session can no longer be checkpointed or resurrected.
+        self.session_id=None;self.session_date=None;self.session_end=None;self.session_complete=None
+        self.started=None;self.ended=None;self.active_seconds=0;self.events=[];self.raw=[];self.totals.clear()
+        self.kills=0;self.gaps=0;self.party_members=[];self.reviews=ReviewQueue()
+        self.log.config(state='normal');self.log.delete('1.0','end');self.log.config(state='disabled')
+        self.refresh_totals();self.refresh_reviews()
+        self.dashboard.update_metrics(0,0,0,0);self.stats.set('No session')
+        self.party_status.set('Next session: '+(', '.join(self.next_party_members) or 'solo / no estimates'))
+        self.status.set('Session deleted. Start a new session when ready.')
     def open_history(self):
         self.navigate('history')
     def restore_session(self,id):

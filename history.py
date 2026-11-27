@@ -55,6 +55,9 @@ class Archive:
         self.path.parent.mkdir(parents=True,exist_ok=True)
         with self.db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL)')
+            db.execute("CREATE TABLE IF NOT EXISTS folders (id TEXT PRIMARY KEY, name TEXT NOT NULL, parent TEXT NOT NULL DEFAULT '')")
+            db.execute("CREATE TABLE IF NOT EXISTS folder_placements (id TEXT PRIMARY KEY, folder TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS history_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
     @contextmanager
     def db(self):
         db=sqlite3.connect(self.path)
@@ -69,18 +72,79 @@ class Archive:
     def save(self,id,name,data):
         # Updates never overwrite a name assigned in the history window.
         with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            exists=db.execute('SELECT 1 FROM sessions WHERE id=?',(id,)).fetchone()
             db.execute('INSERT INTO sessions VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data WHERE sessions.kind=\'original\'',(id,self._name(name),'original',json.dumps(data)))
+            if not exists:
+                folder=self._default_folder(db)
+                if folder:db.execute('INSERT INTO folder_placements VALUES (?,?)',(id,folder))
     def records(self):
         with self.db() as db: rows=db.execute('SELECT id,name,kind,data FROM sessions').fetchall()
         return {i:dict(id=i,name=n,kind=k,data=json.loads(d)) for i,n,k,d in rows}
-    def rename(self,id,name):
+    @staticmethod
+    def _organised(db):
+        records={i:dict(id=i,name=n,kind=k,data=json.loads(d)) for i,n,k,d in db.execute('SELECT id,name,kind,data FROM sessions')}
+        for i,n,p in db.execute('SELECT id,name,parent FROM folders'):
+            records[i]=dict(id=i,name=n,kind='folder',data={},folder=p)
+        for i,p in db.execute('SELECT id,folder FROM folder_placements'):
+            if i in records and records[i]['kind']!='folder':records[i]['folder']=p
+        return records
+    def organised_records(self):
+        with self.db() as db:return self._organised(db)
+    @staticmethod
+    def _default_folder(db):
+        row=db.execute("SELECT value FROM history_preferences WHERE key='destination'").fetchone()
+        return row[0] if row and db.execute('SELECT 1 FROM folders WHERE id=?',(row[0],)).fetchone() else ''
+    def default_folder(self):
+        with self.db() as db:return self._default_folder(db)
+    def set_default_folder(self,folder):
         with self.db() as db:
-            if not db.execute('UPDATE sessions SET name=? WHERE id=?',(self._name(name),id)).rowcount: raise ValueError('Session not found.')
+            if folder and not db.execute('SELECT 1 FROM folders WHERE id=?',(folder,)).fetchone():raise ValueError('Folder no longer exists.')
+            db.execute("INSERT INTO history_preferences VALUES ('destination',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(folder,))
+    def create_folder(self,name,parent=''):
+        i=new_id()
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if parent and not db.execute('SELECT 1 FROM folders WHERE id=?',(parent,)).fetchone():raise ValueError('Parent folder no longer exists.')
+            db.execute('INSERT INTO folders VALUES (?,?,?)',(i,self._name(name),parent))
+        return i
+    def move_entries(self,ids,folder=''):
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            records=self._organised(db)
+            for i in folder_move_plan(records,ids,folder):
+                if records[i]['kind']=='folder':db.execute('UPDATE folders SET parent=? WHERE id=?',(folder,i))
+                else:db.execute('INSERT INTO folder_placements VALUES (?,?) ON CONFLICT(id) DO UPDATE SET folder=excluded.folder',(i,folder))
+    def delete_entries(self,ids,protected=()):
+        """Remove selected records atomically. Folder deletion promotes contents."""
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            records=self._organised(db)
+            removed,updates,moves=deletion_plan(records,ids,protected)
+            destination=self._default_folder(db)
+            if destination in removed:
+                parent=records[destination].get('folder','')
+                while parent in removed:parent=records[parent].get('folder','')
+                db.execute("UPDATE history_preferences SET value=? WHERE key='destination'",(parent,))
+            for i,folder in moves.items():
+                if records[i]['kind']=='folder':db.execute('UPDATE folders SET parent=? WHERE id=?',(folder,i))
+                else:db.execute('INSERT INTO folder_placements VALUES (?,?) ON CONFLICT(id) DO UPDATE SET folder=excluded.folder',(i,folder))
+            for i,data in updates.items():db.execute('UPDATE sessions SET data=? WHERE id=?',(json.dumps(data),i))
+            for i in removed:
+                db.execute('DELETE FROM folders WHERE id=?',(i,))
+                db.execute('DELETE FROM sessions WHERE id=?',(i,))
+                db.execute('DELETE FROM folder_placements WHERE id=?',(i,))
+        return removed
+    def rename(self,id,name):
+        name=self._name(name)
+        with self.db() as db:
+            if not db.execute('UPDATE sessions SET name=? WHERE id=?',(name,id)).rowcount and not db.execute('UPDATE folders SET name=? WHERE id=?',(name,id)).rowcount:raise ValueError('Entry not found.')
     @staticmethod
     def sources(ids,records):
         out=[]
         for id in ids:
             r=records[id]
+            if r['kind']=='folder':raise ValueError('Folders organise sessions; select sessions or merged reports to merge.')
             for source in ([id] if r['kind']=='original' else r['data']['sources']):
                 if source not in out: out.append(source)
         return out
@@ -92,7 +156,16 @@ class Archive:
         covered={s for i in ids if records[i]['kind']=='merged' for s in self.sources([i],records)}
         children=[i for i in ids if records[i]['kind']=='merged' or i not in covered]
         id=new_id()
-        with self.db() as db: db.execute('INSERT INTO sessions VALUES (?,?,?,?)',(id,self._name(name),'merged',json.dumps(dict(sources=sources,children=children))))
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('INSERT INTO sessions VALUES (?,?,?,?)',(id,self._name(name),'merged',json.dumps(dict(sources=sources,children=children))))
+            # Place a merged report beside its selected inputs when they share
+            # a folder, without changing their actual folder assignments.
+            organised=self._organised(db)
+            locations={organised[i].get('folder','') for i in ids}
+            if len(locations)==1:
+                folder=next(iter(locations))
+                if folder:db.execute('INSERT INTO folder_placements VALUES (?,?)',(id,folder))
         return id
     def add_to_group(self,target,ids):
         """Add references to a group, atomically updating all ancestor totals."""
@@ -124,7 +197,7 @@ def history_children(records):
         valid=[]
         # Only accept children actually represented in this report's totals.
         for child in r['data'].get('children',r['data']['sources']):
-            if child==i or child not in records or child in valid:continue
+            if child==i or child not in records or child in valid or records[child]['kind']=='folder':continue
             child_sources=set(Archive.sources([child],records))
             if child_sources and child_sources<=sources:valid.append(child)
         represented={s for child in valid for s in Archive.sources([child],records)}
@@ -136,8 +209,14 @@ def history_forest(records,summaries):
     """Return stable paths in display order, with cycles guarded defensively."""
     children=history_children(records)
     attached={i for group in children.values() for i in group}
+    for i,r in records.items():
+        parent=r.get('folder','')
+        if parent in records and records[parent]['kind']=='folder' and parent!=i:
+            children.setdefault(parent,[]).append(i);attached.add(i)
     def ordered(ids):
-        return sorted(ids,key=lambda i:(summaries[i]['start'],i),reverse=True)
+        folders=sorted((i for i in ids if records[i]['kind']=='folder'),key=lambda i:(records[i]['name'].casefold(),i))
+        sessions=sorted((i for i in ids if records[i]['kind']!='folder'),key=lambda i:(summaries[i]['start'],i),reverse=True)
+        return folders+sessions
     reached=set()
     def walk(i,path):
         if i in path:return
@@ -145,7 +224,8 @@ def history_forest(records,summaries):
         yield current
         for child in ordered(children.get(i,[])):
             yield from walk(child,current)
-    for i in ordered(set(records)-attached):
+    roots=(set(records)-attached)|{i for i,r in records.items() if r.get('folder',None)==''}
+    for i in ordered(roots):
         yield from walk(i,())
     # Corrupt/cyclic legacy metadata must not make records disappear.
     for i in ordered(records):
@@ -193,3 +273,59 @@ def group_drop_plan(records,target,ids):
                 plan[i]=dict(current,children=links,sources=sources);changed=True
         if not changed:break
     return plan
+
+
+def folder_move_plan(records,ids,folder):
+    ids=list(dict.fromkeys(ids))
+    if folder and (folder not in records or records[folder]['kind']!='folder'):raise ValueError('Choose a folder or the history root.')
+    if any(i not in records for i in ids):raise ValueError('Entry no longer exists.')
+    ancestors=set();p=folder
+    while p:
+        if p in ancestors:raise ValueError('Invalid folder hierarchy.')
+        ancestors.add(p);p=records.get(p,{}).get('folder','')
+    if any(i in ancestors for i in ids):raise ValueError('Cannot move a folder into itself or a descendant.')
+    # When both a folder and its child are selected, move the folder only.
+    selected=set(ids)
+    def nested(i):
+        seen=set();p=records[i].get('folder','')
+        while p and p not in seen:
+            if p in selected:return True
+            seen.add(p);p=records.get(p,{}).get('folder','')
+        return False
+    return [i for i in ids if not nested(i)]
+
+def deletion_plan(records,ids,protected=()):
+    removed=set(ids)
+    if not removed<=records.keys():raise ValueError('Entry no longer exists.')
+    if removed.intersection(protected):raise ValueError('Stop the active session before deleting it.')
+    # Remove deleted original references in every report. A group with
+    # surviving sources remains useful, even if reduced to a single source.
+    originals={i for i in removed if records[i]['kind']=='original'}
+    for i,r in records.items():
+        if r['kind']=='merged' and not any(s not in originals and s in records for s in r['data']['sources']):removed.add(i)
+    updates={};moves={}
+    for i,r in records.items():
+        if i in removed:continue
+        if r['kind']=='merged':
+            data=r['data'];sources=[s for s in data['sources'] if s not in removed and s in records]
+            children=[c for c in data.get('children',data['sources']) if c not in removed and c in records]
+            if sources!=data['sources'] or children!=data.get('children',data['sources']):
+                updates[i]=dict(data,sources=sources,children=children)
+        parent=r.get('folder','')
+        if parent in removed:
+            seen=set()
+            while parent in removed and parent not in seen:
+                seen.add(parent);parent=records[parent].get('folder','')
+            moves[i]=parent if parent not in seen else ''
+    return removed,updates,moves
+
+def folder_options(records):
+    """Stable, readable paths for the destination picker, including root."""
+    out=[('','History root')]
+    def walk(parent,path,seen):
+        ids=sorted((i for i,r in records.items() if r['kind']=='folder' and r.get('folder','')==parent and i not in seen),key=lambda i:(records[i]['name'].casefold(),i))
+        for i in ids:
+            label=path+records[i]['name'];out.append((i,label))
+            walk(i,label+' / ',seen|{i})
+    walk('','',set())
+    return out
