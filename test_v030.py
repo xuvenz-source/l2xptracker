@@ -17,6 +17,15 @@ class ColourTests(unittest.TestCase):
             self.assertEqual(colour_category(row),kind)
             self.assertGreater(rows_of(row,18).sum(),24)
         self.assertIsNone(colour_category(self.row((180,160,110))))
+    def test_exact_configured_colours(self):
+        for rgb,kind in [((255,0,255),'xp'),((255,255,0),'adena'),((0,255,0),'item'),((0,170,255),'consumable')]:
+            with self.subTest(kind=kind):
+                row=self.row(rgb)
+                self.assertEqual(colour_category(row),kind)
+                self.assertGreater(rows_of(row,18).sum(),24)
+                from tracker import colour_masks
+                for threshold,contrast in [(140,75),(115,60),(165,95)]:
+                    self.assertEqual(int(colour_masks(row,threshold,contrast)[kind].sum()),9*70)
     def test_ocr(self):
         for rgb,kind,line in [((255,13,255),'xp','You have acquired 389 XP and 15 SP.'),((255,255,13),'adena','You have obtained 101 Adena.'),((13,255,13),'item','You have obtained Suede.'),((13,194,255),'consumable','Use Soulshot: No Grade.')]:
             with patch('tracker.single_ocr',return_value=line):
