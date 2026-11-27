@@ -36,6 +36,10 @@ class ChatStyleTests(unittest.TestCase):
         for line in ['Your soulshots are enabled.','You use Mortal Blow.']:
             with patch('tracker.single_ocr',return_value=line):
                 self.assertEqual(list(configured_ocr_rows([self.row('#B09B79')],DEFAULT_COLOURS)),[])
+    def test_small_font_reported_errors(self):
+        self.assertEqual(parse('You haye obtained 102 Adena.'),('adena','You','Adena',102,0))
+        for text in ['Use Soulshot: Hi Grade.','Use Soulshot: fo Grade.','Use Soulshot: No Grades.']:
+            self.assertIsNone(parse(text))
     def test_custom_colour(self):
         colours=dict(CUSTOM_COLOURS,xp='#FF5500')
         self.assertEqual(row_group(self.row('#FF5500'),colours),('xp',))

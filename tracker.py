@@ -30,7 +30,7 @@ from party import roster, live_report as live_party_report, display_rows as part
 def parse(line):
     s = re.sub(r'\s+', ' ', line).strip(' .,;:|')
     # Only correct known word-level errors, never guess XP or SP digits.
-    s = re.sub(r'^You haye acquired ', 'You have acquired ', s, flags=re.I)
+    s = re.sub(r'^You haye (?=acquired |obtained |earned |used )', 'You have ', s, flags=re.I)
     n = r'(\d[\d,]*)'
     def num(t): return int(t.replace(',', ''))
     m = re.fullmatch(r'You have acquired '+n+r' XP and '+n+r' SP', s, re.I)
@@ -54,6 +54,9 @@ def parse(line):
     m = re.fullmatch(r'(?:Use|You have used) (.+)', s, re.I)
     if m:
         item=m[1].strip()
+        # Reject damaged grade words rather than creating fictitious consumables.
+        if re.match(r'(?:Blessed\s+)?(?:Soulshot|Spiritshot)\s*:',item,re.I):
+            if not re.fullmatch(r'(?:Blessed\s+)?(?:Soulshot|Spiritshot)\s*:\s*(?:No|[DCSBA]) Grade',item,re.I):return None
         if item: return ('consumable','You',item,1,0)
     return None
 
@@ -396,10 +399,16 @@ def configured_ocr_rows(rows,colours):
                 and not re.match(r'You use\b',text,re.I)):
                 break
             valid=[x for text in reads if (x:=parse(text)) and x[0] in group and x[3]>0]
-            if len(valid)>=2 and len(set(valid))==1:
+            if len(valid)>=2 and len(set(valid))==1 and valid[0][0]!='xp':
                 yield ('line',next(text for text in reads if parse(text)==valid[0]))
                 break
         else:
+            if 'xp' in group and (len(group)==1 or any(xp_like(x) for x in reads)):
+                pairs=[v for text in reads if (v:=xp_numeric_candidate(text)) is not None]
+                if len(pairs)>=2 and len(set(pairs))==1 and pairs[0][0]>0:
+                    x,sp=pairs[0];yield ('line',f'You have acquired {x} XP and {sp} SP.');continue
+                partial=recover_sp_only(reads)
+                if partial:yield partial;continue
             targets=[k for k in group if k!='other']
             parsed={e[0] for text in reads if (e:=parse(text)) and e[0] in targets}
             if len(targets)==1:category=targets[0]
