@@ -965,16 +965,21 @@ class App:
             diagnostic('capture ended: frames=%d queued_batches=%d active_seconds=%.1f',frames,batches,self.active_seconds)
             jobs.put(None); self.inbox.put(('done','capture'))
     def worker(self,jobs):
+        deferred=None
         while True:
-            job=jobs.get()
+            job=deferred if deferred is not None else jobs.get()
+            deferred=None
             if job is None:break
             ts,rows=job
-            # Coalesce nearby queued jobs without losing line order.
+            # Coalesce compatible rows only: automatic alignment can change
+            # pitch mid-session while previous OCR jobs remain queued.
             end=False; group=[rows]
             while sum(len(x) for x in group)<16:
                 try: nxt=jobs.get_nowait()
                 except queue.Empty:break
                 if nxt is None: end=True; break
+                if nxt[1].shape[1:]!=rows.shape[1:]:
+                    deferred=nxt;break
                 group.append(nxt[1])
             try:
                 colours=getattr(self,'session_colours',None)

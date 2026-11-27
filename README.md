@@ -101,7 +101,9 @@ Settings → Tracking → Updates → Keep installation backups defaults to two 
 ## Automatic chat row alignment (v0.43)
 The selected font size is a nominal pitch. At capture startup, several high-contrast colour-matched chat lines can establish a more accurate physical pitch and vertical alignment (including Large rendered at 18 px rather than 19). Mask overlap and OCR crops share the same aligned rows. Weak evidence retains the configured pitch; changed geometry causes a conservative rebaseline, not replay of prior chat. HUD status distinguishes waiting, ready, synchronising and active capture. Existing chat at session start is intentionally not counted.
 
-## Current status: v0.43
+## Current status: v0.43.1
+
+The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

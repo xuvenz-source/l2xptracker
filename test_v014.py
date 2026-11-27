@@ -50,10 +50,11 @@ class CapturePauseTests(unittest.TestCase):
         h=Halt(); screenshot=np.zeros((REG['height'],REG['width'],4),dtype=np.uint8)
         s=Mock();s.monitors=[DESK];s.grab.return_value=screenshot
         cm=Mock();cm.__enter__=Mock(return_value=s);cm.__exit__=Mock(return_value=False)
-        with patch('tracker.Windows'),patch('tracker.mss.mss',return_value=cm,create=True),patch('tracker.capture_region',return_value=(REG,None)),patch('tracker.rows_of',return_value=[1,2,3]),patch('tracker.overlap',return_value=1) as overlap:
+        with patch('tracker.Windows'),patch('tracker.mss.mss',return_value=cm,create=True),patch('tracker.capture_region',return_value=(REG,None)),patch('tracker.rows_of',return_value=np.ones((10,18,REG['width']),dtype=bool)),patch('tracker.overlap',return_value=1) as overlap:
             a.capture(TARGET,REG,18,h,jobs,gate)
         self.assertEqual(s.grab.call_count,3);self.assertEqual(overlap.call_count,1) # resumed frames establish baseline
-        self.assertIsNotNone(jobs.get_nowait());self.assertIsNone(jobs.get_nowait())
+        job=jobs.get_nowait();self.assertEqual(job[1].shape,(1,18,REG['width'],3));self.assertIsNone(jobs.get_nowait())
+        self.assertFalse(any(k=='gap' for k,v in list(a.inbox.queue)))
     def test_inflight_pause_discards_frame(self):
         import queue, numpy as np
         from test_v06 import TARGET,REG,DESK
@@ -64,6 +65,6 @@ class CapturePauseTests(unittest.TestCase):
         def grab(rect):
             gate.toggle();gate.toggle();h.set();return np.zeros((REG['height'],REG['width'],4),dtype=np.uint8)
         s.grab.side_effect=grab;cm=Mock();cm.__enter__=Mock(return_value=s);cm.__exit__=Mock(return_value=False)
-        with patch('tracker.Windows'),patch('tracker.mss.mss',return_value=cm,create=True),patch('tracker.capture_region',return_value=(REG,None)),patch('tracker.rows_of',return_value=[1,2,3]):
+        with patch('tracker.Windows'),patch('tracker.mss.mss',return_value=cm,create=True),patch('tracker.capture_region',return_value=(REG,None)),patch('tracker.rows_of',return_value=np.ones((10,18,REG['width']),dtype=bool)):
             a.capture(TARGET,REG,18,h,jobs,gate)
         self.assertEqual(a.active_seconds,0);self.assertIsNone(jobs.get_nowait())

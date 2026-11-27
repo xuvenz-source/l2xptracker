@@ -31,3 +31,22 @@ class AlignmentTests(unittest.TestCase):
     def test_sparse_keeps_configured_pitch(self):
         self.assertEqual(row_alignment(frame(18,ids=(1,2)),19,CUSTOM_COLOURS)[0],19)
         self.assertEqual(row_alignment(np.zeros((180,320,3),np.uint8),19,CUSTOM_COLOURS),(19,0,False))
+
+    def test_mixed_pitch_jobs_do_not_drop_rows(self):
+        import queue
+        from unittest.mock import patch
+        from tracker import App
+        a=App.__new__(App);a.inbox=queue.Queue();a.session_colours=CUSTOM_COLOURS
+        jobs=queue.Queue()
+        for pitch in (19,18,18,17):
+            jobs.put(('t',np.zeros((1,pitch,320,3),dtype=np.uint8)))
+        jobs.put(None)
+        shapes=[]
+        def recognize(rows,colours):
+            shapes.append(rows.shape)
+            return [('line','You have obtained 1 Adena.') for row in rows]
+        with patch('tracker.configured_ocr_rows',side_effect=recognize):
+            a.worker(jobs)
+        self.assertEqual(shapes,[(1,19,320,3),(2,18,320,3),(1,17,320,3)])
+        results=list(a.inbox.queue)
+        self.assertEqual([k for k,v in results],['line','line','line','line','done'])
