@@ -432,7 +432,7 @@ class App:
         self.default_prices=load_prices();self.session_prices=dict(self.default_prices);self.consumable_report=cost_report([])
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
         self.party_members=[]; self.next_party_members=[]; self.kills=0; self.update_busy=False
-        self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False
+        self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False;self.reset_request=None
         self.pause_gate=PauseGate(self.pause_on_blur); self.position_win=None; self.reviews=ReviewQueue(); self.review_win=None; self.review_count=tk.StringVar(value="Review (0)"); self.saved=None; self.hud=None; self.api=None; self.hud_enabled=tk.BooleanVar(value=True)
         try:
             self.api=Windows()
@@ -443,7 +443,7 @@ class App:
                 self.status.set('Saved chat calibration loaded. Start when the matching game is open.')
         except Exception as e: self.status.set(f'Could not restore calibration: {e}. Bind game again.')
         self.chat_style=load_style(fallback_pitch=int(self.pitch.get()));self.pitch.set(str(self.chat_style['pitch']))
-        try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.queue_hud_move,on_pause=self.queue_hud_pause,opacity=self.hud_opacity)
+        try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.queue_hud_move,on_pause=self.queue_hud_pause,opacity=self.hud_opacity,on_reset=self.queue_hud_reset)
         except Exception as e: self.hud_enabled.set(False); self.status.set(self.status.get()+f' HUD unavailable: {e}')
         try: self.archive=Archive()
         except Exception as e: messagebox.showerror("Session storage",f"Could not open session history: {e}")
@@ -456,6 +456,7 @@ class App:
         self.start_btn=ttk.Button(actions,text='Start session',command=self.start,style='Primary.TButton');self.start_btn.pack(side='left')
         self.pause_btn=ttk.Button(actions,text='Pause',command=self.toggle_pause,state='disabled');self.pause_btn.pack(side='left',padx=7)
         self.stop_btn=ttk.Button(actions,text='Stop',command=self.stop,state='disabled',style='Danger.TButton');self.stop_btn.pack(side='left')
+        self.reset_btn=ttk.Button(actions,text='Reset',command=self.reset_session,state='disabled');self.reset_btn.pack(side='left',padx=7)
         ttk.Label(actions,textvariable=self.party_status,style='Muted.TLabel').pack(side='right')
         self.tabs=ttk.Notebook(root);self.tabs.pack(fill='both',expand=True,padx=16,pady=(0,8))
         self.pages={}
@@ -662,6 +663,9 @@ class App:
         # Native WndProc can be dispatched from inside Tcl/Tk. Never call Tk,
         # take the capture lock or change session state in that callback.
         self.inbox.put(('hud_pause',self.run_id))
+    def queue_hud_reset(self):
+        # Native callback only enqueues a run-tagged request.
+        self.inbox.put(('hud_reset',self.run_id))
     def queue_hud_move(self,position):
         self.inbox.put(('hud_move',position))
     def save_hud_position(self,position):
@@ -715,25 +719,26 @@ class App:
             self.selecting=False; win.destroy(); self.root.deiconify()
         def cancel(*_): self.selecting=False; win.destroy(); self.root.deiconify()
         canvas.bind('<Button-1>',down); canvas.bind('<B1-Motion>',drag); canvas.bind('<ButtonRelease-1>',up); win.bind('<Escape>',cancel); win.protocol('WM_DELETE_WINDOW',cancel)
-    def start(self):
+    def start(self,rollover=None):
         if getattr(self,'update_busy',False):return
         if self.running or self.pending or self.closing:return
-        if hasattr(self,'colour_vars') and not self.apply_chat_style():return
+        if rollover is None and hasattr(self,'colour_vars') and not self.apply_chat_style():return
         if self.saved and (not self.target or not self.api.usable(self.target.hwnd) or self.api.pid(self.target.hwnd)!=self.target.pid):
             self.target=self.api.find_saved(self.saved)
         if not self.region or not self.target:
             messagebox.showwarning('Select area','Open the saved game at the original client size, or bind the game and select chat. If several matching clients are open, close the others or bind manually.'); return
         try:
-            pitch=int(self.pitch.get()); assert 10<=pitch<=40 and self.region['height']//pitch>=3
+            pitch=rollover['pitch'] if rollover is not None else int(self.pitch.get()); assert 10<=pitch<=40 and self.region['height']//pitch>=3
             pytesseract.get_tesseract_version()
         except Exception as e: messagebox.showerror('Setup',f'Check line height and Tesseract installation.\n{e}'); return
-        try: self.persist()
-        except Exception as e: messagebox.showwarning('Settings',f'Calibration could not be saved: {e}')
-        if not self.save_session():return
+        if rollover is None:
+            try: self.persist()
+            except Exception as e: messagebox.showwarning('Settings',f'Calibration could not be saved: {e}')
+            if not self.save_session():return
         if not self.archive:
             messagebox.showerror('Session storage','History storage is unavailable. Restart the tracker after fixing storage.');return
-        self.session_prices=dict(self.default_prices);self.consumable_report=cost_report([])
-        self.party_members=list(self.next_party_members)
+        self.session_prices=dict(rollover['prices'] if rollover is not None else self.default_prices);self.consumable_report=cost_report([])
+        self.party_members=list(rollover['party'] if rollover is not None else self.next_party_members)
         self.party_status.set('Session party: '+(', '.join(self.party_members) or 'solo / no estimates'))
         self.session_id=new_id(); self.session_date=now(); self.session_end=None; self.session_complete=None; self.last_archive_save=0
         if self.review_win and self.review_win.winfo_exists():
@@ -743,11 +748,19 @@ class App:
         if hasattr(self,'consumable_tree'):self.consumable_tree.delete(*self.consumable_tree.get_children())
         if hasattr(self,'cost_status'):self.cost_status.set('No recorded consumable costs.')
         self.gaps=0; self.active_seconds=0.0; self.started=time.monotonic(); self.ended=None; self.run_id+=1; self.running=True; self.pending=2
-        self.pause_gate=PauseGate(self.pause_on_blur); self.pause_btn.config(text="Pause",state="normal"); self.halt=threading.Event(); self.jobs=queue.Queue(maxsize=120); self.start_btn.config(state='disabled'); self.stop_btn.config(state='normal')
-        self.log.config(state='normal'); self.log.delete('1.0','end'); self.log.config(state='disabled'); self.status.set('Waiting for readable Lineage 2 chat. Existing messages will not be counted.')
+        self.pause_gate=PauseGate(self.pause_on_blur); self.halt=threading.Event(); self.jobs=queue.Queue(maxsize=120); self.start_btn.config(state='disabled'); self.stop_btn.config(state='normal')
+        paused=bool(rollover and rollover['paused'])
+        if paused:self.pause_gate.toggle()
+        self.pause_btn.config(text='Resume' if paused else 'Pause',state='normal')
+        if hasattr(self,'reset_btn'):self.reset_btn.config(state='normal')
+        self.log.config(state='normal'); self.log.delete('1.0','end'); self.log.config(state='disabled'); self.status.set('Fresh session paused — click Resume to continue.' if paused else 'Waiting for readable Lineage 2 chat. Existing messages will not be counted.')
+        if hasattr(self,'dashboard'):self.dashboard.update_metrics(0,0,0,0)
         if not self.save_session():
-            self.running=False; self.pending=0; self.started=None; self.session_id=None; self.start_btn.config(state='normal'); self.stop_btn.config(state='disabled'); self.pause_btn.config(state='disabled'); return
-        self.session_colours=dict(self.chat_style['colours']) if hasattr(self,'chat_style') else None
+            self.running=False; self.pending=0; self.started=None; self.session_id=None; self.start_btn.config(state='normal'); self.stop_btn.config(state='disabled'); self.pause_btn.config(state='disabled')
+            if hasattr(self,'reset_btn'):self.reset_btn.config(state='disabled')
+            return
+        self.session_pitch=pitch
+        self.session_colours=rollover['colours'] if rollover is not None else (dict(self.chat_style['colours']) if hasattr(self,'chat_style') else None)
         threading.Thread(target=self.capture,args=(self.target,dict(self.region),pitch,self.halt,self.jobs,self.pause_gate),daemon=True).start(); threading.Thread(target=self.worker,args=(self.jobs,),daemon=True).start()
     def capture(self,target,region,pitch,halt,jobs,gate):
         revision=None; old=None; failures=0; last_active=None; last_status=None
@@ -842,9 +855,17 @@ class App:
         self.pause_btn.config(text='Resume' if paused else 'Pause')
         self.status.set('Manually paused — click Resume to continue. Buffered lines may still finish.' if paused else 'Resuming — keep Lineage 2 chat visible. Chat will resynchronise.')
         self.append('SESSION: Manually paused.' if paused else 'SESSION: Resumed; skipped messages will not be recovered.')
+    def reset_session(self):
+        if not self.running or self.closing or getattr(self,'update_busy',False) or getattr(self,'reset_request',None) is not None:return
+        # Keep the active configuration, not unapplied edits in Settings.
+        colours=getattr(self,'session_colours',None)
+        self.reset_request=dict(pitch=self.session_pitch, colours=dict(colours) if colours is not None else None, prices=dict(self.session_prices), party=list(self.party_members), paused=self.pause_gate.snapshot()[0])
+        self.stop()
+        self.status.set('Resetting — saving this session and finishing buffered OCR…')
     def stop(self):
         if self.hud: self.hud.cancel_placement(); self.hud.hide()
         if self.running:self.halt.set(); self.running=False; self.ended=time.monotonic(); self.session_end=now(); self.stop_btn.config(state='disabled'); self.pause_btn.config(text='Pause',state='disabled'); self.status.set('Stopped capturing; processing buffered lines…')
+        if hasattr(self,'reset_btn'):self.reset_btn.config(state='disabled')
     def append(self,s):
         self.log.config(state='normal'); self.log.insert('end',s+'\n',('accepted' if s.startswith('✓') else 'review' if 'REVIEW' in s or s.startswith('WARNING') else 'ignored',)); self.log.see('end'); self.log.config(state='disabled')
     def tick(self):
@@ -864,6 +885,8 @@ class App:
             except queue.Empty:break
             if kind=='hud_pause':
                 if self.running and data==self.run_id:self.toggle_pause()
+            elif kind=='hud_reset':
+                if self.running and data==self.run_id:self.reset_session()
             elif kind=='hud_move':self.save_hud_position(data)
             elif kind=='done':
                 self.pending-=1
@@ -897,7 +920,16 @@ class App:
                     changed=True
         if changed: self.refresh_totals()
         if self.session_id and (finished or (self.running and time.monotonic()-self.last_archive_save>=15)):
-            if self.save_session(quiet=not finished) and finished:self.status.set('Session saved. Open Session history to rename or merge it.')
+            saved=self.save_session(quiet=not finished)
+            if saved and finished:self.status.set('Session saved. Open Session history to rename or merge it.')
+            if finished and getattr(self,'reset_request',None) is not None:
+                request=self.reset_request;self.reset_request=None
+                if saved and not self.closing:
+                    # Both old workers have finished and the archive is committed.
+                    # Start with a fresh capture baseline and never replay old rows.
+                    self.start(rollover=request)
+                    if self.running and getattr(self,'history_window',None):self.history_window.refresh()
+                elif not saved:self.status.set('Reset cancelled — previous session could not be saved. Retry saving before starting another session.')
         if self.closing and not self.pending:
             self.closing=False
             if self.close():return
@@ -1202,6 +1234,7 @@ class App:
             messagebox.showinfo('Update in progress','The update is being verified. Close after it finishes or reports an error.');return False
         if self.running or self.pending:
             if self.closing:return
+            self.reset_request=None
             self.closing=True;self.start_btn.config(state='disabled');self.stop();self.status.set('Saving session — finishing buffered OCR before closing…');return
         if not self.save_session():
             if not messagebox.askyesno('Quit without saving','Session could not be saved. Close anyway? Unsaved changes will be lost.'):return False

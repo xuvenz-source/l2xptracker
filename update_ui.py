@@ -35,7 +35,7 @@ class UpdateUI:
 
     def idle(self):
         a=self.app
-        if a.running or a.pending or a.selecting or a.closing or a.update_busy:return False
+        if a.running or a.pending or a.selecting or a.closing or a.update_busy or getattr(a,'reset_request',None) is not None:return False
         tabs=getattr(a,'tabs',None)
         if isinstance(tabs,ttk.Notebook) and tabs.select()!=str(a.pages['dashboard']):return False
         # Do not restart while reviewing OCR, editing settings, exporting a file,

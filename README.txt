@@ -279,3 +279,6 @@ Settings → Tracking → Subtract consumable costs from HUD Adena/hr (net). Rep
 
 VERSION 0.35.1 — HUD NATIVE DRAG
 Native mouse movement and optional capture supplement button polling; position is saved when released. Chat overlap remains prohibited.
+
+VERSION 0.36 — RESET SESSION
+Reset in the main window or HUD saves the original log after buffered OCR and starts a new session. Old history/reviews remain. Same active party, prices and calibration; manual pause remains paused. No replay of old chat. Messages during transition may be missed.

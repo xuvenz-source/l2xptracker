@@ -77,7 +77,10 @@ Settings → Tracking → Subtract consumable costs from HUD Adena/hr (net) repl
 ## HUD drag hotfix (v0.35.1)
 Unlocked HUD movement now handles native mouse-down, mouse-move and mouse-up directly, with mouse capture on the HUD itself when Windows permits. Polling remains a fallback. A missing asynchronous mouse-button state no longer immediately cancels a native drag. Positions still avoid the selected chat region. Local diagnostics record drag start/end and rejected positions; live game interaction requires verification.
 
-## Current status: v0.35.1
+## Reset session (v0.36)
+Reset in the main control bar or HUD stops the active capture, drains buffered OCR, saves the original session with its pending reviews and costs, then creates a fresh session. It preserves active party, prices, capture configuration and manual pause state. Existing on-screen chat is used as a baseline, not replayed. Reset is disabled while draining; if saving fails, no new session is started. Messages appearing between capture stop and the new baseline may not be recorded. Reset is non-destructive and does not require confirmation.
+
+## Current status: v0.36
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

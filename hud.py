@@ -7,7 +7,8 @@ from diagnostics import diagnostic
 from preferences import HUD_OPACITY_DEFAULT, validate_hud_opacity
 
 WIDTH, HEIGHT = 310, 86
-PAUSE_RECT = (210, 60, 304, 82)
+PAUSE_RECT = (174, 60, 244, 82)
+RESET_RECT = (248, 60, 304, 82)
 LOCK_RECT = (288, 2, 309, 24)
 
 
@@ -52,13 +53,13 @@ def adena_metric(adena,seconds,consumable_cost=None,unpriced_uses=0):
 
 
 class Hud:
-    def __init__(self, preferred=None, on_move=None, on_pause=None, opacity=HUD_OPACITY_DEFAULT):
+    def __init__(self, preferred=None, on_move=None, on_pause=None, opacity=HUD_OPACITY_DEFAULT, on_reset=None):
         self.opacity=validate_hud_opacity(opacity)
         self.hwnd=None; self.shown=False; self.position=None; self.values=('—','—','—'); self.adena_label='ADENA / HR'
         self.preferred=preferred; self.on_move=on_move; self.drag=None; self.interactive=False
         self.locked=True; self.lock_first=None; self.press_handled=False; self.native_released=False
         self.native_drag=False; self.drag_poll_seen=False; self.drag_context=None; self.drag_rejected=False; self.native_activity=0.0; self.moving=False
-        self.last_mouse_down=None; self.placement=None; self.on_pause=on_pause; self.paused=False; self.pause_pressed=False
+        self.last_mouse_down=None; self.placement=None; self.on_pause=on_pause; self.on_reset=on_reset; self.paused=False; self.pause_pressed=False
         self.u=c.WinDLL('user32',use_last_error=True); self.g=c.WinDLL('gdi32',use_last_error=True); self.k=c.WinDLL('kernel32',use_last_error=True)
         H=w.HANDLE; L=c.c_ssize_t; U=c.c_size_t
         self.proc_type=c.WINFUNCTYPE(L,w.HWND,w.UINT,U,L)
@@ -134,10 +135,12 @@ class Hud:
         return x+l<=point[0]<x+r and y+t<=point[1]<y+b
     def lock_hit(self,point):
         return self.hit_rect(point,LOCK_RECT)
+    def reset_hit(self,point):
+        return bool(getattr(self,'on_reset',None)) and self.hit_rect(point,RESET_RECT)
     def body_hit(self,point):
-        return self.hit_rect(point,(0,0,WIDTH,HEIGHT)) and not self.lock_hit(point) and not self.pause_hit(point)
+        return self.hit_rect(point,(0,0,WIDTH,HEIGHT)) and not self.lock_hit(point) and not self.pause_hit(point) and not self.reset_hit(point)
     def wants_input(self,point):
-        return self.drag is not None or self.lock_hit(point) or self.pause_hit(point) or (not self.locked and self.body_hit(point))
+        return self.drag is not None or self.lock_hit(point) or self.pause_hit(point) or self.reset_hit(point) or (not self.locked and self.body_hit(point))
     def toggle_lock_press(self):
         # Unlock requires two distinct presses within Windows' double-click interval.
         # Lock immediately on the first click while unlocked.
@@ -160,7 +163,8 @@ class Hud:
         if self.lock_hit(point):
             self.toggle_lock_press();return
         self.lock_first=None
-        if self.pause_hit(point):self.pause_click()
+        if self.reset_hit(point):self.on_reset()
+        elif self.pause_hit(point):self.pause_click()
         elif not self.locked and self.body_hit(point):self.begin_drag(point)
     def release_press(self):
         self.finish_drag();self.press_handled=False;self.pause_pressed=False;self.native_released=False
@@ -255,8 +259,11 @@ class Hud:
                     self.u.FillRect(dc,c.byref(w.RECT(8,56,302,57)),self.divider)
                     self.u.FillRect(dc,c.byref(w.RECT(*PAUSE_RECT)),self.control)
                     paused=getattr(self,'paused',False)
-                    self.text(dc,'PAUSED' if paused else 'SESSION ACTIVE',(9,60,200,82),self.small,(247,202,102) if paused else (134,224,183))
-                    self.text(dc,'  Resume' if paused else '  Pause',(210,60,304,82),self.small,(235,240,248))
+                    self.text(dc,'PAUSED' if paused else 'SESSION ACTIVE',(9,60,170,82),self.small,(247,202,102) if paused else (134,224,183))
+                    self.text(dc,'  Resume' if paused else '  Pause',PAUSE_RECT,self.small,(235,240,248))
+                    if getattr(self,'on_reset',None):
+                        self.u.FillRect(dc,c.byref(w.RECT(*RESET_RECT)),self.control)
+                        self.text(dc,'  Reset',RESET_RECT,self.small,(235,240,248))
                 finally:self.u.EndPaint(h,c.byref(ps))
             return 0
         return self.u.DefWindowProcW(h,msg,wp,lp)
