@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError
 from version import VERSION, APP_NAME, EXE_NAME, HELPER_NAME, MARKER, zip_name
-from preferences import mark_failed_update
+from preferences import mark_failed_update, load_backup_retention
 
 REPO='xuvenz-source/l2xptracker'
 API=f'https://api.github.com/repos/{REPO}/releases/latest'
@@ -236,6 +236,58 @@ def switch_install(root,staging,new_version,launch=launch_app):
         raise RuntimeError(f'Update failed; previous installation restored: {exc}') from exc
     return backup
 
+def ordinary_tree(path):
+    """Do not follow symlinks, junctions or other reparse points."""
+    def ordinary(p):
+        st=p.lstat()
+        return not (stat.S_ISLNK(st.st_mode) or getattr(st,'st_file_attributes',0)&0x400) and (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode))
+    if not ordinary(path):return False
+    for folder,dirs,files in os.walk(path,followlinks=False,onerror=lambda e:(_ for _ in ()).throw(e)):
+        for name in dirs+files:
+            if not ordinary(Path(folder)/name):return False
+    return True
+
+def prune_backups(root,keep=None,active_version=VERSION,protect=None):
+    """Only prune recognised sibling installations, after checking the active one.
+    Cleanup is best-effort and never changes an update's success/rollback result.
+    """
+    keep=load_backup_retention() if keep is None else keep
+    if type(keep) is not int or keep not in (0,1,2):raise ValueError('Invalid backup retention')
+    removed=[];warnings=[]
+    if not keep:return removed,warnings
+    root=Path(root)
+    # Do not manage other installations when launched from a recovery copy.
+    if re.search(r'\.(?:backup|failed)-',root.name):return removed,warnings
+    pattern=re.compile(re.escape(root.name)+r'\.backup-(\d{1,5}\.\d{1,5}(?:\.\d{1,5})?)-[0-9a-f]{8}')
+    try:
+        validate_install(root,active_version)
+        candidates=[]
+        for path in root.parent.iterdir():
+            match=pattern.fullmatch(path.name)
+            if not match:continue
+            try:
+                version=match[1]
+                if version_key(version)>=version_key(active_version):continue
+                if not ordinary_tree(path):continue
+                validate_install(path,version)
+                candidates.append((version_key(version),path.stat().st_mtime_ns,path.name,path,version))
+            except (OSError,ValueError,TypeError):continue
+        candidates.sort(reverse=True)
+        retained=set()
+        if protect is not None:retained.add(Path(protect))
+        for _,_,_,path,_ in candidates:
+            if len(retained)>=keep:break
+            retained.add(path)
+        for _,_,_,path,version in candidates:
+            if path in retained:continue
+            try:
+                if not ordinary_tree(path):continue
+                validate_install(path,version)
+                shutil.rmtree(path);removed.append(path)
+            except (OSError,ValueError,TypeError) as e:warnings.append(f'{path.name}: {e}')
+    except (OSError,ValueError,TypeError) as e:warnings.append(str(e))
+    return removed,warnings
+
 def helper_main():
     if len(sys.argv)==3 and sys.argv[1]=='--self-test':
         Path(sys.argv[2]).write_text('ok',encoding='utf-8');return 0
@@ -256,9 +308,13 @@ def helper_main():
         try:
             wait_for_exit(int(pid))
             q.put(('stage','Installing verified files and retaining a backup…'))
-            switch_install(Path(old),Path(staged),version)
+            backup=switch_install(Path(old),Path(staged),version)
             shutil.rmtree(staged,ignore_errors=True)
-            q.put(('done',None))
+            q.put(('stage','Removing older installation backups…'))
+            # Never enter the rollback/error branch because of optional cleanup.
+            try:removed,warnings=prune_backups(Path(old),active_version=version,protect=backup)
+            except Exception as e:removed,warnings=[],[str(e)]
+            q.put(('done',(len(removed),len(warnings))))
         except Exception as exc:
             try:mark_failed_update(version)
             except OSError:pass
@@ -269,7 +325,8 @@ def helper_main():
                 kind,value=q.get_nowait()
                 if kind=='stage':view.stage(value)
                 elif kind=='done':
-                    result[0]=0;view.complete('Update installed. Tracker launched.')
+                    count,warnings=value;result[0]=0
+                    view.complete('Update installed. Tracker launched.'+(f' Removed {count} old backup(s).' if count else '')+(' Some backups could not be cleaned.' if warnings else ''))
                     root.after(450,root.destroy);return
                 else:
                     view.error(value+'\nSettings and session history were not modified.')

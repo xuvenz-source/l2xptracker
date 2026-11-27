@@ -95,7 +95,10 @@ Settings now contains Tracking, HUD and Player status tabs. HUD widgets, order (
 ## Responsive interface (v0.41)
 History has a compact top toolbar, resizable session/detail panes, separate scrollable Summary and Loot & expenses tabs, and horizontal table scrolling. Dashboard, settings, review and party pages scroll independently; the main status/update bar stays pinned. Smaller window sizes no longer require enlarging the app just to reach lower controls. Existing session data is unchanged.
 
-## Current status: v0.41
+## Automatic backup retention (v0.42)
+Settings → Tracking → Updates → Keep installation backups defaults to two previous installations; choose one or keep all. Cleanup runs on normal startup (including accumulated older backups) and after successful installation/restart verification. It only removes older recognised sibling backup folders matching the updater naming convention, installation marker and expected structure; symlinks/junctions and changed or unrecognised backups are skipped. The just-created rollback copy is protected. Cleanup errors never invalidate an update. Session database/preferences live separately and are not pruned. On the first upgrade from an older helper, cleanup occurs at the next ordinary launch.
+
+## Current status: v0.42
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

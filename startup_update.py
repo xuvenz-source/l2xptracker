@@ -3,7 +3,8 @@ import queue,sys,threading,shutil
 from pathlib import Path
 from version import VERSION
 from preferences import load_auto_update,failed_update
-from updater import check_release,stage_update,launch_helper
+from updater import check_release,stage_update,launch_helper,prune_backups
+from diagnostics import diagnostic
 from updater_view import UpdateView
 
 class StartupUpdater:
@@ -19,6 +20,14 @@ class StartupUpdater:
         threading.Thread(target=self.check,daemon=True).start()
         self.poll_job=root.after(75,self.poll)
     def check(self):
+        # Also clean accumulated backups on an ordinary launch, including
+        # installations first upgraded by an older helper. Never touch them
+        # during the post-update startup health check.
+        if getattr(sys,'frozen',False):
+            try:
+                removed,warnings=prune_backups(Path(sys.executable).resolve().parent)
+                if removed or warnings:diagnostic('Backup cleanup: removed=%s warnings=%s',len(removed),warnings)
+            except Exception:diagnostic('Backup cleanup failed',exc_info=True)
         try:self.q.put(('checked',check_release()))
         except Exception as e:self.q.put(('error',str(e)))
     def continue_tracker(self):

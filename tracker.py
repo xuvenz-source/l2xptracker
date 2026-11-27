@@ -25,6 +25,7 @@ from appearance import Appearance, Dashboard, save_mode
 from preferences import load_focus_pause, save_focus_pause, load_auto_update, save_auto_update, load_hud_opacity, save_hud_opacity, HUD_OPACITY_MIN, HUD_OPACITY_MAX, HUD_OPACITY_DEFAULT, load_hud_net_adena, save_hud_net_adena
 from party_setup_ui import PartySetup
 from update_ui import UpdateUI
+from preferences import load_backup_retention,save_backup_retention
 from scroll_ui import ScrollPage,table_scroll
 from player_ui import PlayerStatus
 from hud_layout import WIDGETS, PRESETS, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
@@ -595,6 +596,11 @@ class App:
         self.auto_update_var=tk.BooleanVar(master=win,value=self.auto_update)
         ttk.Checkbutton(content,text='Automatically install updates',variable=self.auto_update_var,command=self.change_update_policy).pack(anchor='w',pady=(6,3))
         ttk.Label(content,text='On by default. Checks GitHub on launch and every 30 minutes; installs published releases and restarts only when idle. Turn off to approve updates manually.',style='Muted.TLabel',wraplength=500).pack(anchor='w')
+        backup_row=ttk.Frame(content);backup_row.pack(fill='x',pady=(8,2))
+        ttk.Label(backup_row,text='Keep installation backups:').pack(side='left',padx=(0,8))
+        self.backup_retention_var=tk.StringVar(value={1:'1 previous version',2:'2 previous versions',0:'Keep all'}[load_backup_retention()])
+        backup_picker=ttk.Combobox(backup_row,textvariable=self.backup_retention_var,values=('1 previous version','2 previous versions','Keep all'),state='readonly',width=22);backup_picker.pack(side='left');backup_picker.bind('<<ComboboxSelected>>',self.change_backup_retention)
+        ttk.Label(content,text='Older recognised installation backups are removed on normal startup and after successful updates. Session history and preferences are stored separately.',style='Muted.TLabel',wraplength=620).pack(anchor='w')
         ttk.Label(content,text='Preferences are saved automatically.',style='Muted.TLabel').pack(anchor='w',pady=(10,0))
         ttk.Button(content,text='Open diagnostic folder',command=self.open_diagnostic_folder).pack(anchor='w',pady=(7,0))
         self.appearance.restyle(win)
@@ -716,6 +722,9 @@ class App:
         try:
             folder=settings.settings_path().parent;folder.mkdir(parents=True,exist_ok=True);os.startfile(folder)
         except OSError as e:messagebox.showwarning('Diagnostics',str(e),parent=self.root)
+    def change_backup_retention(self,*_):
+        try:save_backup_retention({'1 previous version':1,'2 previous versions':2,'Keep all':0}[self.backup_retention_var.get()])
+        except OSError as e:messagebox.showwarning('Backups',f'Could not save retention setting: {e}',parent=self.root)
     def change_update_policy(self):
         value=bool(self.auto_update_var.get())
         self.auto_update=value

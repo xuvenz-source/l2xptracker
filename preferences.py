@@ -65,3 +65,12 @@ def load_hud_net_adena(path=None):return read_bool('hud_net_adena',False,path)
 def save_hud_net_adena(value,path=None):
     if type(value) is not bool:raise ValueError('Expected a boolean')
     write_preference('hud_net_adena',value,path)
+
+# Zero means unlimited; never automatically remove the last rollback copy.
+def load_backup_retention(path=None):
+    value=read_preferences(path).get('backup_retention',2)
+    return value if type(value) is int and value in (0,1,2) else 2
+
+def save_backup_retention(value,path=None):
+    if type(value) is not int or value not in (0,1,2):raise ValueError('Choose one, two or all backups')
+    write_preference('backup_retention',value,path)
