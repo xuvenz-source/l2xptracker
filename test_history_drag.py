@@ -57,3 +57,25 @@ class DragGroupingTests(unittest.TestCase):
         plan=group_drop_plan(r,g,['d'])
         self.assertIn('d',plan[g]['sources'])
         self.assertEqual(json.dumps(r),old)
+
+
+    def test_ui_drop_actions(self):
+        from history_ui import HistoryWindow
+        from unittest.mock import Mock,patch
+        from types import SimpleNamespace
+        h=HistoryWindow.__new__(HistoryWindow)
+        h.archive=self.arc;h.records=self.arc.records()
+        h.row_records={'a-row':'a','b-row':'b','c-row':'c'}
+        h.tree=Mock();h.tree.winfo_width.return_value=700;h.tree.winfo_height.return_value=400
+        h.tree.identify_row.return_value='b-row'
+        h.dragging=True;h.drag_ids=['a'];h.cancel_drag=Mock();h.refresh=Mock();h.win=Mock()
+        event=SimpleNamespace(x=100,y=100)
+        with patch('history_ui.simpledialog.askstring',return_value='Duo'):
+            self.assertEqual(h.drag_end(event),'break')
+        g=next(i for i,r in self.arc.records().items() if r['kind']=='merged')
+        self.assertEqual(self.arc.summary(g)['seconds'],300)
+        h.records=self.arc.records();h.row_records['group-row']=g
+        h.tree.identify_row.return_value='group-row';h.dragging=True;h.drag_ids=['c']
+        self.assertEqual(h.drag_end(event),'break')
+        self.assertEqual(self.arc.summary(g)['seconds'],600)
+        h.refresh.assert_called_with([g])
