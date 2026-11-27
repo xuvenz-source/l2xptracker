@@ -15,6 +15,7 @@ from hud import Hud, WIDTH, HEIGHT, safe_position, hud_position
 from session_pause import PauseGate
 from review import ReviewQueue, candidates, review_fields, correction_message
 from history import Archive, new_id, now, snapshot, totals_for, review_queue, count_kills, rate, consumables_for
+from consumable_costs import key as cost_key, price as validate_price, load_prices, save_prices, clean_prices, cost_report, cost_summary, money, write_cost_csv
 from history_ui import HistoryWindow
 from runtime_ocr import configure_ocr
 from version import VERSION
@@ -427,6 +428,7 @@ class App:
         self.appearance=Appearance(root)
         self.pause_on_blur=load_focus_pause();self.auto_update=load_auto_update();self.settings_win=None
         self.hud_opacity=load_hud_opacity();self.hud_opacity_save_job=None
+        self.default_prices=load_prices();self.session_prices=dict(self.default_prices);self.consumable_report=cost_report([])
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
         self.party_members=[]; self.next_party_members=[]; self.kills=0; self.update_busy=False
         self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False
@@ -471,11 +473,18 @@ class App:
         loot_scroll=ttk.Scrollbar(loot,orient='vertical',command=self.tree.yview);self.tree.configure(yscrollcommand=loot_scroll.set)
         loot_scroll.pack(side='right',fill='y');self.tree.pack(fill='both',expand=True)
         usage=ttk.LabelFrame(dash,text='Consumables used (observed activations)',padding=6);usage.pack(fill='x',pady=(8,0))
-        self.consumable_tree=ttk.Treeview(usage,columns=('item','uses'),show='headings',height=4)
-        self.consumable_tree.heading('item',text='Consumable');self.consumable_tree.heading('uses',text='Uses')
-        self.consumable_tree.column('item',width=440);self.consumable_tree.column('uses',width=110,anchor='e')
+        cost_controls=ttk.Frame(usage);cost_controls.pack(fill='x')
+        ttk.Button(cost_controls,text='Edit selected cost…',command=self.edit_consumable_cost).pack(side='left')
+        ttk.Button(cost_controls,text='Set default cost…',command=self.edit_default_cost).pack(side='left',padx=6)
+        ttk.Label(cost_controls,text='Adena per activation; double-click a row to edit.',style='Muted.TLabel').pack(side='left',padx=5)
+        self.consumable_tree=ttk.Treeview(usage,columns=('item','uses','unit','cost'),show='headings',height=4,selectmode='browse')
+        for c,label,w in [('item','Consumable',310),('uses','Uses',80),('unit','Adena / use',120),('cost','Known cost',130)]:
+            self.consumable_tree.heading(c,text=label);self.consumable_tree.column(c,width=w,anchor='w' if c=='item' else 'e',stretch=c=='item')
+        self.consumable_tree.bind('<Double-1>',self.edit_consumable_cost)
         usage_scroll=ttk.Scrollbar(usage,orient='vertical',command=self.consumable_tree.yview);self.consumable_tree.configure(yscrollcommand=usage_scroll.set)
         usage_scroll.pack(side='right',fill='y');self.consumable_tree.pack(fill='x')
+        self.cost_status=tk.StringVar(value='No recorded consumable costs.')
+        ttk.Label(dash,textvariable=self.cost_status,style='Muted.TLabel',wraplength=870).pack(fill='x',pady=(3,0))
         activity=self.pages['activity']
         ttk.Label(activity,text='Activity log',style='Title.TLabel').pack(anchor='w')
         ttk.Label(activity,text='Accepted messages, review warnings and ignored OCR lines.',style='Muted.TLabel').pack(anchor='w',pady=(3,10))
@@ -715,6 +724,7 @@ class App:
         if not self.save_session():return
         if not self.archive:
             messagebox.showerror('Session storage','History storage is unavailable. Restart the tracker after fixing storage.');return
+        self.session_prices=dict(self.default_prices);self.consumable_report=cost_report([])
         self.party_members=list(self.next_party_members)
         self.party_status.set('Session party: '+(', '.join(self.party_members) or 'solo / no estimates'))
         self.session_id=new_id(); self.session_date=now(); self.session_end=None; self.session_complete=None; self.last_archive_save=0
@@ -723,6 +733,7 @@ class App:
         self.reviews=ReviewQueue(); self.refresh_reviews()
         self.events=[]; self.raw=[]; self.kills=0; self.totals.clear(); self.tree.delete(*self.tree.get_children());
         if hasattr(self,'consumable_tree'):self.consumable_tree.delete(*self.consumable_tree.get_children())
+        if hasattr(self,'cost_status'):self.cost_status.set('No recorded consumable costs.')
         self.gaps=0; self.active_seconds=0.0; self.started=time.monotonic(); self.ended=None; self.run_id+=1; self.running=True; self.pending=2
         self.pause_gate=PauseGate(self.pause_on_blur); self.pause_btn.config(text="Pause",state="normal"); self.halt=threading.Event(); self.jobs=queue.Queue(maxsize=120); self.start_btn.config(state='disabled'); self.stop_btn.config(state='normal')
         self.log.config(state='normal'); self.log.delete('1.0','end'); self.log.config(state='disabled'); self.status.set('Waiting for readable Lineage 2 chat. Existing messages will not be counted.')
@@ -885,6 +896,7 @@ class App:
         if self.started is not None:
             dur=self.active_seconds; h=max(1,dur)/3600; xp=self.totals[('You','XP / SP')]; sp=self.totals[('You','SP')]; ad=self.totals[('You','Adena')]
             if hasattr(self,'dashboard'):self.dashboard.update_metrics(dur,ad,xp,self.kills)
+            if hasattr(self,'cost_status'):self.cost_status.set(cost_summary(self.consumable_report,ad,dur))
             self.stats.set(f'{"PAUSED  |  " if self.running and self.pause_gate.snapshot()[0] else ""}Active {int(dur)//3600:02}:{int(dur)%3600//60:02}:{int(dur)%60:02}  |  SP {sp:,}  |  Capture/OCR warnings {self.gaps}  |  Pending review {len(self.reviews.pending)}')
             if getattr(self,'party_members',[]):
                 extra=party_summary(live_party_report(self.party_members,dur,self.totals))
@@ -894,13 +906,59 @@ class App:
         self.kills=count_kills(self.events)
         self.tree.delete(*self.tree.get_children())
         if hasattr(self,'consumable_tree'):
+            selected=self.consumable_tree.selection()
+            old=self.consumable_tree.item(selected[0],'values')[0] if selected else None
+            self.consumable_report=cost_report([dict(events=self.events,consumable_prices=self.session_prices)])
             self.consumable_tree.delete(*self.consumable_tree.get_children())
-            for item,uses in sorted(consumables_for(self.events).items()):self.consumable_tree.insert('','end',values=(item,f'{uses:,}'))
+            for r in self.consumable_report['rows']:
+                unit=money(next(iter(r['prices']))) if len(r['prices'])==1 else 'Not set'
+                iid=self.consumable_tree.insert('','end',values=(r['item'],f"{r['uses']:,}",unit,money(r['cost']) if r['priced'] else '—'))
+                if r['item']==old:self.consumable_tree.selection_set(iid)
+            self.cost_status.set(cost_summary(self.consumable_report,self.totals['You','Adena'],self.active_seconds))
         for (who,item),qty in sorted(self.totals.items()):
             if item not in ('XP / SP','SP'):self.tree.insert('','end',values=(who,item,f'{qty:,}'))
         for row in party_rows(live_party_report(getattr(self,'party_members',[]),self.active_seconds,self.totals)):
             # Rates use the live timer in the summary; row amounts refresh on events.
             if row[1]!='Adena/hr (estimated)':self.tree.insert('','end',values=row)
+    def edit_consumable_cost(self,event=None):
+        if getattr(self,'update_busy',False):return
+        if event is not None and self.consumable_tree.identify_region(event.x,event.y)!='cell':return
+        selection=self.consumable_tree.selection()
+        if not selection:
+            messagebox.showinfo('Consumable costs','Select a recorded consumable first, or use Set default cost to enter a price before use.',parent=self.root);return
+        name=self.consumable_tree.item(selection[0],'values')[0];k=cost_key(name)
+        value=simpledialog.askstring('Consumable cost',f'{name}: Adena per observed activation. If each use consumes multiple units, enter their combined cost. Blank removes the price. Applies to all uses in this session.',initialvalue=self.session_prices.get(k,''),parent=self.root)
+        if value is None:return
+        try:
+            if value.strip():self.session_prices[k]=validate_price(value)
+            else:self.session_prices.pop(k,None)
+        except ValueError as e:messagebox.showwarning('Consumable cost',str(e),parent=self.root);return
+        # A historical edit must not silently reprice future sessions.
+        if self.running or self.pending:
+            defaults=dict(self.default_prices)
+            if k in self.session_prices:defaults[k]=self.session_prices[k]
+            else:defaults.pop(k,None)
+            try:save_prices(defaults);self.default_prices=defaults
+            except OSError as e:messagebox.showwarning('Consumable cost',f'Session price changed; future default could not be saved: {e}',parent=self.root)
+        self.refresh_totals();self.save_session()
+
+    def edit_default_cost(self):
+        if getattr(self,'update_busy',False):return
+        selection=self.consumable_tree.selection()
+        initial=self.consumable_tree.item(selection[0],'values')[0] if selection else ''
+        name=simpledialog.askstring('Default consumable cost','Enter the consumable name exactly as shown in game (e.g. Soulshot: No Grade).',initialvalue=initial,parent=self.root)
+        if name is None or not cost_key(name):return
+        k=cost_key(name)
+        value=simpledialog.askstring('Default cost',f'{name}: Adena per activation for future sessions. Blank removes the default. This does not reprice saved sessions.',initialvalue=self.default_prices.get(k,''),parent=self.root)
+        if value is None:return
+        try:
+            defaults=dict(self.default_prices)
+            if value.strip():defaults[k]=validate_price(value)
+            else:defaults.pop(k,None)
+            save_prices(defaults);self.default_prices=defaults
+        except (ValueError,OSError) as e:messagebox.showwarning('Default cost',str(e),parent=self.root);return
+        self.status.set('Default consumable cost saved for future sessions. Edit a recorded row to change the current session.')
+
     def refresh_reviews(self):
         self.review_count.set(f'Review ({len(self.reviews.pending)})')
         if hasattr(self,'tabs'):self.tabs.tab(self.pages['review'],text=f'Reviews ({len(self.reviews.pending)})')
@@ -1092,7 +1150,9 @@ class App:
         rawpath=str(Path(path).with_suffix(''))+'-raw.csv'
         with open(rawpath,'w',newline='',encoding='utf-8-sig') as f:
             w=csv.writer(f);w.writerow(['timestamp','status','raw_text']);w.writerows(self.raw)
-        messagebox.showinfo('Exported',f'{path}\n{rawpath}')
+        costpath=str(Path(path).with_suffix(''))+'-consumables.csv'
+        write_cost_csv(costpath,cost_report([dict(events=self.events,consumable_prices=self.session_prices)]))
+        messagebox.showinfo('Exported',f'{path}\n{rawpath}\n{costpath}')
     def save_session(self,quiet=False):
         if not self.session_id:return True
         self.last_archive_save=time.monotonic()
@@ -1116,6 +1176,7 @@ class App:
             if r['kind']!='original':raise ValueError('Only original sessions can be opened for review.')
             d=r['data'];events=[tuple(e) for e in d['events']];raw=[tuple(e) for e in d['raw']];reviews=review_queue(d);totals=totals_for(events)
         except Exception as e:messagebox.showerror('History',str(e));return False
+        self.session_prices=clean_prices(d.get('consumable_prices',{}))
         self.party_members=list(d.get('party_members',[]))
         self.party_status.set('Saved session party: '+(', '.join(self.party_members) or 'not configured'))
         self.session_id=id;self.session_date=d['start'];self.session_end=d['end'];self.session_complete=d['complete'];self.active_seconds=d['seconds'];self.events=events;self.raw=raw;self.reviews=reviews;self.totals=totals;self.gaps=d['gaps'];self.started=time.monotonic();self.ended=self.started

@@ -6,6 +6,7 @@ from pathlib import Path
 from history import duration,rate,history_forest,group_drop_plan,Archive
 from party import display_rows as party_rows, summary_text as party_summary
 from history import consumables_for
+from consumable_costs import cost_summary, money, write_cost_csv
 
 class HistoryWindow:
     def __init__(self,app,parent=None):
@@ -21,7 +22,7 @@ class HistoryWindow:
         for c,t,w in cols:self.tree.heading(c,text=t);self.tree.column(c,width=w,minwidth=50)
         scroll=ttk.Scrollbar(frame,orient='vertical',command=self.tree.yview);self.tree.config(yscrollcommand=scroll.set);scroll.pack(side='right',fill='y');self.tree.pack(fill='both',expand=True)
         buttons=ttk.Frame(self.win,padding=10);buttons.pack(fill='x')
-        for title,cmd in [('Refresh',self.refresh),('Rename…',self.rename),('Merge selected…',self.merge),('Open original for review',self.reopen),('Export selected CSV',self.export)]:ttk.Button(buttons,text=title,command=cmd).pack(side='left',padx=3)
+        for title,cmd in [('Refresh',self.refresh),('Rename…',self.rename),('Merge selected…',self.merge),('Open original for review',self.reopen),('Edit costs',self.reopen_costs),('Export selected CSV',self.export)]:ttk.Button(buttons,text=title,command=cmd).pack(side='left',padx=3)
         self.details=tk.StringVar(value='Select a saved session.');ttk.Label(self.win,textvariable=self.details,padding=10,wraplength=1020).pack(fill='x')
         f=ttk.Frame(self.win);f.pack(fill='both',expand=True,padx=10,pady=(0,10));self.loot=ttk.Treeview(f,columns=('who','item','qty'),show='headings',height=8)
         for c,t,w in [('who','Player',160),('item','Item',500),('qty','Quantity',140)]:self.loot.heading(c,text=t);self.loot.column(c,width=w)
@@ -132,7 +133,11 @@ class HistoryWindow:
         self.details.set(self.details.get()+f"\nKills: {s['kills']:,} ({rate(s['kills'],s['seconds'])}/h; XP events)")
         for (who,item),q in sorted(t.items()):
             if item not in ('XP / SP','SP'):self.loot.insert('','end',values=(who,item,f'{q:,}'))
-        for item,q in sorted(consumables_for(s['events']).items()):self.loot.insert('','end',values=('You','Used: '+item,f'{q:,} activations'))
+        for r in s['consumable_report']['rows']:
+            suffix=f" | {money(r['cost'])} Adena known" if r['priced'] else ' | unpriced'
+            if r['priced'] and r['unpriced']:suffix+=f" ({r['unpriced']:,} unpriced)"
+            self.loot.insert('','end',values=('You','Used: '+r['item'],f"{r['uses']:,} uses"+suffix))
+        self.details.set(self.details.get()+'\n'+cost_summary(s['consumable_report'],t['You','Adena'],s['seconds']))
         for row in party_rows(s['party']):self.loot.insert('','end',values=row)
         extra=party_summary(s['party'])
         if extra:self.details.set(self.details.get()+'\n'+extra)
@@ -161,6 +166,14 @@ class HistoryWindow:
         if self.app.restore_session(i):
             if not self.embedded:self.win.destroy()
             self.app.open_reviews()
+    def reopen_costs(self):
+        i=self.single()
+        if not i:return
+        if self.records[i]['kind']!='original':
+            messagebox.showinfo('Consumable costs','Expand the group and open an original session to edit its costs.',parent=self.win);return
+        if self.app.restore_session(i):
+            if not self.embedded:self.win.destroy()
+            self.app.navigate('dashboard')
     def export(self):
         i=self.single()
         if not i:return
@@ -171,5 +184,6 @@ class HistoryWindow:
                 w=csv.writer(f);w.writerow(['timestamp','type','player','item','quantity_or_xp','sp','raw_text']);w.writerows(s['events'])
             with open(str(Path(path).with_suffix(''))+'-summary.csv','w',newline='',encoding='utf-8-sig') as f:
                 w=csv.writer(f);t=s['totals'];w.writerow(['name','active_seconds','xp','sp','adena','xp_per_hour','adena_per_hour','kills','kills_per_hour','pending_reviews']);w.writerow([s['name'],s['seconds'],t['You','XP / SP'],t['You','SP'],t['You','Adena'],rate(t['You','XP / SP'],s['seconds']),rate(t['You','Adena'],s['seconds']),s['kills'],rate(s['kills'],s['seconds']),s['pending']])
-            messagebox.showinfo('Export','Events and summary exported.',parent=self.win)
+            write_cost_csv(str(Path(path).with_suffix(''))+'-consumables.csv',s['consumable_report'])
+            messagebox.showinfo('Export','Events, summary and consumable costs exported.',parent=self.win)
         except Exception as e:messagebox.showerror('Export',str(e),parent=self.win)

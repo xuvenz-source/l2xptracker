@@ -8,6 +8,7 @@ from pathlib import Path
 from review import Review, ReviewQueue
 from settings import settings_path
 from party import report as party_report
+from consumable_costs import cost_report, clean_prices
 
 
 def now(): return datetime.now().isoformat(timespec='seconds')
@@ -39,6 +40,7 @@ def count_kills(events):
 def snapshot(app):
     return dict(start=app.session_date, end=app.session_end or now(), seconds=app.active_seconds,
                 events=app.events, raw=app.raw, gaps=app.gaps, party_members=list(getattr(app,'party_members',[])),
+                consumable_prices=clean_prices(getattr(app,'session_prices',{})),
                 reviews=[asdict(r) for r in app.reviews.pending.values()],
                 next_review=app.reviews.next_id, complete=app.session_complete if app.session_complete is not None else not(app.running or app.pending))
 
@@ -106,7 +108,7 @@ class Archive:
         r=records[id]; sources=self.sources([id],records)
         parts=sorted((records[s]['data'] for s in sources),key=lambda p:p['start'])
         events=[tuple(e) for p in parts for e in p['events']]; raw=[tuple(e) for p in parts for e in p['raw']]
-        return dict(**r,sources=sources,seconds=sum(p['seconds'] for p in parts),start=min(p['start'] for p in parts),end=max(p['end'] for p in parts),events=events,raw=raw,totals=totals_for(events),kills=count_kills(events),party=party_report(parts),pending=sum(len(p['reviews']) for p in parts),gaps=sum(p['gaps'] for p in parts),complete=all(p['complete'] for p in parts))
+        return dict(**r,sources=sources,seconds=sum(p['seconds'] for p in parts),start=min(p['start'] for p in parts),end=max(p['end'] for p in parts),events=events,raw=raw,totals=totals_for(events),kills=count_kills(events),consumable_report=cost_report(parts),party=party_report(parts),pending=sum(len(p['reviews']) for p in parts),gaps=sum(p['gaps'] for p in parts),complete=all(p['complete'] for p in parts))
 
 
 def history_children(records):

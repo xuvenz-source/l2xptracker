@@ -270,3 +270,6 @@ The in-game HUD starts locked. Double-click the top-right padlock to unlock; lef
 
 VERSION 0.33 — HUD OPACITY
 Settings → Tracking → HUD opacity adjusts the entire floating HUD (20–100%). The setting applies immediately, saves locally and defaults to 92%. Reset restores the default. Return to the game to view changes. Lock, drag, and pause behaviour is unchanged.
+
+VERSION 0.34 — CONSUMABLE COSTS
+Dashboard: double-click a consumable and enter Adena per observed activation; blank removes a price, zero means free. Cost and cost/hour, Adena after known costs and unpriced activations are shown. Set default cost saves future prices; historical sessions retain their own prices and can be edited individually. Exports include a consumable costs CSV.
