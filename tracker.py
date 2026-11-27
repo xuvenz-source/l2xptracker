@@ -450,7 +450,10 @@ class App:
         self.chat_style=load_style(fallback_pitch=int(self.pitch.get()));self.pitch.set(str(self.chat_style['pitch']))
         try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.queue_hud_move,on_pause=self.queue_hud_pause,opacity=self.hud_opacity,on_reset=self.queue_hud_reset)
         except Exception as e: self.hud_enabled.set(False); self.status.set(self.status.get()+f' HUD unavailable: {e}')
-        if self.hud:self.hud.configure_layout(self.hud_config)
+        if self.hud:
+            try:self.hud.configure_layout(self.hud_config)
+            except Exception as e:
+                self.hud.close();self.hud=None;self.hud_enabled.set(False);self.status.set('HUD layout unavailable: '+str(e))
         self.player=PlayerStatus(self)
         try: self.archive=Archive()
         except Exception as e: messagebox.showerror("Session storage",f"Could not open session history: {e}")
@@ -471,7 +474,7 @@ class App:
             page=ttk.Frame(self.tabs,padding=12);self.pages[key]=page;self.tabs.add(page,text=label)
         dash=self.pages['dashboard']
         self.dashboard=Dashboard(dash);self.dashboard.pack(fill='x',pady=(0,4))
-        ttk.Label(dash,textvariable=self.player.summary,style='Section.TLabel',wraplength=870).pack(fill='x',pady=(0,4))
+        self.player.build_dashboard(dash)
         ttk.Label(dash,textvariable=self.stats,wraplength=880,padding=(0,3,0,12),style='Muted.TLabel').pack(fill='x')
         loot_header=ttk.Frame(dash);loot_header.pack(fill='x',pady=(2,8))
         ttk.Label(loot_header,text='Session loot',style='Section.TLabel').pack(side='left')
@@ -605,20 +608,36 @@ class App:
         self.hud_controls={k:tk.BooleanVar(value=self.hud_config[k]) for k in ('status','pause','reset')}
         for k,v in self.hud_controls.items():ttk.Checkbutton(row,text='Show '+k,variable=v,command=self.apply_hud_config).pack(side='left',padx=4)
         ttk.Button(row,text='Restore defaults',command=self.hud_defaults).pack(side='right')
+        ttk.Label(parent,text='HUD preview • drag the handles or use arrows to reorder',style='Muted.TLabel').pack(anchor='w')
         self.hud_preview= tk.Canvas(parent,height=110,bg='#454f35',highlightthickness=0);self.hud_preview.pack(fill='x',pady=4)
+        self.hud_preview.bind('<Configure>',lambda e:self.preview_hud())
         self.preview_hud()
     def draw_hud_list(self):
         for child in self.hud_list.winfo_children():child.destroy()
+        self.hud_order_rows=[]
         for i,k in enumerate(self.hud_order):
-            r=ttk.Frame(self.hud_list);r.grid(row=i%4,column=i//4,sticky='ew',padx=5)
+            r=ttk.Frame(self.hud_list);r.grid(row=i%4,column=i//4,sticky='ew',padx=5);self.hud_order_rows.append(r)
+            grip=ttk.Label(r,text='☷',cursor='fleur');grip.pack(side='left',padx=3)
+            grip.bind('<ButtonPress-1>',lambda e,j=i:setattr(self,'hud_drag_index',j))
+            grip.bind('<ButtonRelease-1>',self.drop_widget)
             ttk.Checkbutton(r,text=WIDGETS[k][0],variable=self.hud_vars[k],command=self.apply_hud_config,width=24).pack(side='left')
             ttk.Button(r,text='↑',width=2,command=lambda j=i:self.move_widget(j,-1)).pack(side='left')
             ttk.Button(r,text='↓',width=2,command=lambda j=i:self.move_widget(j,1)).pack(side='left')
+    def drop_widget(self,event):
+        i=getattr(self,'hud_drag_index',None);self.hud_drag_index=None
+        if i is None:return
+        for j,row in enumerate(self.hud_order_rows):
+            x,y=row.winfo_rootx(),row.winfo_rooty()
+            if x<=event.x_root<x+row.winfo_width() and y<=event.y_root<y+row.winfo_height():
+                if i!=j:self.hud_order.insert(j,self.hud_order.pop(i));self.draw_hud_list();self.apply_hud_config()
+                break
     def move_widget(self,i,d):
         j=i+d
         if 0<=j<len(self.hud_order):
             self.hud_order[i],self.hud_order[j]=self.hud_order[j],self.hud_order[i];self.draw_hud_list();self.apply_hud_config()
     def hud_preset(self,name):
+        self.hud_order=PRESETS[name]+[k for k in WIDGETS if k not in PRESETS[name]]
+        self.draw_hud_list()
         for k,v in self.hud_vars.items():v.set(k in PRESETS[name])
         self.apply_hud_config()
     def hud_defaults(self):
@@ -635,18 +654,27 @@ class App:
         self.preview_hud()
     def preview_hud(self):
         if not hasattr(self,'hud_preview'):return
-        g=hud_geometry(self.hud_config);cv=self.hud_preview;cv.delete('all');cv.configure(height=g['height']+6)
-        cv.create_rectangle(2,2,g['width']+2,g['height']+2,fill='#141921',outline='')
+        g=hud_geometry(self.hud_config);cv=self.hud_preview;cv.delete('all')
+        scale=min(1,max(1,cv.winfo_width()-6)/g['width']) if cv.winfo_width()>10 else 1
+        height=round(g['height']*scale)+6
+        if int(cv.cget('height'))!=height:cv.configure(height=height)
+        if not self.hud_config['visible']:
+            cv.create_text(10,16,text='HUD hidden',anchor='w',fill='white');return
+        def blend(colour):
+            foreground=tuple(int(colour[i:i+2],16) for i in (1,3,5));background=(69,79,53);a=self.hud_opacity/100
+            return '#%02x%02x%02x'%tuple(round(a*f+(1-a)*b) for f,b in zip(foreground,background))
+        cv.create_rectangle(2,2,g['width']+2,g['height']+2,fill=blend('#141921'),outline='')
         sample={'ad':'12,500','xp':'35,000','kills':'120','eta':'3h 48m','level':'19','progress':'16.91%','loot':'4,500','cost':'3,200'}
         for k,x,y,w,rh in g['cells']:
-            cv.create_text(x+2,y+3,text=WIDGETS[k][1],anchor='nw',font=('Segoe UI',-g['small']),fill='#B4BECD')
-            cv.create_text(x+2,y+21,text=sample[k],anchor='nw',font=('Segoe UI',-g['large'],'bold'),fill='#%02x%02x%02x'%WIDGETS[k][2])
-        cv.create_text(g['width']-10,12,text='▣',fill='white')
+            cv.create_text(x+2,y+3,text=('NET ADENA/H' if k=='ad' and self.hud_net_adena else WIDGETS[k][1]),anchor='nw',font=('Segoe UI',-max(7,round(g['small']*scale))),fill=blend('#B4BECD'))
+            cv.create_text(x+2,y+21,text=('9,300' if k=='ad' and self.hud_net_adena else sample[k]),anchor='nw',font=('Segoe UI',-max(9,round(g['large']*scale)),'bold'),fill=blend('#%02x%02x%02x'%WIDGETS[k][2]))
+        cv.create_text(g['width']-10,12,text='▣',fill=blend('#FFFFFF'))
         if g['footer']:
             if g['status']:cv.create_text(9,g['height']-14,text='SESSION ACTIVE',anchor='w',fill='#86E0B7')
             for k in ('pause','reset'):
                 if g[k]:
-                    l,t,r,b=g[k];cv.create_rectangle(l,t,r,b,fill='#2E3D4E',outline='');cv.create_text((l+r)//2,(t+b)//2,text=k.title(),fill='white')
+                    l,t,r,b=g[k];cv.create_rectangle(l,t,r,b,fill='#2E3D4E',outline='');cv.create_text((l+r)//2,(t+b)//2,text=k.title(),fill=blend('#FFFFFF'))
+        if scale<1:cv.scale('all',0,0,scale,scale)
     def select_text_size(self,*_):
         size=self.text_size.get()
         self.pitch_entry.configure(state='normal')
@@ -696,7 +724,7 @@ class App:
         except RuntimeError as e:
             self.hud_opacity_var.set(self.hud_opacity)
             self.status.set(str(e));return
-        self.hud_opacity=percent;self.hud_opacity_label.set(f'{percent}%')
+        self.hud_opacity=percent;self.hud_opacity_label.set(f'{percent}%');self.preview_hud()
         # Avoid rewriting preferences for every mouse motion while dragging.
         if self.hud_opacity_save_job is not None:self.root.after_cancel(self.hud_opacity_save_job)
         self.hud_opacity_save_job=self.root.after(250,self.flush_hud_opacity)
@@ -709,7 +737,7 @@ class App:
         try:save_hud_opacity(self.hud_opacity)
         except OSError as e:self.status.set(f'HUD opacity changed, but could not save: {e}')
     def change_hud_net_adena(self):
-        self.hud_net_adena=bool(self.hud_net_adena_var.get())
+        self.hud_net_adena=bool(self.hud_net_adena_var.get());self.preview_hud()
         try:save_hud_net_adena(self.hud_net_adena)
         except OSError as e:self.status.set(f'HUD Adena display changed, but could not save: {e}')
     def change_focus_policy(self):
@@ -995,6 +1023,7 @@ class App:
                     if typ=='xp':self.totals[(who,'SP')]+=sp
                     changed=True
         if changed: self.refresh_totals()
+        if finished and hasattr(self,'player'):self.player.tick(finished=True)
         if self.session_id and (finished or (self.running and time.monotonic()-self.last_archive_save>=15)):
             saved=self.save_session(quiet=not finished)
             if saved and finished:self.status.set('Session saved. Open Session history to rename or merge it.')

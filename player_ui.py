@@ -14,7 +14,15 @@ class PlayerStatus:
         self.results=queue.Queue();self.busy=False;self.generation=0;self.next_read=0
         self.source=tk.StringVar(value='Calibrate player status or enter manually.')
         self.summary=tk.StringVar(value='Player progress: not calibrated')
-        self.last_run=None;self.last_xp=0
+        self.last_run=None;self.last_xp=0;self.last_binding=None
+        self.calibration_results=queue.Queue();self.calibration_preview={}
+        self.percent_var=tk.DoubleVar(value=0)
+        self.details=tk.StringVar(value='')
+    def build_dashboard(self,parent):
+        panel=ttk.Frame(parent);panel.pack(fill='x',pady=(0,5))
+        ttk.Label(panel,textvariable=self.summary,style='Section.TLabel',wraplength=870).pack(anchor='w')
+        ttk.Progressbar(panel,variable=self.percent_var,maximum=100).pack(fill='x',pady=(2,0))
+        ttk.Label(panel,textvariable=self.details,style='Muted.TLabel',wraplength=870).pack(anchor='w')
     def save(self):
         try:save_status(self.config)
         except OSError as e:self.source.set('Could not save: '+str(e))
@@ -42,7 +50,7 @@ class PlayerStatus:
         ttk.Label(parent,textvariable=self.source,wraplength=680).pack(anchor='w',pady=8)
         ttk.Label(parent,textvariable=self.summary,wraplength=680,style='Section.TLabel').pack(anchor='w')
     def region_labels(self):
-        self.regions.set('  |  '.join(k+': '+('selected' if k in self.config['regions'] else 'not selected') for k in ('level','percent')))
+        self.regions.set('  |  '.join(k+': '+(self.calibration_preview.get(k,'selected') if k in self.config['regions'] else 'not selected') for k in ('level','percent')))
     def change(self,*_):
         mode=self.mode.get()
         if mode!=self.config['mode']:self.progress.clear();self.generation+=1
@@ -94,19 +102,36 @@ class PlayerStatus:
             l,r=max(0,round(x/scale)),min(shot.width,round(y/scale));t,b=max(0,round(t/scale)),min(shot.height,round(b/scale))
             if r-l<3 or b-t<3:return
             binding=binding_for(target)
-            if binding!=self.config['binding']:self.config['regions']={};self.config['binding']=binding
+            if binding!=self.config['binding']:self.config['regions']={};self.config['binding']=binding;self.calibration_preview={}
             self.config['regions'][kind]=dict(left=l,top=t,width=r-l,height=b-t)
-            self.config['mode']='auto';self.mode.set('auto');self.progress.clear();self.generation+=1;self.region_labels();self.save();close()
+            self.config['mode']='auto';self.mode.set('auto');self.progress.clear();self.generation+=1
+            self.calibration_preview[kind]='testing…';self.region_labels();self.save();close()
+            region=dict(self.config['regions'][kind]);image=shot.crop((l,t,r,b))
+            def work():
+                try:value=read_number(image,kind)
+                except Exception:value=None
+                self.calibration_results.put((binding,kind,region,value))
+            threading.Thread(target=work,daemon=True).start()
         cv.bind('<Button-1>',down);cv.bind('<B1-Motion>',drag);cv.bind('<ButtonRelease-1>',up);win.protocol('WM_DELETE_WINDOW',close)
     def protected(self):
         if self.app.target and self.config['binding']==binding_for(self.app.target):return tuple(self.config['regions'].values())
         return ()
-    def tick(self):
-        a=self.app;p=self.progress;now=time.monotonic();xp=a.totals['You','XP / SP'] if a.running or a.pending else self.last_xp
+    def tick(self,finished=False):
+        a=self.app;p=self.progress;now=time.monotonic();xp=a.totals['You','XP / SP'] if a.running or a.pending or finished else self.last_xp
+        binding=binding_for(a.target) if a.target else None
+        if self.config['mode']=='auto' and binding!=self.last_binding:
+            p.clear();self.generation+=1;self.last_binding=binding
+        try:
+            while True:
+                binding,kind,region,value=self.calibration_results.get_nowait()
+                if binding==self.config['binding'] and self.config['regions'].get(kind)==region:
+                    self.calibration_preview[kind]=('unreadable — reselect' if value is None else str(value)+('%' if kind=='percent' else ''))
+                    self.region_labels()
+        except queue.Empty:pass
         if self.config['mode']=='manual':
             if self.last_run!=a.run_id:
-                p.rebase(self.last_xp,self.config['cap']);self.last_run=a.run_id
-            if a.running or a.pending:p.advance(xp,self.config['cap']);self.last_xp=xp
+                p.rebase(self.last_xp,self.config['cap']);self.last_run=a.run_id;self.last_xp=0
+            if a.running or a.pending or finished:p.advance(xp,self.config['cap']);self.last_xp=xp
         try:
             while True:
                 gen,level,percent=self.results.get_nowait();self.busy=False
@@ -135,6 +160,9 @@ class PlayerStatus:
             threading.Thread(target=work,daemon=True).start()
         stale=self.config['mode']=='auto' and (p.seen is None or now-p.seen>max(15,self.config['interval']*4))
         label,remaining=eta(p.level,p.percent,a.totals['You','XP / SP'],a.active_seconds,self.config['cap']) if p.level is not None else ('—',None)
-        self.widgets={'eta':('NEXT LVL',label+('*' if stale and p.level is not None else '')),'level':('LEVEL',str(p.level) if p.level is not None else '—'),'progress':('EXP %',f'{p.percent:.2f}%' if p.percent is not None else '—')}
+        flag='*' if stale and p.level is not None else ''
+        self.widgets={'eta':('NEXT LVL',label+flag),'level':('LEVEL',str(p.level)+flag if p.level is not None else '—'),'progress':('EXP %',f'{p.percent:.2f}%'+flag if p.percent is not None else '—')}
         self.source.set(('Manual: chat XP estimate; recalibrate after death or character change.' if self.config['mode']=='manual' else 'Automatic: last reading stale' if stale else 'Automatic: verified reading'))
-        self.summary.set(f'Level {p.level}  •  {p.percent:.2f}%  •  Next level: {label}  •  Remaining XP: {remaining:,}' if p.level is not None else 'Player progress: not calibrated')
+        self.summary.set(f'Level {p.level}{flag}  •  {p.percent:.2f}%  •  Next level: {label}{flag}  •  Remaining XP: {remaining:,}' if p.level is not None else 'Player progress: not calibrated')
+        self.percent_var.set(float(p.percent) if p.percent is not None else 0)
+        self.details.set(f'XP in level: {round(XP[p.level-1]*p.percent/100):,} / {XP[p.level-1]:,}  |  XP/hr: {rate_text(a.totals["You","XP / SP"],a.active_seconds)}  |  {self.source.get()}' if p.level is not None else 'Configure level and XP regions in Settings → Player status.')

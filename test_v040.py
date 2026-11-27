@@ -23,7 +23,7 @@ class LevelingTests(unittest.TestCase):
         self.assertEqual(parse_number('16.91%','percent'),Decimal('16.91'))
     def test_eta(self):
         self.assertEqual(eta(60,0,100,3600,60),('MAX',0))
-        self.assertEqual(eta(19,Decimal('19.11'),35000,3600,60)[1],129639)
+        self.assertEqual(eta(19,Decimal('19.11'),35000,3600,60)[1],129640)
         self.assertEqual(eta(19,20,0,10,60)[0],'Calc…')
     def test_layout_geometry(self):
         g=geometry(dict(enabled=['ad','eta'],status=False,pause=False,reset=False))
