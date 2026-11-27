@@ -1,0 +1,71 @@
+name: Publish owner-approved tracker releases
+on:
+  push:
+    branches: ['release/publish-v0312']
+    paths: ['.github/workflows/publish-approved.yml']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: publish-owner-approved-tracker-releases
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Verify and publish only the explicitly approved builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "xuvenz-source/l2xptracker" ]]
+          verify_publish() {
+            local tag="$1" sha="$2" run="$3" expected_id="$4" latest="$5"
+            local meta release id name zip_id hash_id dir checksum actual note
+            for attempt in $(seq 1 100); do
+              meta=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run")
+              jq -e --arg sha "$sha" '.head_sha == $sha and .head_branch == "main"' <<< "$meta" >/dev/null
+              if [[ "$(jq -r .status <<< "$meta")" == "completed" ]]; then break; fi
+              sleep 10
+            done
+            jq -e --arg sha "$sha" '.head_sha == $sha and .head_branch == "main" and .status == "completed" and .conclusion == "success"' <<< "$meta" >/dev/null
+            release=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq -ce --arg tag "$tag" --arg sha "$sha" '[.[] | select(.tag_name == $tag and .target_commitish == $sha)] | if length == 1 then .[0] else error("Missing or ambiguous release") end')
+            id=$(jq -r '.id' <<< "$release")
+            if [[ "$expected_id" != "-" ]]; then [[ "$id" == "$expected_id" ]]; fi
+            if [[ "$(jq -r .draft <<< "$release")" == "false" ]]; then
+              echo "$tag already published; not changing it."
+              return
+            fi
+            name="L2_Legacy_Tracker_$tag""_Windows_x64_Portable.zip"
+            zip_id=$(jq -er --arg n "$name" '[.assets[] | select(.name == $n and .state == "uploaded" and .size > 0)] | if length == 1 then .[0].id else error("Missing archive") end' <<< "$release")
+            hash_id=$(jq -er --arg n "$name.sha256" '[.assets[] | select(.name == $n and .state == "uploaded" and .size > 0 and .size < 4096)] | if length == 1 then .[0].id else error("Missing checksum") end' <<< "$release")
+            dir=$(mktemp -d)
+            gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$zip_id" > "$dir/$name"
+            gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$hash_id" > "$dir/$name.sha256"
+            checksum=$(tr -d '\r\n' < "$dir/$name.sha256")
+            actual=$(sha256sum "$dir/$name" | cut -d ' ' -f1)
+            [[ "$checksum" == "$actual  $name" ]]
+            [[ "$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .digest' <<< "$release")" == "sha256:$actual" ]]
+            unzip -tq "$dir/$name"
+            # Delta is optional; if attached, verify both the archive and checksum.
+            if jq -e '.assets[] | select(.name | contains("_Delta.zip"))' <<< "$release" >/dev/null; then
+              name="L2_Legacy_Tracker_v0.31.1_to_v0.31.2_Windows_x64_Delta.zip"
+              zip_id=$(jq -er --arg n "$name" '[.assets[] | select(.name == $n and .state == "uploaded" and .size > 0)] | if length == 1 then .[0].id else error("Missing delta") end' <<< "$release")
+              hash_id=$(jq -er --arg n "$name.sha256" '[.assets[] | select(.name == $n and .state == "uploaded" and .size > 0 and .size < 4096)] | if length == 1 then .[0].id else error("Missing delta checksum") end' <<< "$release")
+              gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$zip_id" > "$dir/$name"
+              gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$hash_id" > "$dir/$name.sha256"
+              checksum=$(tr -d '\r\n' < "$dir/$name.sha256")
+              actual=$(sha256sum "$dir/$name" | cut -d ' ' -f1)
+              [[ "$checksum" == "$actual  $name" ]]
+              [[ "$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .digest' <<< "$release")" == "sha256:$actual" ]]
+              unzip -tq "$dir/$name"
+            fi
+            rm -rf -- "$dir"
+            note=$(jq -r '.body // ""' <<< "$release")
+            note+=$'\n\nExperimental unsigned Windows build. Automated build and package verification passed; live gameplay and in-place upgrade testing are not yet confirmed. Extract into a dedicated writable folder. See bundled notices and obtain server approval before use.'
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F draft=false -F prerelease=false -f make_latest="$latest" -f body="$note" --jq '{tag_name,draft,html_url}'
+            gh api "repos/$GITHUB_REPOSITORY/releases/$id" --jq '.draft' | grep -qx false
+          }
+          verify_publish v0.31.2 a89af7ca3b430c56ea0389848890fa09868a7717 45937589784 - true
