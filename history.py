@@ -85,6 +85,15 @@ class Archive:
         id=new_id()
         with self.db() as db: db.execute('INSERT INTO sessions VALUES (?,?,?,?)',(id,self._name(name),'merged',json.dumps(dict(sources=sources,children=children))))
         return id
+    def add_to_group(self,target,ids):
+        """Add references to a group, atomically updating all ancestor totals."""
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            records={i:dict(id=i,name=n,kind=k,data=json.loads(d)) for i,n,k,d in db.execute('SELECT id,name,kind,data FROM sessions')}
+            plan=group_drop_plan(records,target,ids)
+            for i,data in plan.items():
+                db.execute("UPDATE sessions SET data=? WHERE id=? AND kind='merged'",(json.dumps(data),i))
+        return bool(plan)
     def summary(self,id,records=None):
         if records is None: records=self.records()
         r=records[id]; sources=self.sources([id],records)
@@ -132,3 +141,46 @@ def history_forest(records,summaries):
     # Corrupt/cyclic legacy metadata must not make records disappear.
     for i in ordered(records):
         if i not in reached:yield from walk(i,())
+
+
+def group_drop_plan(records,target,ids):
+    """Pure planning step; no modifications to the supplied records."""
+    if target not in records or records[target]['kind']!='merged':
+        raise ValueError('Drop onto an existing group.')
+    ids=list(dict.fromkeys(ids))
+    if any(i not in records for i in ids):raise ValueError('Session no longer exists.')
+    children=history_children(records)
+    def descendants(i):
+        seen=set();pending=[i]
+        while pending:
+            j=pending.pop()
+            if j in seen:continue
+            seen.add(j);pending.extend(children.get(j,[]))
+        return seen
+    if any(target in descendants(i) for i in ids):
+        raise ValueError('Cannot drop a group onto itself or one of its descendants.')
+    before=set(Archive.sources([target],records))
+    added=[i for i in ids if not set(Archive.sources([i],records))<=before]
+    if not added:return {}
+    # Avoid redundant direct original links when a dragged group covers them.
+    covered={s for i in added if records[i]['kind']=='merged' for s in Archive.sources([i],records)}
+    added=[i for i in added if records[i]['kind']=='merged' or i not in covered]
+    links=list(dict.fromkeys(children[target]+added))
+    updated=dict(records[target]['data'],children=links,sources=Archive.sources([target,*added],records))
+    plan={target:updated}
+    # Propagate new unique sources to every ancestor, including shared groups.
+    # Iterate to a fixed point, keeping each ancestor's old sources intact.
+    while True:
+        changed=False
+        for i,links in children.items():
+            if i==target:continue
+            if not any(c in plan for c in links):continue
+            current=plan.get(i,records[i]['data'])
+            sources=list(current['sources'])
+            for c in links:
+                for source in (plan[c]['sources'] if c in plan else Archive.sources([c],records)):
+                    if source not in sources:sources.append(source)
+            if sources!=current['sources']:
+                plan[i]=dict(current,children=links,sources=sources);changed=True
+        if not changed:break
+    return plan

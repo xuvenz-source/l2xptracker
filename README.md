@@ -58,7 +58,11 @@ The desktop now has Dashboard, Activity, Reviews, History, Party and Settings ta
 
 Restores the original focused-game screen capture path, avoiding false-positive background occlusion checks while the game is focused. When unfocused, overlapping windows still suspend OCR. Keep chat unobstructed even in the focused game. HUD pause and position commands are dispatched through the main UI queue, not directly from native window callbacks. Settings includes an Open diagnostic folder action; bounded local diagnostics and native fault dumps help identify remaining errors. No screenshots or chat messages are deliberately written to diagnostic logs. Live game verification remains necessary.
 
-## Current status: v0.28
+## Drag-and-drop session grouping (v0.29)
+
+In History, drag an original session onto another session to create a named parent, or drop a session or group onto an existing parent to add it immediately. Drag multiple selected rows together, using Ctrl/Shift first. Valid targets are highlighted. Existing memberships are preserved; dragging a shared session adds a reference, not a copy or destructive move. Duplicate sources and circular groups are rejected, and nested parent totals are refreshed atomically. Merge selected remains available.
+
+## Current status: v0.29
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 
