@@ -18,8 +18,15 @@ def rate(total, seconds): return f'{total*3600/seconds:,.0f}' if seconds>0 else 
 def totals_for(events):
     totals=Counter()
     for ts,typ,who,item,q,sp,raw in events:
-        if q is not None: totals[who,item]+=q
+        if q is not None and typ!='consumable': totals[who,item]+=q
         if typ=='xp' and sp is not None: totals[who,'SP']+=sp
+    return totals
+
+
+def consumables_for(events):
+    totals=Counter()
+    for _,typ,_,item,q,_,_ in events:
+        if typ=='consumable' and q is not None:totals[item]+=q
     return totals
 
 

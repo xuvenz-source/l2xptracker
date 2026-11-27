@@ -10,13 +10,14 @@ class Review:
     event_index: int | None = None
     xp_counted: int | None = None
     sp_counted: int | None = None
+    category: str | None = None
 
 class ReviewQueue:
     def __init__(self):
         self.pending = {}
         self.next_id = 1
-    def add(self, timestamp, text, event_index=None, xp_counted=None, sp_counted=None):
-        r = Review(self.next_id, timestamp, text, event_index, xp_counted, sp_counted)
+    def add(self, timestamp, text, event_index=None, xp_counted=None, sp_counted=None, category=None):
+        r = Review(self.next_id, timestamp, text, event_index, xp_counted, sp_counted, category)
         self.next_id += 1
         self.pending[r.id] = r
         return r
@@ -28,8 +29,10 @@ class ReviewQueue:
             raise ValueError('This review has already been resolved.')
         event = parse(corrected)
         if not event:
-            raise ValueError('Enter a complete XP/SP, Adena or item acquisition message.')
+            raise ValueError('Enter a complete XP/SP, Adena, item acquisition or consumable usage message.')
         typ, who, item, qty, sp = event
+        if r.category and typ!=r.category:
+            raise ValueError('Correct the message using its detected colour category.')
         if qty <= 0 or (typ == 'xp' and (sp is None or sp < 0)):
             raise ValueError('Quantity or XP must be positive; SP must be zero or greater.')
         if r.event_index is not None:
@@ -47,7 +50,7 @@ class ReviewQueue:
             if r.sp_counted is None: totals[(who,'SP')] += sp
         else:
             events.append((r.timestamp,typ,who,item,qty,sp,corrected))
-            totals[(who,item)] += qty
+            if typ!='consumable':totals[(who,item)] += qty
             if typ == 'xp': totals[(who,'SP')] += sp
         del self.pending[id]
         return r
@@ -57,7 +60,7 @@ def candidates(r, parse, xp_numeric_candidate):
     out=[]
     def add(s):
         e=parse(s)
-        if e and (r.xp_counted is None or (e[0]=='xp' and e[3]==r.xp_counted)) and (r.sp_counted is None or (e[0]=='xp' and e[4]==r.sp_counted)) and s not in out:
+        if e and (not r.category or e[0]==r.category) and (r.xp_counted is None or (e[0]=='xp' and e[3]==r.xp_counted)) and (r.sp_counted is None or (e[0]=='xp' and e[4]==r.sp_counted)) and s not in out:
             out.append(s)
     first, _, tail=r.text.partition(' [')
     parts=[first]
@@ -88,6 +91,8 @@ def review_fields(r, parse, xp_numeric_candidate):
     first=r.text.split(' [',1)[0]
     if r.event_index is not None:
         kind='xp'
+    elif r.category:
+        kind=r.category
     elif len(kinds)==1:
         kind=next(iter(kinds))
     elif len(kinds)>1:
@@ -137,5 +142,5 @@ def correction_message(r,kind,xp='',sp='',adena='',who='',full=''):
             raise ValueError('Confirm the recipient: You or a character name.')
         prefix='You have' if who.casefold()=='you' else who+' has'
         return f'{prefix} earned {n} Adena.'
-    if kind=='item':return full.strip()
-    raise ValueError('Select XP / SP, Adena or Item / other.')
+    if kind in ('item','consumable'):return full.strip()
+    raise ValueError('Select XP / SP, Adena, Item or Consumable.')

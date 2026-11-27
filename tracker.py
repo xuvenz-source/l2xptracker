@@ -14,7 +14,7 @@ import settings
 from hud import Hud, WIDTH, HEIGHT, safe_position, hud_position
 from session_pause import PauseGate
 from review import ReviewQueue, candidates, review_fields, correction_message
-from history import Archive, new_id, now, snapshot, totals_for, review_queue, count_kills, rate
+from history import Archive, new_id, now, snapshot, totals_for, review_queue, count_kills, rate, consumables_for
 from history_ui import HistoryWindow
 from runtime_ocr import configure_ocr
 from version import VERSION
@@ -49,7 +49,29 @@ def parse(line):
                 item, qty = (q[1],num(q[2])) if reverse else (q[2],num(q[1])); break
         if item.lower() == 'adena': return ('adena',who,'Adena',qty,0)
         return ('item',who,item,qty,0)
+    # The blue message reports an activation, not necessarily the number of shots consumed.
+    m = re.fullmatch(r'(?:Use|You have used) (.+)', s, re.I)
+    if m:
+        item=m[1].strip()
+        if item: return ('consumable','You',item,1,0)
     return None
+
+
+def colour_masks(rgb, threshold=140, contrast=75):
+    r,g,b=np.moveaxis(rgb.astype(np.int16),-1,0)
+    return {
+        'xp': (np.minimum(r,b)>threshold)&(np.minimum(r,b)-g>contrast),
+        'adena': (np.minimum(r,g)>threshold)&(np.minimum(r,g)-b>contrast),
+        'item': (g>threshold)&(g-np.maximum(r,b)>contrast),
+        'consumable': (b>threshold)&(g>threshold-50)&(np.minimum(g,b)-r>contrast)&(b-g>15),
+    }
+
+
+def colour_category(rgb):
+    masks=colour_masks(rgb)
+    counts=sorted(((int(m.sum()),k) for k,m in masks.items()),reverse=True)
+    if counts[0][0]<24 or counts[0][0]<2*counts[1][0]:return None
+    return counts[0][1]
 
 
 def mask(rgb):
@@ -58,7 +80,9 @@ def mask(rgb):
 
 
 def rows_of(rgb,pitch):
-    m = mask(rgb); n = len(m)//pitch
+    m = mask(rgb)
+    for coloured in colour_masks(rgb).values():m |= coloured
+    n = len(m)//pitch
     return m[:n*pitch].reshape(n,pitch,m.shape[1])
 
 
@@ -252,7 +276,7 @@ def repeated_row_indices(processed):
     return repeated
 
 
-def ocr_rows(rows):
+def legacy_ocr_rows(rows):
     # Map OCR words back to fixed row positions, even when a row is omitted.
     processed=[row_images(row) for row in rows]
     h,w=rows.shape[1:3]; step=h+28
@@ -316,6 +340,42 @@ def ocr_rows(rows):
         if first:
             yield ('uncertain' if not event and (adena_like(first) or xp_like(first)) else 'line',first)
 
+def colour_ocr_row(row,category):
+    # Each read is isolated from the background and other message colours.
+    reads=[]
+    for threshold,contrast,nearest in ((140,75,False),(115,60,True),(165,95,False)):
+        m=colour_masks(row,threshold,contrast)[category]
+        reads.append(single_ocr(np.where(m,0,255).astype(np.uint8),nearest=nearest))
+    votes=[parse(s) for s in reads]
+    # Yellow was the old loot colour. Preserve verified legacy yellow item drops.
+    allowed={category} if category!='adena' else {'adena','item'}
+    valid=[e for e in votes if e and e[0] in allowed]
+    if category=='xp':
+        pairs=[v for s in reads if (v:=xp_numeric_candidate(s)) is not None]
+        if len(pairs)>=2 and len(set(pairs))==1:
+            x,sp=pairs[0]
+            if x>0:return ('line',f'You have acquired {x} XP and {sp} SP.')
+        partial=recover_sp_only(reads)
+        if partial:return partial
+    elif len(valid)>=2 and len(set(valid))==1 and valid[0][3]>0:
+        return ('line',reads[votes.index(valid[0])])
+    # Keep the category even if the text was completely unreadable.
+    return ('uncertain:'+category, f'{reads[0] or "(blank)"} [colour OCR: {" | ".join(s or "(blank)" for s in reads[1:])}]')
+
+
+def ocr_rows(rows):
+    # Keep physical order and the original OCR path for uncustomised clients.
+    # Legacy beige skill/activation messages do not parse as consumable use.
+    start=0
+    for i,row in enumerate(rows):
+        category=colour_category(row)
+        if category is None:continue
+        if i>start:yield from legacy_ocr_rows(rows[start:i])
+        yield colour_ocr_row(row,category)
+        start=i+1
+    if start<len(rows):yield from legacy_ocr_rows(rows[start:])
+
+
 class App:
     def __init__(self,root):
         self.root=root; root.title(f'L2 Legacy Farming Tracker — v{VERSION} Portable'); root.geometry('1020x810'); root.minsize(900,720)
@@ -363,6 +423,12 @@ class App:
             self.tree.heading(c,text=t);self.tree.column(c,width=w,anchor='e' if c=='qty' else 'w',stretch=c=='item')
         loot_scroll=ttk.Scrollbar(loot,orient='vertical',command=self.tree.yview);self.tree.configure(yscrollcommand=loot_scroll.set)
         loot_scroll.pack(side='right',fill='y');self.tree.pack(fill='both',expand=True)
+        usage=ttk.LabelFrame(dash,text='Consumables used (observed activations)',padding=6);usage.pack(fill='x',pady=(8,0))
+        self.consumable_tree=ttk.Treeview(usage,columns=('item','uses'),show='headings',height=4)
+        self.consumable_tree.heading('item',text='Consumable');self.consumable_tree.heading('uses',text='Uses')
+        self.consumable_tree.column('item',width=440);self.consumable_tree.column('uses',width=110,anchor='e')
+        usage_scroll=ttk.Scrollbar(usage,orient='vertical',command=self.consumable_tree.yview);self.consumable_tree.configure(yscrollcommand=usage_scroll.set)
+        usage_scroll.pack(side='right',fill='y');self.consumable_tree.pack(fill='x')
         activity=self.pages['activity']
         ttk.Label(activity,text='Activity log',style='Title.TLabel').pack(anchor='w')
         ttk.Label(activity,text='Accepted messages, review warnings and ignored OCR lines.',style='Muted.TLabel').pack(anchor='w',pady=(3,10))
@@ -659,8 +725,8 @@ class App:
             elif kind=='status':
                 if self.running and not self.pause_gate.snapshot()[0] and not data.startswith('Manually paused'): self.status.set(data)
             elif kind=='gap':self.gaps+=1; self.append('WARNING: '+data); self.raw.append((datetime.now().isoformat(timespec='seconds'),'gap',data)); changed=True
-            elif kind=='uncertain':
-                ts,line=data; self.gaps+=1; r=self.reviews.add(ts,line); self.raw.append((ts,'uncertain',f'#{r.id}: {line}')); self.append(f'REVIEW #{r.id} (not counted): '+line); self.refresh_reviews(); changed=True
+            elif kind=='uncertain' or kind.startswith('uncertain:'):
+                ts,line=data; self.gaps+=1; r=self.reviews.add(ts,line,category=kind.partition(':')[2] or None); self.raw.append((ts,'uncertain',f'#{r.id}: {line}')); self.append(f'REVIEW #{r.id} (not counted): '+line); self.refresh_reviews(); changed=True
             elif kind in ('xp_partial','sp_partial','xp_recovered'):
                 ts,line=data; event=parse_xp_resolution(kind,line)
                 self.raw.append((ts,kind,line))
@@ -677,7 +743,8 @@ class App:
             elif kind=='line':
                 ts,line=data; event=parse(line); self.raw.append((ts,'parsed' if event else 'ignored',line)); self.append(('✓ ' if event else '  ')+line)
                 if event:
-                    typ,who,item,q,sp=event; self.events.append((ts,typ,who,item,q,sp,line)); self.totals[(who,item)]+=q
+                    typ,who,item,q,sp=event; self.events.append((ts,typ,who,item,q,sp,line))
+                    if typ!='consumable':self.totals[(who,item)]+=q
                     if typ=='xp':self.totals[(who,'SP')]+=sp
                     changed=True
         if changed: self.refresh_totals()
@@ -697,6 +764,9 @@ class App:
     def refresh_totals(self):
         self.kills=count_kills(self.events)
         self.tree.delete(*self.tree.get_children())
+        if hasattr(self,'consumable_tree'):
+            self.consumable_tree.delete(*self.consumable_tree.get_children())
+            for item,uses in sorted(consumables_for(self.events).items()):self.consumable_tree.insert('','end',values=(item,f'{uses:,}'))
         for (who,item),qty in sorted(self.totals.items()):
             if item not in ('XP / SP','SP'):self.tree.insert('','end',values=(who,item,f'{qty:,}'))
         for row in party_rows(live_party_report(getattr(self,'party_members',[]),self.active_seconds,self.totals)):
@@ -708,10 +778,15 @@ class App:
         if not self.review_win or not self.review_win.winfo_exists(): return
         # Preserve current selection and any unsaved manual edit as new OCR arrives.
         ids=set(self.review_tree.get_children())
-        wanted={str(i) for i in self.reviews.pending}
+        category=self.review_filter.get()
+        groups={i:(r.category or review_fields(r,parse,xp_numeric_candidate)['kind']) for i,r in self.reviews.pending.items()}
+        for key,button in self.review_filters.items():
+            count=sum(1 for c in groups.values() if key=='all' or c==key)
+            button.configure(text=f'{self.review_labels[key]} ({count})')
+        wanted={str(i) for i,c in groups.items() if category=='all' or c==category}
         for i in ids-wanted:self.review_tree.delete(i)
         for i,r in self.reviews.pending.items():
-            if str(i) not in ids:
+            if str(i) in wanted and str(i) not in ids:
                 self.review_tree.insert('','end',iid=str(i),values=(r.timestamp, 'XP already counted' if r.xp_counted is not None else 'SP already counted' if r.sp_counted is not None else 'Not counted',r.text.split(' [',1)[0]))
         if not self.review_tree.selection() and wanted:
             first=self.review_tree.get_children()[0]; self.review_tree.selection_set(first); self.review_tree.focus(first); self.show_review()
@@ -723,6 +798,12 @@ class App:
         win=self.review_win=self.pages['review']
         ttk.Label(win,text='OCR review',style='Title.TLabel',padding=(12,10,12,0)).pack(anchor='w')
         ttk.Label(win,text='Select a message, confirm the type and enter the missing numbers. Already-counted amounts are locked.',wraplength=740,padding=10).pack(fill='x')
+        filters=ttk.Frame(win);filters.pack(fill='x',padx=10,pady=(0,6))
+        self.review_filter=tk.StringVar(value='all');self.review_filters={}
+        self.review_labels={'all':'All','xp':'XP / SP','adena':'Adena','item':'Items','consumable':'Consumables'}
+        for key,label in self.review_labels.items():
+            b=ttk.Radiobutton(filters,text=label,value=key,variable=self.review_filter,command=self.refresh_reviews)
+            b.pack(side='left',padx=(0,10));self.review_filters[key]=b
         frame=ttk.Frame(win); frame.pack(fill='both',expand=True,padx=10)
         self.review_tree=ttk.Treeview(frame,columns=('time','state','line'),show='headings',selectmode='browse',height=6)
         for c,t,w in [('time','Captured',155),('state','Status',130),('line','Message',460)]:
@@ -733,7 +814,7 @@ class App:
         self.review_kind=tk.StringVar()
         self.review_type_buttons=[]
         types=ttk.Frame(editor);types.pack(fill='x')
-        for label,value in [('XP / SP','xp'),('Adena','adena'),('Item / other','item')]:
+        for label,value in [('XP / SP','xp'),('Adena','adena'),('Item','item'),('Consumable','consumable')]:
             b=ttk.Radiobutton(types,text=label,value=value,variable=self.review_kind,command=self.review_mode)
             b.pack(side='left',padx=(0,18));self.review_type_buttons.append(b)
         self.review_xp=tk.StringVar();self.review_sp=tk.StringVar();self.review_adena=tk.StringVar();self.review_who=tk.StringVar()
@@ -779,8 +860,9 @@ class App:
         r=self.selected_review();kind=self.review_kind.get()
         partial=bool(r and r.event_index is not None)
         if partial:kind='xp';self.review_kind.set(kind)
+        elif r and r.category:kind=r.category;self.review_kind.set(kind)
         for b in self.review_type_buttons:
-            b.config(state='disabled' if not r or partial else 'normal')
+            b.config(state='disabled' if not r or partial or r.category else 'normal')
         for frame in (self.review_xp_frame,self.review_adena_frame,self.review_item_frame):frame.pack_forget()
         if kind=='xp' and r:
             self.review_xp_entry.config(state='readonly' if r.xp_counted is not None else 'normal')
@@ -792,9 +874,9 @@ class App:
             self.review_adena_frame.pack(fill='x',pady=5,before=self.review_hint_label)
             self.review_hint.set('Enter the Adena amount and confirm the recipient.')
             if self.review_win.winfo_viewable():self.review_adena_entry.focus_set()
-        elif kind=='item' and r:
+        elif kind in ('item','consumable') and r:
             self.review_item_frame.pack(fill='x',pady=5,before=self.review_hint_label)
-            self.review_hint.set('Correct the full item message for personal or party loot.')
+            self.review_hint.set('Correct the full usage message, e.g. Use Soulshot: No Grade.' if kind=='consumable' else 'Correct the full item message for personal or party loot.')
             if self.review_win.winfo_viewable():self.review_edit.focus_set()
         else:self.review_hint.set('Choose a message type.' if r else 'No pending reviews.')
         self.approve_btn.config(state='normal' if r and kind else 'disabled')

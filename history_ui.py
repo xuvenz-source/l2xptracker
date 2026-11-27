@@ -5,6 +5,7 @@ from tkinter import ttk, messagebox, simpledialog, filedialog
 from pathlib import Path
 from history import duration,rate,history_forest,group_drop_plan,Archive
 from party import display_rows as party_rows, summary_text as party_summary
+from history import consumables_for
 
 class HistoryWindow:
     def __init__(self,app,parent=None):
@@ -131,6 +132,7 @@ class HistoryWindow:
         self.details.set(self.details.get()+f"\nKills: {s['kills']:,} ({rate(s['kills'],s['seconds'])}/h; XP events)")
         for (who,item),q in sorted(t.items()):
             if item not in ('XP / SP','SP'):self.loot.insert('','end',values=(who,item,f'{q:,}'))
+        for item,q in sorted(consumables_for(s['events']).items()):self.loot.insert('','end',values=('You','Used: '+item,f'{q:,} activations'))
         for row in party_rows(s['party']):self.loot.insert('','end',values=row)
         extra=party_summary(s['party'])
         if extra:self.details.set(self.details.get()+'\n'+extra)
