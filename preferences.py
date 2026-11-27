@@ -74,3 +74,11 @@ def load_backup_retention(path=None):
 def save_backup_retention(value,path=None):
     if type(value) is not int or value not in (0,1,2):raise ValueError('Choose one, two or all backups')
     write_preference('backup_retention',value,path)
+
+
+def load_numeric_templates(path=None):
+    return read_preferences(path).get('numeric_templates',True) is not False
+
+def save_numeric_templates(value,path=None):
+    if type(value) is not bool:raise ValueError('Expected a boolean')
+    write_preference('numeric_templates',value,path)

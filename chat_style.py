@@ -3,7 +3,7 @@ import re
 import numpy as np
 from preferences import read_preferences, write_preference
 
-TEXT_SIZES={'Small':16,'Medium':17,'Large':19}
+TEXT_SIZES={'Small':16,'Medium':17,'Large':21}
 DEFAULT_COLOURS={'xp':'#B09B79','adena':'#FFFF00','item':'#FFFF00','consumable':'#B09B79','other':'#B09B79'}
 CUSTOM_COLOURS={'xp':'#FF00FF','adena':'#FFFF00','item':'#00FF00','consumable':'#00AAFF','other':'#B09B79'}
 LABELS={'xp':'XP / SP','adena':'Adena','item':'Items','consumable':'Consumables','other':'Other messages'}

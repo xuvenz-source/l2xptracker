@@ -25,7 +25,8 @@ from appearance import Appearance, Dashboard, save_mode
 from preferences import load_focus_pause, save_focus_pause, load_auto_update, save_auto_update, load_hud_opacity, save_hud_opacity, HUD_OPACITY_MIN, HUD_OPACITY_MAX, HUD_OPACITY_DEFAULT, load_hud_net_adena, save_hud_net_adena
 from party_setup_ui import PartySetup
 from update_ui import UpdateUI
-from preferences import load_backup_retention,save_backup_retention
+from preferences import load_backup_retention,save_backup_retention,load_numeric_templates,save_numeric_templates
+from numeric_templates import recognise as recognise_numeric
 from scroll_ui import ScrollPage,table_scroll
 from player_ui import PlayerStatus
 from hud_layout import WIDGETS, PRESETS, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
@@ -439,11 +440,21 @@ def configured_xp_resolution(row,reads):
         return 'sp_partial',f'You have acquired {sv} SP; XP unknown. [XP conflict or unreadable: {evidence}]'
     return None
 
-def configured_ocr_rows(rows,colours):
+def configured_ocr_rows(rows,colours,use_templates=True):
     """Respect shared colours: classify by text where a hue is not unique."""
     for row in rows:
         group=row_group(row,colours)
         if not group or group==('other',):continue
+        # Fast path is restricted to the exact calibrated reward colours and
+        # verified word shapes. Any uncertainty uses the established OCR path.
+        if use_templates:
+            kind='xp' if group==('xp',) and colours['xp'].upper()=='#FF00FF' else 'adena' if 'adena' in group and set(group)<= {'adena','item'} and colours['adena'].upper()=='#FFFF00' else None
+            if kind:
+                result=recognise_numeric(row,kind)
+                if result is not None:
+                    if kind=='xp':yield ('template_line',f'You have acquired {result[0]} XP and {result[1]} SP.')
+                    else:yield ('template_line',f'You have earned {result[0]} Adena.')
+                    continue
         # Quest rewards share the cash hue in some clients. The words, not
         # the hue alone, distinguish an earned item from an Adena amount.
         allowed=set(group)
@@ -625,6 +636,9 @@ class App:
         ttk.Button(controls,text='L2 defaults',command=lambda:self.set_chat_palette(DEFAULT_COLOURS)).pack(side='left')
         ttk.Button(controls,text='Distinct colours',command=lambda:self.set_chat_palette(CUSTOM_COLOURS)).pack(side='left',padx=5)
         ttk.Button(controls,text='Apply chat settings',command=self.apply_chat_style).pack(side='left',padx=5)
+        self.numeric_templates_var=tk.BooleanVar(value=load_numeric_templates())
+        ttk.Checkbutton(content,text='Large-text numeric recognition (experimental)',variable=self.numeric_templates_var,command=self.change_numeric_templates).pack(anchor='w',pady=(3,0))
+        ttk.Label(content,text='Uses verified digit shapes for magenta XP/SP and yellow Adena. Uncertain rows fall back to OCR. Applies from the next session.',style='Muted.TLabel',wraplength=680).pack(anchor='w')
         ttk.Label(content,text='Match your game colours and text size; apply before starting a session.',style='Muted.TLabel').pack(anchor='w')
         ttk.Label(content,text='Tracking',style='Section.TLabel').pack(anchor='w',pady=(4,5))
         self.focus_pause_var=tk.BooleanVar(master=win,value=self.pause_on_blur)
@@ -758,6 +772,9 @@ class App:
         for key,value in colours.items():
             self.colour_vars[key].set(value);self.colour_swatches[key].configure(bg=value)
 
+    def change_numeric_templates(self):
+        try:save_numeric_templates(bool(self.numeric_templates_var.get()))
+        except OSError as e:messagebox.showwarning('Numeric recognition',str(e),parent=self.root)
     def apply_chat_style(self):
         if self.running or self.pending or getattr(self,'selecting',False):
             messagebox.showwarning('Chat settings','Stop tracking before applying chat settings.',parent=self.root);return False
@@ -933,6 +950,7 @@ class App:
             if hasattr(self,'reset_btn'):self.reset_btn.config(state='disabled')
             return
         self.session_pitch=pitch;self.capture_state='WAITING FOR CHAT'
+        self.session_templates=load_numeric_templates()
         self.session_colours=rollover['colours'] if rollover is not None else (dict(self.chat_style['colours']) if hasattr(self,'chat_style') else None)
         threading.Thread(target=self.capture,args=(self.target,dict(self.region),pitch,self.halt,self.jobs,self.pause_gate),daemon=True).start(); threading.Thread(target=self.worker,args=(self.jobs,),daemon=True).start()
     def capture(self,target,region,pitch,halt,jobs,gate):
@@ -1040,7 +1058,8 @@ class App:
                 group.append(nxt[1])
             try:
                 colours=getattr(self,'session_colours',None)
-                results=configured_ocr_rows(np.concatenate(group),colours) if colours else ocr_rows(np.concatenate(group))
+                batch=np.concatenate(group)
+                results=(configured_ocr_rows(batch,colours) if getattr(self,'session_templates',True) else configured_ocr_rows(batch,colours,use_templates=False)) if colours else ocr_rows(batch)
                 for kind,line in results:
                     if line.strip():self.inbox.put((kind,(ts,line)))
             except Exception as e:
@@ -1112,8 +1131,8 @@ class App:
                         self.append(f'REVIEW #{r.id} ({label}): '+line)
                     else: self.append('✓ (SP majority): '+line)
                     changed=True
-            elif kind=='line':
-                ts,line=data; event=parse(line); self.raw.append((ts,'parsed' if event else 'ignored',line)); self.append(('✓ ' if event else '  ')+line)
+            elif kind in ('line','template_line'):
+                ts,line=data; event=parse(line); self.raw.append((ts,('template' if kind=='template_line' else 'parsed') if event else 'ignored',line)); self.append(('✓ [digit template] ' if kind=='template_line' and event else '✓ ' if event else '  ')+line)
                 if event:
                     typ,who,item,q,sp=event; self.events.append((ts,typ,who,item,q,sp,line))
                     if typ!='consumable':self.totals[(who,item)]+=q

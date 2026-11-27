@@ -110,7 +110,10 @@ The latest user screenshot shows 21-pixel chat spacing with only three bright re
 ## Quest item rewards (v0.43.6)
 Earned item messages such as `You have earned Turek Dog Tag.` are counted as item loot, even when they share the yellow Adena colour. Existing item quantities, manual sale values, history and export support apply. Damaged currency messages remain reviewable. Old Adena-colour reviews containing recognisable earned item evidence can be approved as items; no saved review is silently counted.
 
-## Current status: v0.43.6
+## Large-text numeric recognition (v0.44 experimental)
+The supplied Large-text screenshots provide verified masks for every digit and the surrounding personal XP/SP and earned-Adena message shapes. A fast path accepts only complete matching message geometry with high-confidence digit matches and agreement at two colour thresholds. Other messages, colours, font sizes, comma-separated amounts and uncertain matches use the existing OCR pipeline. Settings → Tracking → Large-text numeric recognition (experimental) can disable it for the next session. Activity marks accepted fast-path rows `[digit template]`; raw exports identify them as `template`. Large preset is now 21 px, with automatic alignment and Manual still available. The prototype recognized 59/59 supplied complete reward lines and 3/3 earlier held-out lines; these are limited screenshot tests, not a live capture accuracy guarantee. No self-training from reviews yet; the bundled library contains only generic binary glyph masks.
+
+## Current status: v0.44
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 
