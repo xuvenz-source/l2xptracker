@@ -20,7 +20,7 @@ from runtime_ocr import configure_ocr
 from version import VERSION
 from diagnostics import setup_diagnostics, diagnostic
 from appearance import Appearance, Dashboard, save_mode
-from preferences import load_focus_pause, save_focus_pause, load_auto_update, save_auto_update
+from preferences import load_focus_pause, save_focus_pause, load_auto_update, save_auto_update, load_hud_opacity, save_hud_opacity, HUD_OPACITY_MIN, HUD_OPACITY_MAX, HUD_OPACITY_DEFAULT
 from party_setup_ui import PartySetup
 from update_ui import UpdateUI
 from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows
@@ -426,6 +426,7 @@ class App:
         self.root=root; root.title(f'L2 Legacy Farming Tracker — v{VERSION} Portable'); root.geometry('1020x810'); root.minsize(900,720)
         self.appearance=Appearance(root)
         self.pause_on_blur=load_focus_pause();self.auto_update=load_auto_update();self.settings_win=None
+        self.hud_opacity=load_hud_opacity();self.hud_opacity_save_job=None
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
         self.party_members=[]; self.next_party_members=[]; self.kills=0; self.update_busy=False
         self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False
@@ -439,7 +440,7 @@ class App:
                 self.status.set('Saved chat calibration loaded. Start when the matching game is open.')
         except Exception as e: self.status.set(f'Could not restore calibration: {e}. Bind game again.')
         self.chat_style=load_style(fallback_pitch=int(self.pitch.get()));self.pitch.set(str(self.chat_style['pitch']))
-        try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.queue_hud_move,on_pause=self.queue_hud_pause)
+        try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.queue_hud_move,on_pause=self.queue_hud_pause,opacity=self.hud_opacity)
         except Exception as e: self.hud_enabled.set(False); self.status.set(self.status.get()+f' HUD unavailable: {e}')
         try: self.archive=Archive()
         except Exception as e: messagebox.showerror("Session storage",f"Could not open session history: {e}")
@@ -539,7 +540,14 @@ class App:
         self.focus_pause_var=tk.BooleanVar(master=win,value=self.pause_on_blur)
         ttk.Checkbutton(content,text='Pause when Lineage 2 loses focus',variable=self.focus_pause_var,command=self.change_focus_policy).pack(anchor='w')
         ttk.Label(content,text='Off by default. Capture continues if the game chat is visible; covered, minimised or resized game windows still wait safely.',style='Muted.TLabel',wraplength=500).pack(anchor='w',pady=(3,10))
-        ttk.Checkbutton(content,text='Show floating game HUD',variable=self.hud_enabled).pack(anchor='w')
+        hudappearance=ttk.Frame(content);hudappearance.pack(fill='x',pady=(0,2))
+        ttk.Checkbutton(hudappearance,text='Show floating game HUD',variable=self.hud_enabled).pack(side='left')
+        ttk.Label(hudappearance,text='HUD opacity:').pack(side='left',padx=(16,5))
+        self.hud_opacity_var=tk.DoubleVar(value=self.hud_opacity)
+        self.hud_opacity_label=tk.StringVar(value=f'{self.hud_opacity}%')
+        self.opacity_slider=ttk.Scale(hudappearance,from_=HUD_OPACITY_MIN,to=HUD_OPACITY_MAX,variable=self.hud_opacity_var,command=self.change_hud_opacity,length=160);self.opacity_slider.pack(side='left')
+        ttk.Label(hudappearance,textvariable=self.hud_opacity_label,width=5).pack(side='left',padx=5)
+        ttk.Button(hudappearance,text='Reset',command=self.reset_hud_opacity).pack(side='left')
         ttk.Separator(content).pack(fill='x',pady=12)
         ttk.Label(content,text='Appearance',style='Section.TLabel').pack(anchor='w')
         ttk.Checkbutton(content,text='Light mode',variable=self.dark_mode,onvalue=False,offvalue=True,command=self.toggle_appearance).pack(anchor='w',pady=(6,5))
@@ -592,6 +600,26 @@ class App:
         self.auto_update=value
         try:save_auto_update(value)
         except OSError as e:messagebox.showwarning('Settings',f'Changed for this run, but could not save: {e}',parent=self.root)
+    def change_hud_opacity(self,value):
+        percent=max(HUD_OPACITY_MIN,min(HUD_OPACITY_MAX,round(float(value))))
+        if percent==self.hud_opacity:return
+        try:
+            if self.hud:self.hud.set_opacity(percent)
+        except RuntimeError as e:
+            self.hud_opacity_var.set(self.hud_opacity)
+            self.status.set(str(e));return
+        self.hud_opacity=percent;self.hud_opacity_label.set(f'{percent}%')
+        # Avoid rewriting preferences for every mouse motion while dragging.
+        if self.hud_opacity_save_job is not None:self.root.after_cancel(self.hud_opacity_save_job)
+        self.hud_opacity_save_job=self.root.after(250,self.flush_hud_opacity)
+    def reset_hud_opacity(self):
+        self.hud_opacity_var.set(HUD_OPACITY_DEFAULT)
+        self.change_hud_opacity(HUD_OPACITY_DEFAULT)
+    def flush_hud_opacity(self):
+        if self.hud_opacity_save_job is not None:
+            self.root.after_cancel(self.hud_opacity_save_job);self.hud_opacity_save_job=None
+        try:save_hud_opacity(self.hud_opacity)
+        except OSError as e:self.status.set(f'HUD opacity changed, but could not save: {e}')
     def change_focus_policy(self):
         value=bool(self.focus_pause_var.get())
         self.pause_on_blur=value;self.pause_gate.set_focus_policy(value)
@@ -1105,6 +1133,7 @@ class App:
             self.closing=True;self.start_btn.config(state='disabled');self.stop();self.status.set('Saving session — finishing buffered OCR before closing…');return
         if not self.save_session():
             if not messagebox.askyesno('Quit without saving','Session could not be saved. Close anyway? Unsaved changes will be lost.'):return False
+        if getattr(self,'hud_opacity_save_job',None) is not None:self.flush_hud_opacity()
         if self.hud:self.hud.close()
         self.root.destroy();return True
 

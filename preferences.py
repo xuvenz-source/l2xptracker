@@ -42,3 +42,20 @@ def failed_update(path=None):
 
 def mark_failed_update(version,path=None):
     write_preference('failed_update',version,path)
+
+# 92% corresponds to the previous hard-coded alpha value of 235/255.
+HUD_OPACITY_DEFAULT=92
+HUD_OPACITY_MIN=20
+HUD_OPACITY_MAX=100
+
+def validate_hud_opacity(value):
+    if type(value) is not int or not HUD_OPACITY_MIN<=value<=HUD_OPACITY_MAX:
+        raise ValueError('HUD opacity must be a whole percentage from 20 to 100.')
+    return value
+
+def load_hud_opacity(path=None):
+    try:return validate_hud_opacity(read_preferences(path).get('hud_opacity',HUD_OPACITY_DEFAULT))
+    except ValueError:return HUD_OPACITY_DEFAULT
+
+def save_hud_opacity(value,path=None):
+    write_preference('hud_opacity',validate_hud_opacity(value),path)

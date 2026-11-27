@@ -3,6 +3,7 @@ import ctypes as c
 from ctypes import wintypes as w
 import os, time
 from diagnostics import diagnostic
+from preferences import HUD_OPACITY_DEFAULT, validate_hud_opacity
 
 WIDTH, HEIGHT = 310, 86
 PAUSE_RECT = (210, 60, 304, 82)
@@ -44,7 +45,8 @@ def rate_text(total, seconds):
 
 
 class Hud:
-    def __init__(self, preferred=None, on_move=None, on_pause=None):
+    def __init__(self, preferred=None, on_move=None, on_pause=None, opacity=HUD_OPACITY_DEFAULT):
+        self.opacity=validate_hud_opacity(opacity)
         self.hwnd=None; self.shown=False; self.position=None; self.values=('—','—','—')
         self.preferred=preferred; self.on_move=on_move; self.drag=None; self.interactive=False
         self.locked=True; self.lock_first=None; self.press_handled=False
@@ -99,7 +101,13 @@ class Hud:
         ex=0x80000|0x20|0x08000000|0x80|8
         self.hwnd=self.u.CreateWindowExW(ex,self.name,'L2 Farming HUD',0x80000000,0,0,WIDTH,HEIGHT,None,None,self.instance,None)
         if not self.hwnd: self.close(); raise c.WinError(c.get_last_error())
-        if not self.u.SetLayeredWindowAttributes(self.hwnd,0,235,2): self.close(); raise RuntimeError('Could not set HUD opacity')
+        try:self.set_opacity(self.opacity)
+        except Exception:self.close();raise
+    def set_opacity(self,percent):
+        percent=validate_hud_opacity(percent)
+        if self.hwnd and not self.u.SetLayeredWindowAttributes(self.hwnd,0,round(255*percent/100),2):
+            raise RuntimeError('Could not set HUD opacity')
+        self.opacity=percent
     @staticmethod
     def rgb(r,g,b):return r|(g<<8)|(b<<16)
     def font(self,size,weight):

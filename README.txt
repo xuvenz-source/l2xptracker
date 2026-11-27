@@ -267,3 +267,6 @@ v0.17 — Independent SP verification
 
 VERSION 0.32 — LOCKABLE HUD
 The in-game HUD starts locked. Double-click the top-right padlock to unlock; left-click and drag the body, then release to save. Single-click the unlocked padlock to lock. Locked body clicks pass through; Pause/Resume works in both states. This supersedes the Shift-drag instructions above. Explicit Settings positioning is still available.
+
+VERSION 0.33 — HUD OPACITY
+Settings → Tracking → HUD opacity adjusts the entire floating HUD (20–100%). The setting applies immediately, saves locally and defaults to 92%. Reset restores the default. Return to the game to view changes. Lock, drag, and pause behaviour is unchanged.

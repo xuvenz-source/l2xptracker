@@ -65,7 +65,10 @@ In History, drag an original session onto another session to create a named pare
 ## Lockable HUD (v0.32)
 The in-game HUD starts locked. Double-click its top-right padlock to unlock, then left-click and drag its body. Single-click the open padlock to lock it again. Pause/Resume remains interactive in both states. The locked body is click-through; the lock and Pause/Resume remain interactive. Positions are saved on release, constrained to the game client and kept away from captured chat. The explicit Settings positioning tools remain available as a fallback.
 
-## Current status: v0.32
+## HUD opacity (v0.33)
+Settings → Tracking → HUD opacity adjusts the entire floating HUD from 20% to 100%, including text and buttons. The default is 92%, matching the previous appearance; Reset restores it. Changes apply immediately to the HUD and save locally, independently of chat calibration. The HUD is visible when the game is foreground, so return to the game to inspect changes. Lock, drag, pause and focus rules are unchanged.
+
+## Current status: v0.33
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

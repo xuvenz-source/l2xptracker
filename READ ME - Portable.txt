@@ -1,4 +1,4 @@
-L2 LEGACY FARMING TRACKER v0.32 — WINDOWS x64 PORTABLE
+L2 LEGACY FARMING TRACKER v0.33 — WINDOWS x64 PORTABLE
 
 1. Extract the ENTIRE ZIP to a normal folder (not directly inside the ZIP viewer).
 2. Double-click L2 Legacy Tracker.exe.
@@ -59,3 +59,5 @@ Settings > Open diagnostic folder opens tracker-diagnostics.log and tracker-cras
 History supports drag-and-drop grouping; existing memberships are preserved.
 
 HUD movement (v0.32): double-click the top-right padlock to unlock; left-click and drag the HUD body; single-click the open padlock to lock. Pause/Resume works in either state. The HUD starts locked each launch.
+
+HUD opacity (v0.33): Settings → Tracking → HUD opacity. Choose 20–100%; Reset returns to 92%. Saved automatically; return to the foreground game to see the new opacity.
