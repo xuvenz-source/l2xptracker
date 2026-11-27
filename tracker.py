@@ -30,7 +30,7 @@ from scroll_ui import ScrollPage,table_scroll
 from player_ui import PlayerStatus
 from hud_layout import WIDGETS, PRESETS, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
 from hud import rate_text
-from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows
+from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows, row_alignment, aligned_rows
 from party import roster, live_report as live_party_report, display_rows as party_rows, summary_text as party_summary
 
 
@@ -877,21 +877,25 @@ class App:
             self.running=False; self.pending=0; self.started=None; self.session_id=None; self.start_btn.config(state='normal'); self.stop_btn.config(state='disabled'); self.pause_btn.config(state='disabled')
             if hasattr(self,'reset_btn'):self.reset_btn.config(state='disabled')
             return
-        self.session_pitch=pitch
+        self.session_pitch=pitch;self.capture_state='WAITING FOR CHAT'
         self.session_colours=rollover['colours'] if rollover is not None else (dict(self.chat_style['colours']) if hasattr(self,'chat_style') else None)
         threading.Thread(target=self.capture,args=(self.target,dict(self.region),pitch,self.halt,self.jobs,self.pause_gate),daemon=True).start(); threading.Thread(target=self.worker,args=(self.jobs,),daemon=True).start()
     def capture(self,target,region,pitch,halt,jobs,gate):
         revision=None; old=None; failures=0; last_active=None; last_status=None
         frames=0; batches=0; last_report=time.monotonic()
+        alignment=None; last_alignment_check=0; state=None
+        def capture_state(value):
+            nonlocal state
+            if value!=state:self.inbox.put(('capture_state',value));state=value
         def status(message):
             nonlocal last_status
             if message != last_status:
                 self.inbox.put(('status',message)); last_status=message
                 diagnostic('capture status: %s',message.replace(target.title,'[game]') if target.title else message)
         def pause(message):
-            nonlocal old, failures, last_active
-            old=None; failures=0; last_active=None
-            status(message)
+            nonlocal old, failures, last_active, alignment
+            old=None; failures=0; last_active=None;alignment=None
+            capture_state('WAITING FOR CHAT');status(message)
         try:
             api=Windows()
             with mss.mss() as s:
@@ -899,7 +903,8 @@ class App:
                     tick=time.monotonic()
                     manual,current,pause_on_blur=gate.capture_policy()
                     if current!=revision:
-                        old=None; failures=0; last_active=None; revision=current
+                        old=None; failures=0; last_active=None; revision=current;alignment=None
+                        capture_state('WAITING FOR CHAT')
                     if manual:
                         pause('Manually paused — click Resume to continue.'); halt.wait(.05); continue
                     rect,reason=capture_region(api,target,region,s.monitors[0],pause_on_blur=pause_on_blur)
@@ -910,12 +915,26 @@ class App:
                     after,reason=capture_region(api,target,region,s.monitors[0],pause_on_blur=pause_on_blur)
                     if after!=rect:
                         pause(reason or 'Paused — window moved during capture; resynchronising.'); halt.wait(.05); continue
-                    rgb=np.asarray(shot)[:,:,:3][:,:,::-1]; colours=getattr(self,'session_colours',None); new=styled_rows(rgb,pitch,colours) if colours else rows_of(rgb,pitch)
+                    rgb=np.asarray(shot)[:,:,:3][:,:,::-1]; colours=getattr(self,'session_colours',None)
+                    if colours:
+                        if alignment is None or (tick-last_alignment_check>=2 and (not alignment[2] or failures>=2)):
+                            measured=row_alignment(rgb,pitch,colours);last_alignment_check=tick
+                            # Adopt a better lattice only with enough evidence;
+                            # discard an incompatible baseline, never replay it.
+                            if alignment is None or (measured[2] and measured[:2]!=alignment[:2]):
+                                if old is not None and alignment is not None:
+                                    self.inbox.put(('gap','Chat spacing/alignment changed; establishing a fresh baseline.'))
+                                old=None;failures=0;alignment=measured
+                                diagnostic('Chat row calibration: configured=%d detected=%d phase=%d confident=%s',pitch,*alignment)
+                            elif measured[2] and measured[:2]==alignment[:2]:alignment=measured
+                        new,row_rgb=aligned_rows(rgb,*alignment[:2],colours)
+                    else:
+                        new=rows_of(rgb,pitch);row_rgb=rgb[:len(new)*pitch].reshape(len(new),pitch,rgb.shape[1],3)
                     # Commit only if the same unpaused revision is still current.
                     # A pause/resume during screen capture discards the stale frame.
                     with gate.lock:
                         if halt.is_set() or not gate.accepts(revision):
-                            old=None; failures=0; last_active=None; continue
+                            old=None; failures=0; last_active=None; alignment=None;continue
                         now=time.monotonic()
                         if last_active is not None: self.active_seconds+=max(0,now-last_active)
                         last_active=now;frames+=1
@@ -923,18 +942,19 @@ class App:
                             diagnostic('capture progress: frames=%d queued_batches=%d active_seconds=%.1f',frames,batches,self.active_seconds)
                             last_report=now
                         status(f'Tracking {target.title} — '+('focused only.' if pause_on_blur else 'visible chat, including in background.'))
-                        if old is None: old=new
+                        if old is None:
+                            old=new;capture_state('CHAT READY' if new.sum()>=24 else 'WAITING FOR CHAT')
                         else:
                             shift=overlap(old,new)
                             if shift is None:
-                                failures+=1
+                                failures+=1;capture_state('SYNCING CHAT')
                                 if failures>=4:
                                     self.inbox.put(('gap','No reliable row overlap; resynchronised without counting ambiguous lines.')); old=new; failures=0
                             else:
-                                failures=0
+                                failures=0;capture_state('SESSION ACTIVE' if batches else 'CHAT READY')
                                 if shift:
                                     try:
-                                        jobs.put_nowait((datetime.now().isoformat(timespec='seconds'),rgb[:len(new)*pitch].reshape(len(new),pitch,rgb.shape[1],3)[-shift:].copy()));batches+=1
+                                        jobs.put_nowait((datetime.now().isoformat(timespec='seconds'),row_rgb[-shift:].copy()));batches+=1;capture_state('SESSION ACTIVE')
                                     except queue.Full: self.inbox.put(('gap','OCR backlog full; some lines dropped.'))
                                 old=new
                     halt.wait(max(0,.05-(time.monotonic()-tick)))
@@ -1011,6 +1031,7 @@ class App:
                 if data=='capture' and self.running:self.stop()
                 if not self.pending:
                     finished=True; self.start_btn.config(state='normal'); self.status.set('Session complete. Review OCR lines and warnings before relying on totals.')
+            elif kind=='capture_state':self.capture_state=data
             elif kind=='status':
                 if self.running and not self.pause_gate.snapshot()[0] and not data.startswith('Manually paused'): self.status.set(data)
             elif kind=='gap':self.gaps+=1; self.append('WARNING: '+data); self.raw.append((datetime.now().isoformat(timespec='seconds'),'gap',data)); changed=True
@@ -1352,7 +1373,7 @@ class App:
                 net=getattr(self,'hud_net_adena',False)
                 player=getattr(self,'player',None)
                 widgets=dict(getattr(player,'widgets',{}),loot=('LOOT/H',rate_text(getattr(self,'loot_report',{}).get('value',0),self.active_seconds)),cost=('COST/H',rate_text(report.get('cost',0),self.active_seconds)))
-                self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get(),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills,paused=self.pause_gate.snapshot()[0],consumable_cost=report.get('cost',0) if net else None,unpriced_uses=report.get('unpriced',0) if net else 0,widgets=widgets,protected=player.protected() if player else ())
+                self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get(),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills,paused=self.pause_gate.snapshot()[0],consumable_cost=report.get('cost',0) if net else None,unpriced_uses=report.get('unpriced',0) if net else 0,widgets=widgets,protected=player.protected() if player else (),capture_state=getattr(self,'capture_state','SESSION ACTIVE'))
             except Exception as e:
                 diagnostic('HUD update exception',exc_info=True)
                 hud,self.hud=self.hud,None

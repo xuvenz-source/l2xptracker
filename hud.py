@@ -304,7 +304,7 @@ class Hud:
         for part in parts:fill(part,self.lock_brush)
         if g['footer']:
             fill((8,height-31,width-8,height-30),self.divider)
-            if g['status']:self.text(dc,'PAUSED' if self.paused else 'SESSION ACTIVE',(8,height-28,122,height-4),self.small,(247,202,102) if self.paused else (134,224,183))
+            if g['status']:self.text(dc,'PAUSED' if self.paused else getattr(self,'capture_state','SESSION ACTIVE'),(8,height-28,122,height-4),self.small,(247,202,102) if self.paused or getattr(self,'capture_state','SESSION ACTIVE')!='SESSION ACTIVE' else (134,224,183))
             for k,label in [('pause','  Resume' if self.paused else '  Pause'),('reset','  Reset')]:
                 if g[k]:fill(g[k],self.control);self.text(dc,label,g[k],self.small,(235,240,248))
     def key_down(self,key):
@@ -351,7 +351,7 @@ class Hud:
             self.preferred=(candidate[0]-geo[0],candidate[1]-geo[1]); self.cancel_placement()
             if self.on_move:self.on_move(self.preferred)
         return candidate
-    def update(self,api,target,chat,running,seconds,adena,xp,kills=0,paused=False,consumable_cost=None,unpriced_uses=0,widgets=None,protected=()):
+    def update(self,api,target,chat,running,seconds,adena,xp,kills=0,paused=False,consumable_cost=None,unpriced_uses=0,widgets=None,protected=(),capture_state='SESSION ACTIVE'):
         if not self.hwnd:return
         if not running or not target or not api.usable(target.hwnd) or api.pid(target.hwnd)!=target.pid or api.foreground()!=target.hwnd:
             if not running or (getattr(self,'placement',None) and self.placement['seen']):self.cancel_placement()
@@ -397,7 +397,8 @@ class Hud:
         new_widgets=dict(widgets or {},ad=(label.replace(' / HR','/H'),adena_rate),xp=('EXP/H',values[1]),kills=('KILLS/H',values[2]))
         widget_changed=bool(getattr(self,'layout',None)) and new_widgets!=getattr(self,'widget_values',{})
         self.widget_values=new_widgets
-        if widget_changed or values!=self.values or paused!=getattr(self,'paused',False) or label!=getattr(self,'adena_label','ADENA / HR'):
+        state_changed=capture_state!=getattr(self,'capture_state','SESSION ACTIVE');self.capture_state=capture_state
+        if state_changed or widget_changed or values!=self.values or paused!=getattr(self,'paused',False) or label!=getattr(self,'adena_label','ADENA / HR'):
             self.values=values;self.paused=paused;self.adena_label=label;self.u.InvalidateRect(self.hwnd,None,False)
         if not self.shown or pos!=self.position:
             if self.u.SetWindowPos(self.hwnd,c.c_void_p(-1),*pos,*self.dimensions(),0x0010|0x0040|0x0200):

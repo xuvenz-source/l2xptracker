@@ -98,7 +98,10 @@ History has a compact top toolbar, resizable session/detail panes, separate scro
 ## Automatic backup retention (v0.42)
 Settings → Tracking → Updates → Keep installation backups defaults to two previous installations; choose one or keep all. Cleanup runs on normal startup (including accumulated older backups) and after successful installation/restart verification. It only removes older recognised sibling backup folders matching the updater naming convention, installation marker and expected structure; symlinks/junctions and changed or unrecognised backups are skipped. The just-created rollback copy is protected. Cleanup errors never invalidate an update. Session database/preferences live separately and are not pruned. On the first upgrade from an older helper, cleanup occurs at the next ordinary launch.
 
-## Current status: v0.42
+## Automatic chat row alignment (v0.43)
+The selected font size is a nominal pitch. At capture startup, several high-contrast colour-matched chat lines can establish a more accurate physical pitch and vertical alignment (including Large rendered at 18 px rather than 19). Mask overlap and OCR crops share the same aligned rows. Weak evidence retains the configured pitch; changed geometry causes a conservative rebaseline, not replay of prior chat. HUD status distinguishes waiting, ready, synchronising and active capture. Existing chat at session start is intentionally not counted.
+
+## Current status: v0.43
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

@@ -78,3 +78,61 @@ def styled_rows(rgb,pitch,colours):
     for mask in pixel_masks(rgb,colours).values():m|=mask
     n=len(m)//pitch
     return m[:n*pitch].reshape(n,pitch,m.shape[1])
+
+
+def row_alignment(rgb,pitch,colours):
+    """Find line pitch and top-edge phase using high-chroma text anchors.
+
+    Several separated lines must support a single lattice. Beige game
+    background pixels are excluded from inference. Sparse/ambiguous crops
+    fall back to the configured pitch, never an invented calibration.
+    """
+    groups=pixel_masks(rgb,colours,tolerance=30)
+    anchors=np.zeros(rgb.shape[:2],dtype=bool)
+    for (hexcolour,kinds) in palette_groups(colours).items():
+        colour=[int(hexcolour[i:i+2],16) for i in (1,3,5)]
+        if max(colour)-min(colour)>=120:anchors|=groups[kinds]
+    profile=anchors.sum(axis=1)
+    active=np.flatnonzero(profile>=max(5,round(rgb.shape[1]*.012)))
+    bands=np.split(active,np.where(np.diff(active)>2)[0]+1)
+    bands=[x for x in bands if len(x)>=3 and x[-1]-x[0]<max(15,pitch)]
+    centres=np.array([(x[0]+x[-1])/2 for x in bands])
+    if len(centres)<2:return pitch,0,False
+    # Search local variations only, unless users explicitly choose another
+    # manual pitch; preserve their configured value as the fallback.
+    candidates=[]
+    for p in range(max(10,pitch-3),min(40,pitch+3)+1):
+        # A valid line lattice has a common midpoint modulo p.
+        distances=np.abs(((centres[:,None]-centres[None,:]+p/2)%p)-p/2)
+        scores=(distances<=1.5).sum(axis=0)
+        j=int(np.argmax(scores));inliers=distances[:,j]<=1.5
+        fit=centres[inliers]
+        if len(fit)<4 or len(fit)/len(centres)<.8 or np.ptp(fit)<3*p:continue
+        # Avoid divisors/multiples of the real pitch: at least one
+        # neighbouring pair must be an observed single-line step.
+        if not np.any(np.abs(np.diff(fit)-p)<=2):continue
+        err=float(distances[inliers,j].mean())
+        candidates.append((len(fit),-err,-abs(p-pitch),p,fit))
+    if candidates:
+        _,_,_,actual,fit=max(candidates,key=lambda x:x[:3])
+        phase=int(round((fit[0]-actual/2)%actual))%actual
+        return actual,phase,True
+    # With fewer anchors, align the configured pitch only when agreement is
+    # strong; do not infer an alternative pitch from insufficient evidence.
+    delta=np.abs(((centres-centres[0]+pitch/2)%pitch)-pitch/2)
+    if np.max(delta)<=1.5:
+        return pitch,int(round((centres[0]-pitch/2)%pitch))%pitch,False
+    return pitch,0,False
+
+def aligned_rows(rgb,pitch,phase,colours):
+    """Return matching mask and RGB rows using identical physical boundaries."""
+    start=phase if phase<=pitch//2 else phase-pitch
+    count=max(0,(len(rgb)-start+pitch//2)//pitch)
+    end=start+count*pitch
+    a=max(0,start);b=min(len(rgb),end)
+    cropped=rgb[a:b]
+    pad=(max(0,-start),max(0,end-len(rgb)))
+    if any(pad):cropped=np.pad(cropped,((pad[0],pad[1]),(0,0),(0,0)))
+    n=len(cropped)//pitch
+    rows=cropped[:n*pitch].reshape(n,pitch,rgb.shape[1],3)
+    return styled_rows(cropped,pitch,colours),rows
