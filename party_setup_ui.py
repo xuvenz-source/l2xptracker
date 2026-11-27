@@ -2,6 +2,7 @@
 import tkinter as tk
 from tkinter import ttk,messagebox,simpledialog
 from party import roster
+from scroll_ui import ScrollPage
 from party_presets import load_presets,save_preset,rename_preset,delete_preset
 
 class PartySetup:
@@ -10,7 +11,7 @@ class PartySetup:
         win=self.win=parent if self.embedded else tk.Toplevel(app.root)
         if not self.embedded:
             win.title('Party setup');win.transient(app.root);win.geometry('650x440');win.minsize(610,420)
-        content=ttk.Frame(win,padding=18);content.pack(fill='both',expand=True)
+        self.scroll=ScrollPage(win,padding=12);self.scroll.pack(fill='both',expand=True);content=self.scroll.content
         ttk.Label(content,text='Party setup',style='Title.TLabel').pack(anchor='w')
         ttk.Label(content,text='Choose a saved party or enter the other character names for your next session.',style='Muted.TLabel',wraplength=570).pack(anchor='w',pady=(4,14))
         ttk.Label(content,text='Saved presets',style='Section.TLabel').pack(anchor='w')

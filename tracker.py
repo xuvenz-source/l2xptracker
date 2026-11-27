@@ -25,6 +25,7 @@ from appearance import Appearance, Dashboard, save_mode
 from preferences import load_focus_pause, save_focus_pause, load_auto_update, save_auto_update, load_hud_opacity, save_hud_opacity, HUD_OPACITY_MIN, HUD_OPACITY_MAX, HUD_OPACITY_DEFAULT, load_hud_net_adena, save_hud_net_adena
 from party_setup_ui import PartySetup
 from update_ui import UpdateUI
+from scroll_ui import ScrollPage,table_scroll
 from player_ui import PlayerStatus
 from hud_layout import WIDGETS, PRESETS, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
 from hud import rate_text
@@ -428,7 +429,7 @@ def configured_ocr_rows(rows,colours):
 
 class App:
     def __init__(self,root):
-        self.root=root; root.title(f'L2 Legacy Farming Tracker — v{VERSION} Portable'); root.geometry('1020x810'); root.minsize(900,720)
+        self.root=root; root.title(f'L2 Legacy Farming Tracker — v{VERSION} Portable'); root.geometry('1020x780'); root.minsize(850,600)
         self.appearance=Appearance(root)
         self.pause_on_blur=load_focus_pause();self.auto_update=load_auto_update();self.settings_win=None
         self.hud_opacity=load_hud_opacity();self.hud_opacity_save_job=None
@@ -468,11 +469,12 @@ class App:
         self.stop_btn=ttk.Button(actions,text='Stop',command=self.stop,state='disabled',style='Danger.TButton');self.stop_btn.pack(side='left')
         self.reset_btn=ttk.Button(actions,text='Reset',command=self.reset_session,state='disabled');self.reset_btn.pack(side='left',padx=7)
         ttk.Label(actions,textvariable=self.party_status,style='Muted.TLabel').pack(side='right')
-        self.tabs=ttk.Notebook(root);self.tabs.pack(fill='both',expand=True,padx=16,pady=(0,8))
+        self.tabs=ttk.Notebook(root)
         self.pages={}
         for key,label in [('dashboard','Dashboard'),('activity','Activity'),('review','Reviews (0)'),('history','History'),('party','Party'),('settings','Settings')]:
-            page=ttk.Frame(self.tabs,padding=12);self.pages[key]=page;self.tabs.add(page,text=label)
-        dash=self.pages['dashboard']
+            page=ttk.Frame(self.tabs,padding=8);self.pages[key]=page;self.tabs.add(page,text=label)
+        self.dashboard_scroll=ScrollPage(self.pages['dashboard']);self.dashboard_scroll.pack(fill='both',expand=True)
+        dash=self.dashboard_scroll.content
         self.dashboard=Dashboard(dash);self.dashboard.pack(fill='x',pady=(0,4))
         self.player.build_dashboard(dash)
         ttk.Label(dash,textvariable=self.stats,wraplength=880,padding=(0,3,0,12),style='Muted.TLabel').pack(fill='x')
@@ -486,21 +488,20 @@ class App:
         for c,t,w in [('who','Player',120),('item','Item',280),('qty','Quantity',90),('unit','Adena / item',110),('value','Est. sell value',130)]:
             self.tree.heading(c,text=t);self.tree.column(c,width=w,anchor='e' if c in ('qty','unit','value') else 'w',stretch=c=='item')
         self.tree.bind('<Double-1>',self.edit_loot_value)
-        loot_scroll=ttk.Scrollbar(loot,orient='vertical',command=self.tree.yview);self.tree.configure(yscrollcommand=loot_scroll.set)
-        loot_scroll.pack(side='right',fill='y');self.tree.pack(fill='both',expand=True)
+        table_scroll(loot,self.tree)
         self.loot_status=tk.StringVar(value='No recorded loot values.')
         ttk.Label(dash,textvariable=self.loot_status,style='Muted.TLabel',wraplength=870).pack(fill='x',pady=(3,0))
         usage=ttk.LabelFrame(dash,text='Consumables used (observed activations)',padding=6);usage.pack(fill='x',pady=(8,0))
         cost_controls=ttk.Frame(usage);cost_controls.pack(fill='x')
         ttk.Button(cost_controls,text='Edit selected cost…',command=self.edit_consumable_cost).pack(side='left')
         ttk.Button(cost_controls,text='Set default cost…',command=self.edit_default_cost).pack(side='left',padx=6)
-        ttk.Label(cost_controls,text='Adena per activation; double-click a row to edit.',style='Muted.TLabel').pack(side='left',padx=5)
-        self.consumable_tree=ttk.Treeview(usage,columns=('item','uses','unit','cost'),show='headings',height=4,selectmode='browse')
+        ttk.Label(usage,text='Adena per activation; double-click a row to edit.',style='Muted.TLabel').pack(anchor='w',pady=3)
+        cost_table=ttk.Frame(usage);cost_table.pack(fill='x')
+        self.consumable_tree=ttk.Treeview(cost_table,columns=('item','uses','unit','cost'),show='headings',height=4,selectmode='browse')
         for c,label,w in [('item','Consumable',310),('uses','Uses',80),('unit','Adena / use',120),('cost','Known cost',130)]:
             self.consumable_tree.heading(c,text=label);self.consumable_tree.column(c,width=w,anchor='w' if c=='item' else 'e',stretch=c=='item')
         self.consumable_tree.bind('<Double-1>',self.edit_consumable_cost)
-        usage_scroll=ttk.Scrollbar(usage,orient='vertical',command=self.consumable_tree.yview);self.consumable_tree.configure(yscrollcommand=usage_scroll.set)
-        usage_scroll.pack(side='right',fill='y');self.consumable_tree.pack(fill='x')
+        table_scroll(cost_table,self.consumable_tree)
         self.cost_status=tk.StringVar(value='No recorded consumable costs.')
         ttk.Label(dash,textvariable=self.cost_status,style='Muted.TLabel',wraplength=870).pack(fill='x',pady=(3,0))
         activity=self.pages['activity']
@@ -510,8 +511,10 @@ class App:
         self.log=tk.Text(log_frame,height=12,wrap='word',state='disabled')
         log_scroll=ttk.Scrollbar(log_frame,orient='vertical',command=self.log.yview);self.log.configure(yscrollcommand=log_scroll.set)
         log_scroll.pack(side='right',fill='y');self.log.pack(fill='both',expand=True)
-        bottom=ttk.Frame(root,padding=(20,3,20,10));bottom.pack(fill='x')
-        ttk.Label(bottom,textvariable=self.status,wraplength=680,style='Status.TLabel').pack(side='left',fill='x',expand=True)
+        bottom=ttk.Frame(root,padding=(12,3,12,7));bottom.pack(side='bottom',fill='x')
+        self.tabs.pack(fill='both',expand=True,padx=8,pady=(0,4))
+        status_label=ttk.Label(bottom,textvariable=self.status,wraplength=600,style='Status.TLabel');status_label.pack(side='left',fill='x',expand=True)
+        status_label.bind('<Configure>',lambda e:status_label.configure(wraplength=max(100,e.width-8)))
         self.updates=UpdateUI(self,bottom)
         self.pitch.trace_add('write',self.pitch_changed)
         self.build_settings(self.pages['settings'])
@@ -537,9 +540,10 @@ class App:
         self.navigate('settings')
     def build_settings(self,win):
         settings_tabs=ttk.Notebook(win);settings_tabs.pack(fill='both',expand=True)
-        content=ttk.Frame(settings_tabs,padding=12);settings_tabs.add(content,text='Tracking')
-        hudpage=ttk.Frame(settings_tabs,padding=12);settings_tabs.add(hudpage,text='HUD')
-        playerpage=ttk.Frame(settings_tabs,padding=12);settings_tabs.add(playerpage,text='Player status')
+        self.settings_scroll={}
+        for label in ('Tracking','HUD','Player status'):
+            page=ScrollPage(settings_tabs,padding=8);settings_tabs.add(page,text=label);self.settings_scroll[label]=page
+        content,hudpage,playerpage=(self.settings_scroll[k].content for k in ('Tracking','HUD','Player status'))
         ttk.Label(content,text='Tracking settings',style='Title.TLabel').pack(anchor='w')
         ttk.Label(content,text='Game capture',style='Section.TLabel').pack(anchor='w',pady=(14,5))
         calibration=ttk.Frame(content);calibration.pack(fill='x',pady=(0,6))
@@ -600,7 +604,8 @@ class App:
         for label,var,options in [('Font',self.hud_size,('compact','standard','large')),('Layout',self.hud_rows,('single','double'))]:
             ttk.Label(row,text=label).pack(side='left',padx=4)
             cb=ttk.Combobox(row,textvariable=var,values=options,state='readonly',width=10);cb.pack(side='left');cb.bind('<<ComboboxSelected>>',self.apply_hud_config)
-        for name in PRESETS:ttk.Button(row,text=name,command=lambda n=name:self.hud_preset(n)).pack(side='left',padx=3)
+        presets=ttk.Frame(parent);presets.pack(fill='x',pady=3)
+        for name in PRESETS:ttk.Button(presets,text=name,command=lambda n=name:self.hud_preset(n),style='Compact.TButton').pack(side='left',padx=3)
         self.hud_order=list(self.hud_config['order']);self.hud_vars={k:tk.BooleanVar(value=k in self.hud_config['enabled']) for k in WIDGETS}
         self.hud_list=ttk.Frame(parent);self.hud_list.pack(fill='x')
         self.draw_hud_list()
@@ -1179,7 +1184,8 @@ class App:
         self.navigate('review')
     def build_reviews(self):
         if self.review_win and self.review_win.winfo_exists():return
-        win=self.review_win=self.pages['review']
+        self.review_win=self.pages['review']
+        self.review_scroll=ScrollPage(self.review_win);self.review_scroll.pack(fill='both',expand=True);win=self.review_scroll.content
         ttk.Label(win,text='OCR review',style='Title.TLabel',padding=(12,10,12,0)).pack(anchor='w')
         ttk.Label(win,text='Select a message, confirm the type and enter the missing numbers. Already-counted amounts are locked.',wraplength=740,padding=10).pack(fill='x')
         filters=ttk.Frame(win);filters.pack(fill='x',padx=10,pady=(0,6))
@@ -1193,7 +1199,9 @@ class App:
         for c,t,w in [('time','Captured',155),('state','Status',130),('line','Message',460)]:
             self.review_tree.heading(c,text=t); self.review_tree.column(c,width=w)
         scroll=ttk.Scrollbar(frame,orient='vertical',command=self.review_tree.yview); self.review_tree.configure(yscrollcommand=scroll.set); scroll.pack(side='right',fill='y'); self.review_tree.pack(fill='both',expand=True)
-        self.review_evidence=tk.Text(win,height=5,wrap='word',state='disabled'); self.review_evidence.pack(fill='x',padx=10,pady=8)
+        evidence=ttk.Frame(win);evidence.pack(fill='x',padx=10,pady=5)
+        self.review_evidence=tk.Text(evidence,height=5,wrap='word',state='disabled'); self.review_evidence.pack(side='left',fill='x',expand=True)
+        sb=ttk.Scrollbar(evidence,orient='vertical',command=self.review_evidence.yview);sb.pack(side='right',fill='y');self.review_evidence.configure(yscrollcommand=sb.set)
         editor=ttk.LabelFrame(win,text='Corrected values',padding=8);editor.pack(fill='x',padx=10)
         self.review_kind=tk.StringVar()
         self.review_type_buttons=[]

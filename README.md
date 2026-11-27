@@ -92,7 +92,10 @@ Double-click an actual item row in Dashboard → Session loot or select Edit ite
 ## Modular HUD and player progress (v0.40)
 Settings now contains Tracking, HUD and Player status tabs. HUD widgets, order (drag handles or arrows), font size, one/two rows, visibility and controls are saved; the lock remains available. Select level digits and XP percentage separately while stopped, or enter manual progress. C1 XP requirements are bundled, with configurable cap. Automatic reading uses passive screenshots and repeated OCR agreement; stale readings are marked. ETA uses active XP/hour after 30 seconds. Manual mode estimates progress from recorded XP and must be recalibrated after death or character changes. Status-region and chat protection adapt to HUD dimensions. Live Windows/game OCR and dragging still require verification.
 
-## Current status: v0.40.1
+## Responsive interface (v0.41)
+History has a compact top toolbar, resizable session/detail panes, separate scrollable Summary and Loot & expenses tabs, and horizontal table scrolling. Dashboard, settings, review and party pages scroll independently; the main status/update bar stays pinned. Smaller window sizes no longer require enlarging the app just to reach lower controls. Existing session data is unchanged.
+
+## Current status: v0.41
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

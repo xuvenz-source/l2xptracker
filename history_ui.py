@@ -8,6 +8,7 @@ from party import display_rows as party_rows, summary_text as party_summary
 from history import consumables_for
 from consumable_costs import cost_summary, money, write_cost_csv
 from loot_values import loot_summary, unit_label, write_loot_csv
+from scroll_ui import table_scroll
 
 class FolderPicker(simpledialog.Dialog):
     def __init__(self,parent,records,title,current=''):
@@ -30,27 +31,41 @@ class HistoryWindow:
     def __init__(self,app,parent=None):
         self.app=app;self.archive=app.archive;self.embedded=parent is not None;self.win=parent if self.embedded else tk.Toplevel(app.root)
         if not self.embedded:self.win.title('Farming session history');self.win.geometry('1110x710');self.win.minsize(950,600)
-        ttk.Label(self.win,text='Session history',style='Title.TLabel',padding=(12,10,12,0)).pack(anchor='w')
-        ttk.Label(self.win,text='Create sections for characters and folders for farming locations. Drag into a folder to organise; drag onto sessions or reports to merge. Ctrl/Shift selects multiple entries.',padding=10).pack(fill='x')
-        frame=ttk.Frame(self.win);frame.pack(fill='both',expand=True,padx=10)
-        cols=[('kind','Type',90),('start','Started',145),('active','Active time',80),('xp','EXP/hr',100),('ad','Adena/hr',100),('kills','Kills/hr',85),('review','Reviews',65)]
-        self.tree=ttk.Treeview(frame,columns=[c[0] for c in cols],show='tree headings',selectmode='extended',height=10)
-        self.tree.heading('#0',text='Section / folder / session');self.tree.column('#0',width=235,minwidth=140,stretch=True)
-        self.row_records={};self.drag_origin=None;self.drag_ids=[];self.dragging=False;self.drop_row=None
-        for c,t,w in cols:self.tree.heading(c,text=t);self.tree.column(c,width=w,minwidth=50)
-        scroll=ttk.Scrollbar(frame,orient='vertical',command=self.tree.yview);self.tree.config(yscrollcommand=scroll.set);scroll.pack(side='right',fill='y');self.tree.pack(fill='both',expand=True)
-        tools=ttk.Frame(self.win,padding=(10,6,10,0));tools.pack(fill='x')
-        for title,cmd in [('New section',self.new_section),('New folder',self.new_folder),('Move to…',self.move_selected),('Rename…',self.rename),('Delete…',self.delete_selected),('New logs here…',self.choose_destination)]:ttk.Button(tools,text=title,command=cmd).pack(side='left',padx=3)
+        header=ttk.Frame(self.win);header.pack(fill='x',padx=4,pady=(0,5))
+        ttk.Label(header,text='Session history',style='Title.TLabel').pack(side='left')
+        ttk.Button(header,text='Refresh',command=self.refresh,style='Compact.TButton').pack(side='right')
+        tools=ttk.Frame(self.win);tools.pack(fill='x',pady=(0,4))
+        for title,cmd in [('New section',self.new_section),('New folder',self.new_folder),('Move to…',self.move_selected),('Rename…',self.rename),('Delete…',self.delete_selected),('New logs here…',self.choose_destination)]:
+            ttk.Button(tools,text=title,command=cmd,style='Compact.TButton').pack(side='left',padx=(0,5))
         self.destination=tk.StringVar(value='New sessions: History root')
-        ttk.Label(self.win,textvariable=self.destination,style='Muted.TLabel',padding=(12,2,12,0)).pack(anchor='w')
-        buttons=ttk.Frame(self.win,padding=(10,4,10,4));buttons.pack(fill='x')
-        for title,cmd in [('Refresh',self.refresh),('Merge selected…',self.merge),('Open for review',self.reopen),('Edit values/costs',self.reopen_costs),('Export CSV',self.export)]:ttk.Button(buttons,text=title,command=cmd).pack(side='left',padx=3)
-        self.details=tk.StringVar(value='Select a saved session.');ttk.Label(self.win,textvariable=self.details,padding=10,wraplength=1020).pack(fill='x')
-        f=ttk.Frame(self.win);f.pack(fill='both',expand=True,padx=10,pady=(0,10));self.loot=ttk.Treeview(f,columns=('who','item','qty'),show='headings',height=8)
-        for c,t,w in [('who','Player',160),('item','Item',500),('qty','Quantity',140)]:self.loot.heading(c,text=t);self.loot.column(c,width=w)
-        sb=ttk.Scrollbar(f,orient='vertical',command=self.loot.yview);self.loot.config(yscrollcommand=sb.set);sb.pack(side='right',fill='y');self.loot.pack(fill='both',expand=True)
-        self.drag_hint=tk.StringVar(value='Drag sessions to organise groups.')
-        ttk.Label(self.win,textvariable=self.drag_hint,style='Muted.TLabel',padding=(10,0,10,4)).pack(fill='x',before=buttons)
+        self.drag_hint=tk.StringVar(value='Drag to folders to organise; drag onto sessions to merge.')
+        for var in (self.destination,self.drag_hint):
+            label=ttk.Label(self.win,textvariable=var,style='Muted.TLabel');label.pack(fill='x',pady=(0,2))
+            label.bind('<Configure>',lambda e,w=label:w.configure(wraplength=max(100,e.width-8)))
+        self.split=ttk.Panedwindow(self.win,orient='vertical');self.split.pack(fill='both',expand=True,pady=(4,0))
+        frame=ttk.Frame(self.split);self.split.add(frame,weight=3)
+        cols=[('kind','Type',85),('start','Started',145),('active','Active time',80),('xp','EXP/hr',85),('ad','Adena/hr',85),('kills','Kills/hr',72),('review','Reviews',65)]
+        self.tree=ttk.Treeview(frame,columns=[c[0] for c in cols],show='tree headings',selectmode='extended',height=5)
+        self.tree.heading('#0',text='Section / folder / session');self.tree.column('#0',width=235,minwidth=155,stretch=True)
+        self.row_records={};self.drag_origin=None;self.drag_ids=[];self.dragging=False;self.drop_row=None
+        for c,t,w in cols:self.tree.heading(c,text=t);self.tree.column(c,width=w,minwidth=w,stretch=False)
+        table_scroll(frame,self.tree)
+        lower=ttk.Frame(self.split);self.split.add(lower,weight=2)
+        actions=ttk.Frame(lower);actions.pack(fill='x',pady=(3,4))
+        for title,cmd in [('Merge selected…',self.merge),('Open for review',self.reopen),('Edit values/costs',self.reopen_costs),('Export CSV',self.export)]:
+            ttk.Button(actions,text=title,command=cmd,style='Compact.TButton').pack(side='left',padx=(0,5))
+        self.detail_tabs=ttk.Notebook(lower,style='Compact.TNotebook');self.detail_tabs.pack(fill='both',expand=True)
+        overview=ttk.Frame(self.detail_tabs);loot=ttk.Frame(self.detail_tabs)
+        self.detail_tabs.add(overview,text='Summary');self.detail_tabs.add(loot,text='Loot & expenses')
+        self.details=tk.StringVar(value='Select a saved session.')
+        self.summary_text=tk.Text(overview,height=5,wrap='word',state='disabled',takefocus=True)
+        sb=ttk.Scrollbar(overview,orient='vertical',command=self.summary_text.yview);sb.pack(side='right',fill='y')
+        self.summary_text.configure(yscrollcommand=sb.set);self.summary_text.pack(fill='both',expand=True)
+        self.details.trace_add('write',self.show_summary);self.show_summary()
+        self.loot=ttk.Treeview(loot,columns=('who','item','qty'),show='headings',height=5)
+        for c,t,w in [('who','Player',125),('item','Item',320),('qty','Quantity / value',230)]:
+            self.loot.heading(c,text=t);self.loot.column(c,width=w,minwidth=w,stretch=c=='item')
+        table_scroll(loot,self.loot)
         self.tree.tag_configure('drop_target',background='#365e83',foreground='#ffffff')
         self.tree.bind('<ButtonPress-1>',self.drag_start,add='+')
         self.tree.bind('<B1-Motion>',self.drag_motion)
@@ -59,6 +74,8 @@ class HistoryWindow:
         self.tree.bind('<Delete>',lambda e:self.delete_selected())
         self.tree.bind('<<TreeviewSelect>>',self.detail);self.refresh()
         if hasattr(app,'appearance'):app.appearance.restyle(self.win)
+    def show_summary(self,*_):
+        self.summary_text.configure(state='normal');self.summary_text.delete('1.0','end');self.summary_text.insert('1.0',self.details.get());self.summary_text.configure(state='disabled');self.summary_text.yview_moveto(0)
     def refresh(self,select=None):
         self.cancel_drag()
         try:

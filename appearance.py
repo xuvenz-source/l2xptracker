@@ -54,10 +54,12 @@ class Appearance:
         for name,colour in [('Gold','gold'),('Green','green'),('Blue','blue')]:
             s.configure(name+'.Metric.TLabel',background=p['panel'],foreground=p[colour],font=('Segoe UI',25,'bold'))
         s.configure('TNotebook',background=p['bg'],borderwidth=0,tabmargins=(0,0,0,5))
-        s.configure('TNotebook.Tab',background=p['panel'],foreground=p['muted'],padding=(20,12),font=('Segoe UI',10,'bold'),borderwidth=0)
+        s.configure('TNotebook.Tab',background=p['panel'],foreground=p['muted'],padding=(14,8),font=('Segoe UI',10,'bold'),borderwidth=0)
         s.map('TNotebook.Tab',background=[('selected',p['selected']),('active',p['hover'])],foreground=[('selected',p['text'])])
         s.configure('TButton',background=p['panel'],foreground=p['text'],padding=(11,7),borderwidth=1,relief='flat')
         s.map('TButton',background=[('disabled',p['bg']),('pressed',p['selected']),('active',p['hover'])],foreground=[('disabled',p['disabled'])])
+        s.configure('Compact.TButton',padding=(8,4))
+        s.configure('Compact.TNotebook.Tab',padding=(12,5))
         s.configure('Primary.TButton',background=p['primary'],foreground=p['primary_text'],font=('Segoe UI',10,'bold'))
         s.map('Primary.TButton',background=[('disabled',p['panel']),('pressed',p['primary_hover']),('active',p['primary_hover'])],foreground=[('disabled',p['disabled']),('!disabled',p['primary_text'])])
         s.configure('Danger.TButton',foreground=p['red'])
@@ -72,7 +74,8 @@ class Appearance:
         s.map('Treeview',background=[('selected',p['selected'])],foreground=[('selected',p['text'])])
         s.configure('Treeview.Heading',background=p['bg'],foreground=p['muted'],font=('Segoe UI',9,'bold'),padding=(8,7),relief='flat')
         s.map('Treeview.Heading',background=[('active',p['hover'])])
-        s.configure('Vertical.TScrollbar',background=p['panel'],troughcolor=p['bg'],arrowcolor=p['muted'],borderwidth=0)
+        for orientation in ('Vertical','Horizontal'):
+            s.configure(orientation+'.TScrollbar',background=p['border'],troughcolor=p['bg'],arrowcolor=p['text'],borderwidth=0)
         s.map('Vertical.TScrollbar',background=[('active',p['hover'])])
         # Classic widgets and pop-downs do not inherit ttk styles.
         for name,value in [('Background',p['bg']),('Foreground',p['text']),('Font','{Segoe UI} 10'),('selectBackground',p['selected']),('selectForeground',p['text']),('insertBackground',p['text']),('TCombobox*Listbox.background',p['field']),('TCombobox*Listbox.foreground',p['text'])]:
@@ -97,6 +100,8 @@ class Appearance:
                     if fn(hwnd,20,ctypes.byref(value),ctypes.sizeof(value))!=0:
                         fn(hwnd,19,ctypes.byref(value),ctypes.sizeof(value))
                 except Exception:pass
+        elif isinstance(widget,tk.Canvas) and widget.master.__class__.__name__=='ScrollPage':
+            widget.configure(background=p['bg'])
         elif isinstance(widget,tk.Text):
             widget.configure(background=p['field'],foreground=p['text'],insertbackground=p['text'],selectbackground=p['selected'],selectforeground=p['text'],highlightbackground=p['border'],highlightcolor=p['blue'],highlightthickness=1,borderwidth=0,padx=9,pady=7,font=('Consolas',10))
             widget.tag_configure('accepted',foreground=p['green'])
