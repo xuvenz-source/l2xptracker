@@ -137,15 +137,31 @@ def row_alignment(rgb,pitch,colours):
         if not len(centres) or np.mean(np.abs(((centres-phase-p/2+p/2)%p)-p/2)<=3)>=.8:return result
     return sparse_phase(centres,pitch)
 
-def aligned_rows(rgb,pitch,phase,colours):
-    """Return matching mask and RGB rows using identical physical boundaries."""
+def row_bounds(height,pitch,phase):
     start=phase if phase<=pitch//2 else phase-pitch
-    count=max(0,(len(rgb)-start+pitch//2)//pitch)
-    end=start+count*pitch
-    a=max(0,start);b=min(len(rgb),end)
-    cropped=rgb[a:b]
-    pad=(max(0,-start),max(0,end-len(rgb)))
-    if any(pad):cropped=np.pad(cropped,((pad[0],pad[1]),(0,0),(0,0)))
+    # Never round up: a partial bottom row cannot be recognised reliably.
+    count=max(0,(height-start)//pitch)
+    return start,start+count*pitch
+
+def bottom_clipped(rgb,pitch,phase,colours):
+    """Warn if the selected region ends amid a palette-matched text band."""
+    _,end=row_bounds(len(rgb),pitch,phase)
+    if end>=len(rgb):return False
+    tail=rgb[max(end,len(rgb)-2):]
+    if not len(tail):return False
+    masks=pixel_masks(tail,colours,tolerance=30)
+    return any(int(m.sum())>=5 for m in masks.values())
+
+def aligned_rows(rgb,pitch,phase,colours):
+    """Return aligned rows; exclude the incomplete bottom row entirely.
+
+    A small top pad preserves the existing overlap reference. Only trailing
+    complete rows are queued (overlap always retains at least two rows).
+    The excluded bottom message can enter a complete row on the next scroll.
+    """
+    start,end=row_bounds(len(rgb),pitch,phase)
+    cropped=rgb[max(0,start):end]
+    if start<0:cropped=np.pad(cropped,((-start,0),(0,0),(0,0)))
     n=len(cropped)//pitch
     rows=cropped[:n*pitch].reshape(n,pitch,rgb.shape[1],3)
     return styled_rows(cropped,pitch,colours,tolerance=25),rows

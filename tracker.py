@@ -32,7 +32,7 @@ from scroll_ui import ScrollPage,table_scroll
 from player_ui import PlayerStatus
 from hud_layout import WIDGETS, PRESETS, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
 from hud import rate_text
-from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows, row_alignment, aligned_rows
+from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows, row_alignment, aligned_rows, bottom_clipped
 from party import roster, live_report as live_party_report, display_rows as party_rows, summary_text as party_summary
 
 
@@ -903,7 +903,7 @@ class App:
     def select(self):
         if getattr(self,'update_busy',False):return
         if self.running or self.pending or self.selecting: return
-        if not messagebox.askokcancel('Bind Lineage 2', 'After clicking OK, you have 5 seconds to focus the actual Lineage 2 game window. The tracker will take one screenshot of that window for chat selection. Keep the chat visible.'): return
+        if not messagebox.askokcancel('Bind Lineage 2', 'After clicking OK, you have 5 seconds to focus the actual Lineage 2 game window. The tracker will take one screenshot of that window for chat selection. Include all text, especially the complete bottom line, plus a few pixels of margin underneath. Keep chat visible.'): return
         self.selecting=True; self.root.withdraw(); self.root.after(5000,self.selector)
     def selector(self):
         try:
@@ -991,7 +991,7 @@ class App:
     def capture(self,target,region,pitch,halt,jobs,gate):
         revision=None; old=None; failures=0; last_active=None; last_status=None
         frames=0; batches=0; last_report=time.monotonic()
-        alignment=None; last_alignment_check=0; state=None; old_rgb=None
+        alignment=None; last_alignment_check=0; state=None; old_rgb=None; clipped=False
         def capture_state(value):
             nonlocal state
             if value!=state:self.inbox.put(('capture_state',value));state=value
@@ -1041,6 +1041,7 @@ class App:
                                 failures=0;alignment=measured
                                 diagnostic('Chat row calibration: configured=%d detected=%d phase=%d confident=%s',pitch,*alignment)
                             elif measured[2] and measured[:2]==alignment[:2]:alignment=measured
+                            clipped=bottom_clipped(rgb,*alignment[:2],colours)
                         new,row_rgb=aligned_rows(rgb,*alignment[:2],colours)
                     else:
                         new=rows_of(rgb,pitch);row_rgb=rgb[:len(new)*pitch].reshape(len(new),pitch,rgb.shape[1],3)
@@ -1055,7 +1056,9 @@ class App:
                         if now-last_report>=10:
                             diagnostic('capture progress: frames=%d queued_batches=%d active_seconds=%.1f',frames,batches,self.active_seconds)
                             last_report=now
-                        status(f'Tracking {target.title} — '+('focused only.' if pause_on_blur else 'visible chat, including in background.'))
+                        if clipped:
+                            status('Chat bottom is clipped. Rebind chat to include the entire last line and a small margin. Tracking complete rows only.')
+                        else:status(f'Tracking {target.title} — '+('focused only.' if pause_on_blur else 'visible chat, including in background.'))
                         if old is None:
                             old=new;old_rgb=rgb.copy() if colours else None;capture_state('CHAT READY' if new.sum()>=24 else 'WAITING FOR CHAT')
                         else:

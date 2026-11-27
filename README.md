@@ -119,7 +119,10 @@ After live reports of garbled full-line OCR, restore the nominal Large pitch of 
 ## OCR evidence (v0.44.2)
 Settings → Tracking → OCR troubleshooting enables bounded in-memory diagnostic collection for the next session. Export OCR evidence saves the last 12 failed and 4 successful row crops, actual padded OCR inputs and results, latest queued chat crop and alignment metadata in a user-selected ZIP. No automatic upload or disk image collection. A new session replaces collected evidence; export before resetting. The portable smoke test also checks a real in-game XP glyph fixture. This is diagnostic instrumentation, not a claim that the live OCR problem is fixed.
 
-## Current status: v0.44.2
+## Clipped bottom-row fix (v0.44.3)
+Live diagnostic evidence established the exact failure: a 187-pixel chat crop, measured 22-pixel pitch and phase 20 produced a final row containing only 13 real pixel rows and nine artificial black rows. The previous rounding-up calculation submitted the clipped reward text to OCR. Aligned extraction now floors the row count, never pads the bottom and warns when the crop cuts through visible text. Incomplete final messages are deferred until scrolling brings them into a complete row. Rebind the chat area to include the entire final line and a small margin for immediate recognition. This fixes the demonstrated extraction defect; live verification is still required. Experimental templates remain off by default.
+
+## Current status: v0.44.3
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 
