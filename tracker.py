@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog, simpledialog
+from tkinter import ttk, messagebox, filedialog, simpledialog, colorchooser
 import numpy as np
 from PIL import Image, ImageTk, ImageOps
 import mss
@@ -23,6 +23,7 @@ from appearance import Appearance, Dashboard, save_mode
 from preferences import load_focus_pause, save_focus_pause, load_auto_update, save_auto_update
 from party_setup_ui import PartySetup
 from update_ui import UpdateUI
+from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows
 from party import roster, live_report as live_party_report, display_rows as party_rows, summary_text as party_summary
 
 
@@ -376,6 +377,41 @@ def ocr_rows(rows):
     if start<len(rows):yield from legacy_ocr_rows(rows[start:])
 
 
+def configured_ocr_rows(rows,colours):
+    """Respect shared colours: classify by text where a hue is not unique."""
+    for row in rows:
+        group=row_group(row,colours)
+        if not group or group==('other',):continue
+        reads=[]
+        for tolerance,nearest in ((40,False),(55,True),(30,False)):
+            m=pixel_masks(row,colours,tolerance).get(group)
+            if m is None:break
+            text=single_ocr(np.where(m,0,255).astype(np.uint8),nearest=nearest)
+            reads.append(text)
+            e=parse(text)
+            # Default beige also includes ordinary skill and status messages.
+            # Ignore clean, non-target lines instead of flooding the review queue.
+            if len(reads)==1 and 'other' in group and not e and not (
+                xp_like(text) or adena_like(text) or re.search(r'\b(?:obtained|use|used)\b',text,re.I)
+                and not re.match(r'You use\b',text,re.I)):
+                break
+            valid=[x for text in reads if (x:=parse(text)) and x[0] in group and x[3]>0]
+            if len(valid)>=2 and len(set(valid))==1:
+                yield ('line',next(text for text in reads if parse(text)==valid[0]))
+                break
+        else:
+            targets=[k for k in group if k!='other']
+            parsed={e[0] for text in reads if (e:=parse(text)) and e[0] in targets}
+            if len(targets)==1:category=targets[0]
+            elif len(parsed)==1:category=next(iter(parsed))
+            elif 'xp' in targets and any(xp_like(x) for x in reads):category='xp'
+            elif 'adena' in targets and any(adena_like(x) for x in reads):category='adena'
+            elif 'consumable' in targets and any(re.match(r'(?:Use|You have used)\b',x,re.I) for x in reads):category='consumable'
+            else:category=None
+            evidence=f'{reads[0] or "(blank)"} [colour OCR: {" | ".join(x or "(blank)" for x in reads[1:])}]'
+            yield ('uncertain:'+category if category else 'uncertain',evidence)
+
+
 class App:
     def __init__(self,root):
         self.root=root; root.title(f'L2 Legacy Farming Tracker — v{VERSION} Portable'); root.geometry('1020x810'); root.minsize(900,720)
@@ -393,6 +429,7 @@ class App:
                 self.target=self.api.find_saved(self.saved)
                 self.status.set('Saved chat calibration loaded. Start when the matching game is open.')
         except Exception as e: self.status.set(f'Could not restore calibration: {e}. Bind game again.')
+        self.chat_style=load_style(fallback_pitch=int(self.pitch.get()));self.pitch.set(str(self.chat_style['pitch']))
         try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.queue_hud_move,on_pause=self.queue_hud_pause)
         except Exception as e: self.hud_enabled.set(False); self.status.set(self.status.get()+f' HUD unavailable: {e}')
         try: self.archive=Archive()
@@ -467,11 +504,27 @@ class App:
         ttk.Label(content,text='Game capture',style='Section.TLabel').pack(anchor='w',pady=(14,5))
         calibration=ttk.Frame(content);calibration.pack(fill='x',pady=(0,6))
         ttk.Button(calibration,text='Bind game / chat area',command=self.select).pack(side='left')
-        ttk.Label(calibration,text='Line height (px):').pack(side='left',padx=(14,4))
-        ttk.Entry(calibration,textvariable=self.pitch,width=5).pack(side='left')
+        ttk.Label(calibration,text='Text size:').pack(side='left',padx=(14,4))
+        self.text_size=tk.StringVar(value=self.chat_style['size'])
+        sizes=ttk.Combobox(calibration,textvariable=self.text_size,values=(*TEXT_SIZES,'Manual'),state='readonly',width=9);sizes.pack(side='left');sizes.bind('<<ComboboxSelected>>',self.select_text_size)
+        ttk.Label(calibration,text='Line spacing (px):').pack(side='left',padx=(12,4))
+        self.pitch_entry=ttk.Entry(calibration,textvariable=self.pitch,width=5,state='normal' if self.text_size.get()=='Manual' else 'readonly');self.pitch_entry.pack(side='left')
         hudtools=ttk.Frame(content);hudtools.pack(fill='x',pady=(0,8))
         ttk.Button(hudtools,text='Position HUD…',command=self.open_position).pack(side='left')
         self.move_btn=ttk.Button(hudtools,text='Move HUD in game',command=self.arm_hud_move);self.move_btn.pack(side='left',padx=8)
+        palette=ttk.LabelFrame(content,text='In-game system message colours',padding=6);palette.pack(fill='x',pady=(0,6))
+        self.colour_vars={};self.colour_swatches={}
+        for i,(key,label) in enumerate(LABELS.items()):
+            cell=ttk.Frame(palette);cell.grid(row=i//3,column=i%3,sticky='w',padx=(0,12),pady=2)
+            ttk.Label(cell,text=label).pack(side='left',padx=(0,4))
+            var=tk.StringVar(value=self.chat_style['colours'][key]);self.colour_vars[key]=var
+            ttk.Entry(cell,textvariable=var,width=9).pack(side='left')
+            swatch=tk.Button(cell,text=' ',width=2,bg=var.get(),command=lambda k=key:self.choose_chat_colour(k));swatch.pack(side='left',padx=3);self.colour_swatches[key]=swatch
+        controls=ttk.Frame(palette);controls.grid(row=2,column=0,columnspan=3,sticky='w',pady=(4,0))
+        ttk.Button(controls,text='L2 defaults',command=lambda:self.set_chat_palette(DEFAULT_COLOURS)).pack(side='left')
+        ttk.Button(controls,text='Distinct colours',command=lambda:self.set_chat_palette(CUSTOM_COLOURS)).pack(side='left',padx=5)
+        ttk.Button(controls,text='Apply chat settings',command=self.apply_chat_style).pack(side='left',padx=5)
+        ttk.Label(content,text='Match your game colours and text size; apply before starting a session.',style='Muted.TLabel').pack(anchor='w')
         ttk.Label(content,text='Tracking',style='Section.TLabel').pack(anchor='w',pady=(4,5))
         self.focus_pause_var=tk.BooleanVar(master=win,value=self.pause_on_blur)
         ttk.Checkbutton(content,text='Pause when Lineage 2 loses focus',variable=self.focus_pause_var,command=self.change_focus_policy).pack(anchor='w')
@@ -488,6 +541,38 @@ class App:
         ttk.Label(content,text='Preferences are saved automatically.',style='Muted.TLabel').pack(anchor='w',pady=(10,0))
         ttk.Button(content,text='Open diagnostic folder',command=self.open_diagnostic_folder).pack(anchor='w',pady=(7,0))
         self.appearance.restyle(win)
+    def select_text_size(self,*_):
+        size=self.text_size.get()
+        self.pitch_entry.configure(state='normal')
+        if size in TEXT_SIZES:self.pitch.set(str(TEXT_SIZES[size]))
+        self.pitch_entry.configure(state='normal' if size=='Manual' else 'readonly')
+
+    def choose_chat_colour(self,key):
+        current=self.colour_vars[key].get()
+        try:_,colour=colorchooser.askcolor(color=current,parent=self.root)
+        except tk.TclError:_,colour=colorchooser.askcolor(parent=self.root)
+        if colour:
+            self.colour_vars[key].set(colour.upper());self.colour_swatches[key].configure(bg=colour)
+
+    def set_chat_palette(self,colours):
+        for key,value in colours.items():
+            self.colour_vars[key].set(value);self.colour_swatches[key].configure(bg=value)
+
+    def apply_chat_style(self):
+        if self.running or self.pending or getattr(self,'selecting',False):
+            messagebox.showwarning('Chat settings','Stop tracking before applying chat settings.',parent=self.root);return False
+        try:
+            style=validate_style(dict(colours={k:v.get() for k,v in self.colour_vars.items()},size=self.text_size.get(),pitch=int(self.pitch.get())))
+            if self.region and self.region['height']//style['pitch']<3:raise ValueError('Select a chat area at least three lines high.')
+            self.chat_style=save_style(style)
+            self.pitch.set(str(style['pitch']))
+            self.set_chat_palette(style['colours'])
+            if self.target and self.region:self.persist()
+            self.status.set('Chat settings saved. Rebind the chat region if changing font size shifted the text.')
+            return True
+        except (ValueError,OSError) as e:
+            messagebox.showwarning('Chat settings',str(e),parent=self.root);return False
+
     def open_diagnostic_folder(self):
         try:
             folder=settings.settings_path().parent;folder.mkdir(parents=True,exist_ok=True);os.startfile(folder)
@@ -578,6 +663,7 @@ class App:
     def start(self):
         if getattr(self,'update_busy',False):return
         if self.running or self.pending or self.closing:return
+        if hasattr(self,'colour_vars') and not self.apply_chat_style():return
         if self.saved and (not self.target or not self.api.usable(self.target.hwnd) or self.api.pid(self.target.hwnd)!=self.target.pid):
             self.target=self.api.find_saved(self.saved)
         if not self.region or not self.target:
@@ -597,11 +683,14 @@ class App:
         if self.review_win and self.review_win.winfo_exists():
             self.review_tree.delete(*self.review_tree.get_children());self.review_selected=None
         self.reviews=ReviewQueue(); self.refresh_reviews()
-        self.events=[]; self.raw=[]; self.kills=0; self.totals.clear(); self.tree.delete(*self.tree.get_children()); self.gaps=0; self.active_seconds=0.0; self.started=time.monotonic(); self.ended=None; self.run_id+=1; self.running=True; self.pending=2
+        self.events=[]; self.raw=[]; self.kills=0; self.totals.clear(); self.tree.delete(*self.tree.get_children());
+        if hasattr(self,'consumable_tree'):self.consumable_tree.delete(*self.consumable_tree.get_children())
+        self.gaps=0; self.active_seconds=0.0; self.started=time.monotonic(); self.ended=None; self.run_id+=1; self.running=True; self.pending=2
         self.pause_gate=PauseGate(self.pause_on_blur); self.pause_btn.config(text="Pause",state="normal"); self.halt=threading.Event(); self.jobs=queue.Queue(maxsize=120); self.start_btn.config(state='disabled'); self.stop_btn.config(state='normal')
         self.log.config(state='normal'); self.log.delete('1.0','end'); self.log.config(state='disabled'); self.status.set('Waiting for readable Lineage 2 chat. Existing messages will not be counted.')
         if not self.save_session():
             self.running=False; self.pending=0; self.started=None; self.session_id=None; self.start_btn.config(state='normal'); self.stop_btn.config(state='disabled'); self.pause_btn.config(state='disabled'); return
+        self.session_colours=dict(self.chat_style['colours']) if hasattr(self,'chat_style') else None
         threading.Thread(target=self.capture,args=(self.target,dict(self.region),pitch,self.halt,self.jobs,self.pause_gate),daemon=True).start(); threading.Thread(target=self.worker,args=(self.jobs,),daemon=True).start()
     def capture(self,target,region,pitch,halt,jobs,gate):
         revision=None; old=None; failures=0; last_active=None; last_status=None
@@ -633,7 +722,7 @@ class App:
                     after,reason=capture_region(api,target,region,s.monitors[0],pause_on_blur=pause_on_blur)
                     if after!=rect:
                         pause(reason or 'Paused — window moved during capture; resynchronising.'); halt.wait(.05); continue
-                    rgb=np.asarray(shot)[:,:,:3][:,:,::-1]; new=rows_of(rgb,pitch)
+                    rgb=np.asarray(shot)[:,:,:3][:,:,::-1]; colours=getattr(self,'session_colours',None); new=styled_rows(rgb,pitch,colours) if colours else rows_of(rgb,pitch)
                     # Commit only if the same unpaused revision is still current.
                     # A pause/resume during screen capture discards the stale frame.
                     with gate.lock:
@@ -680,7 +769,9 @@ class App:
                 if nxt is None: end=True; break
                 group.append(nxt[1])
             try:
-                for kind,line in ocr_rows(np.concatenate(group)):
+                colours=getattr(self,'session_colours',None)
+                results=configured_ocr_rows(np.concatenate(group),colours) if colours else ocr_rows(np.concatenate(group))
+                for kind,line in results:
                     if line.strip():self.inbox.put((kind,(ts,line)))
             except Exception as e:
                 diagnostic('OCR exception',exc_info=True)
