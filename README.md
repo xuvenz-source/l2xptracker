@@ -74,7 +74,10 @@ Double-click a consumable in the Dashboard or select Edit selected cost to assig
 ## Optional net Adena HUD (v0.35)
 Settings → Tracking → Subtract consumable costs from HUD Adena/hr (net) replaces the existing HUD Adena rate with (personal Adena earned minus known consumable expenses) divided by active hours. Default is off (gross earnings). The preference saves locally and applies immediately; negative net rates remain visible. NET ADENA/H* indicates unpriced uses, so the figure is only net of known expenses. The dashboard and history retain gross earnings and expense reports; no additional HUD column is added.
 
-## Current status: v0.35
+## HUD drag hotfix (v0.35.1)
+Unlocked HUD movement now handles native mouse-down, mouse-move and mouse-up directly, with mouse capture on the HUD itself when Windows permits. Polling remains a fallback. A missing asynchronous mouse-button state no longer immediately cancels a native drag. Positions still avoid the selected chat region. Local diagnostics record drag start/end and rejected positions; live game interaction requires verification.
+
+## Current status: v0.35.1
 
 OCR is imperfect. Rapid or ambiguous scrolling, clipped lines and misread numbers may cause missed or incorrect events. Paused periods are not captured. Actual Windows gameplay and distribution on a clean PC still need testing. The tracker does not establish that server rules permit its use.
 

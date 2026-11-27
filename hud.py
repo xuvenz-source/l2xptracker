@@ -57,6 +57,7 @@ class Hud:
         self.hwnd=None; self.shown=False; self.position=None; self.values=('—','—','—'); self.adena_label='ADENA / HR'
         self.preferred=preferred; self.on_move=on_move; self.drag=None; self.interactive=False
         self.locked=True; self.lock_first=None; self.press_handled=False; self.native_released=False
+        self.native_drag=False; self.drag_poll_seen=False; self.drag_context=None; self.drag_rejected=False; self.native_activity=0.0; self.moving=False
         self.last_mouse_down=None; self.placement=None; self.on_pause=on_pause; self.paused=False; self.pause_pressed=False
         self.u=c.WinDLL('user32',use_last_error=True); self.g=c.WinDLL('gdi32',use_last_error=True); self.k=c.WinDLL('kernel32',use_last_error=True)
         H=w.HANDLE; L=c.c_ssize_t; U=c.c_size_t
@@ -86,6 +87,9 @@ class Hud:
         sig(self.u,'GetDoubleClickTime',[],w.UINT)
         sig(self.u,'GetAsyncKeyState',[c.c_int],c.c_short)
         sig(self.u,'GetCursorPos',[c.POINTER(w.POINT)],w.BOOL)
+        sig(self.u,'SetCapture',[H],H)
+        sig(self.u,'GetCapture',[],H)
+        sig(self.u,'ReleaseCapture',[],w.BOOL)
         sig(self.u,'GetWindowLongW',[H,c.c_int],c.c_long)
         sig(self.u,'SetWindowLongW',[H,c.c_int,c.c_long],c.c_long)
         sig(self.g,'CreateSolidBrush',[w.DWORD],H)
@@ -160,6 +164,33 @@ class Hud:
         elif not self.locked and self.body_hit(point):self.begin_drag(point)
     def release_press(self):
         self.finish_drag();self.press_handled=False;self.pause_pressed=False;self.native_released=False
+
+    def native_drag_start(self):
+        if self.drag is None or getattr(self,'native_drag',False):return
+        self.native_drag=True;self.native_activity=time.monotonic()
+        # Capture is requested for our own popup only. Windows may limit
+        # capture for a non-foreground window, so polling remains a fallback.
+        self.u.SetCapture(self.hwnd)
+        diagnostic('HUD native drag started; capture acquired=%s',self.u.GetCapture()==self.hwnd)
+
+    def move_drag(self,point):
+        if self.drag is None or self.locked or point is None or getattr(self,'moving',False):return
+        ctx=getattr(self,'drag_context',None)
+        if ctx is None:return
+        geo,chat,desktop=ctx
+        candidate=safe_position(geo,chat,desktop,(point[0]-self.drag[0]-geo[0],point[1]-self.drag[1]-geo[1]))
+        if candidate is None:
+            if not getattr(self,'drag_rejected',False):diagnostic('HUD drag destination rejected: intersects selected chat or invalid bounds')
+            self.drag_rejected=True;return
+        self.drag_rejected=False
+        if candidate==self.position:return
+        self.moving=True
+        try:
+            if self.u.SetWindowPos(self.hwnd,c.c_void_p(-1),*candidate,WIDTH,HEIGHT,0x0010|0x0040|0x0200):
+                self.position=candidate;self.shown=True
+                self.preferred=(candidate[0]-geo[0],candidate[1]-geo[1])
+            else:diagnostic('HUD SetWindowPos failed during drag')
+        finally:self.moving=False
     def pause_hit(self,point):
         if not getattr(self,'on_pause',None) or not self.shown or not self.position or point is None or getattr(self,'placement',None) is not None:return False
         x,y=self.position;l,t,r,b=PAUSE_RECT
@@ -178,10 +209,31 @@ class Hud:
         if msg in (0x201,0x203): # WM_LBUTTONDOWN / DBLCLK
             if self.interactive:
                 if getattr(self,'native_released',False):self.release_press()
-                self.handle_press(self.cursor())
+                point=self.cursor()
+                self.handle_press(point)
+                # A native down delivered to the body is authoritative even
+                # if a previous poll latched a press outside the HUD.
+                if self.drag is None and not self.locked and self.body_hit(point) and not self.pause_pressed:
+                    self.begin_drag(point)
+                self.native_drag_start()
+            return 0
+        if msg==0x200: # WM_MOUSEMOVE
+            if getattr(self,'native_drag',False):
+                if wp & 1: # MK_LBUTTON: independent of GetAsyncKeyState
+                    self.native_activity=time.monotonic()
+                    self.move_drag(self.cursor())
+                else:self.finish_drag()
             return 0
         if msg==0x202: # native up ends movement, but the poll may still see down
+            if getattr(self,'native_drag',False):self.move_drag(self.cursor())
             self.finish_drag();self.native_released=True
+            return 0
+        if msg in (0x215,0x1F): # WM_CAPTURECHANGED / WM_CANCELMODE
+            if getattr(self,'native_drag',False):
+                # Another window took capture; continue if polling still sees
+                # the physical button, otherwise cancel the drag.
+                self.native_drag=False
+                if not self.key_down(0x01):self.finish_drag()
             return 0
         if msg==0x21:return 3 # MA_NOACTIVATE
         if msg==0x14:return 1
@@ -228,9 +280,14 @@ class Hud:
         x,y=self.position
         if x<=point[0]<x+WIDTH and y<=point[1]<y+HEIGHT:
             self.drag=(point[0]-x,point[1]-y)
+            self.drag_poll_seen=False;self.drag_rejected=False
+            diagnostic('HUD drag started')
     def finish_drag(self):
         if self.drag is None:return
-        self.drag=None
+        self.drag=None;self.drag_poll_seen=False
+        native=getattr(self,'native_drag',False);self.native_drag=False
+        if native and self.u.GetCapture()==self.hwnd:self.u.ReleaseCapture()
+        diagnostic('HUD drag ended')
         if self.preferred is not None and self.on_move:self.on_move(self.preferred)
     def arm_placement(self):
         self.finish_drag(); self.lock_first=None; self.set_interactive(False)
@@ -257,7 +314,16 @@ class Hud:
         mouse_down=self.key_down(0x01)
         previous=getattr(self,'last_mouse_down',None)
         self.last_mouse_down=mouse_down
-        if not mouse_down:self.release_press()
+        self.drag_context=(geo,chat,desktop)
+        # Do not cancel a native drag just because the game/OS reports no
+        # asynchronous button state. Native mouse messages remain authoritative.
+        if self.drag is not None and mouse_down:self.drag_poll_seen=True
+        if not mouse_down:
+            native=getattr(self,'native_drag',False)
+            if not native or getattr(self,'drag_poll_seen',False):
+                self.release_press()
+            elif time.monotonic()-self.native_activity>2 and self.u.GetCapture()!=self.hwnd and not self.hit_rect(self.cursor(),(0,0,WIDTH,HEIGHT)):
+                self.release_press()
         if getattr(self,'placement',None) is not None:
             self.set_interactive(False)
             # No overlay clicks or mouse routing: move with pointer and tap Shift.
@@ -269,13 +335,12 @@ class Hud:
             # Polling fallback catches missed native mouse messages without
             # starting a drag when the button was already held on entry.
             if mouse_down and previous is False:self.handle_press(point)
-            pos=hud_position(geo,chat,desktop,self.preferred)
             if self.drag is not None:
-                if not self.locked and mouse_down and point is not None:
-                    candidate=safe_position(geo,chat,desktop,(point[0]-self.drag[0]-geo[0],point[1]-self.drag[1]-geo[1]))
-                    if candidate is not None:
-                        pos=candidate; self.preferred=(pos[0]-geo[0],pos[1]-geo[1])
-                else:self.finish_drag()
+                if mouse_down:
+                    self.drag_poll_seen=True
+                    self.move_drag(point)
+                elif not getattr(self,'native_drag',False):self.finish_drag()
+            pos=hud_position(geo,chat,desktop,self.preferred)
         if pos is None:self.hide();return
         label,adena_rate=adena_metric(adena,seconds,consumable_cost,unpriced_uses)
         values=(adena_rate,rate_text(xp,seconds),rate_text(kills,seconds))
@@ -289,7 +354,7 @@ class Hud:
             if getattr(self,"placement",None) and self.placement["seen"]:self.cancel_placement()
             self.hide()
     def hide(self):
-        self.release_press();self.set_interactive(False);self.last_mouse_down=None;self.lock_first=None
+        self.release_press();self.drag_context=None;self.set_interactive(False);self.last_mouse_down=None;self.lock_first=None
         if self.hwnd and self.shown:self.u.ShowWindow(self.hwnd,0);self.shown=False;self.position=None
     def close(self):
         self.cancel_placement(); self.finish_drag()

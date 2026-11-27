@@ -276,3 +276,6 @@ Dashboard: double-click a consumable and enter Adena per observed activation; bl
 
 VERSION 0.35 — OPTIONAL NET ADENA HUD
 Settings → Tracking → Subtract consumable costs from HUD Adena/hr (net). Replaces the existing HUD rate, not a new column. NET ADENA/H* flags incomplete pricing. Gross dashboard/history figures remain unchanged. Saved preference, default off.
+
+VERSION 0.35.1 — HUD NATIVE DRAG
+Native mouse movement and optional capture supplement button polling; position is saved when released. Chat overlap remains prohibited.
