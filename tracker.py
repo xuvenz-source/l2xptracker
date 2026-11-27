@@ -46,16 +46,22 @@ def parse(line):
     if m:
         who='You' if m[1].lower()=='you have' else m[1].rsplit(' ',1)[0]
         return ('adena',who,'Adena',num(m[2]),0)
-    m = re.fullmatch(r'(You have|[\w\-]+ has) obtained (.+)', s, re.I)
+    m = re.fullmatch(r'(You have|[\w\-]+ has) (obtained|earned|eamed) (.+)', s, re.I)
     if m:
         who = 'You' if m[1].lower() == 'you have' else m[1].rsplit(' ',1)[0]
-        item = m[2].strip(); qty = 1
+        earned=m[2].lower()!='obtained'
+        item = m[3].strip(); qty = 1
+        # A malformed cash amount must never become an item drop.
+        if earned and re.search(r'\bAdena\b',item,re.I):return None
         # These explicit quantity formats are provisional, not confirmed in C1.
         for pat, reverse in [(r'(\d[\d,]*) (.+)',False),(r'(.+?)\s*\(\s*(?:x\s*)?(\d[\d,]*)\s*\)',True),(r'(.+?)\s+x\s*(\d[\d,]*)',True)]:
             q = re.fullmatch(pat,item,re.I)
             if q:
                 item, qty = (q[1],num(q[2])) if reverse else (q[2],num(q[1])); break
         if item.lower() == 'adena': return ('adena',who,'Adena',qty,0)
+        # Quest rewards use the earned prefix and may share Adena's colour.
+        # Require a plausible item name, not a bare amount or damaged currency.
+        if earned and (not re.match(r'[A-Za-z]',item) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9 '’().:\-]*",item) or re.search(r'\b(?:Aden[aoe]?|Ad[ec]na|Aden4)\b',item,re.I)):return None
         return ('item',who,item,qty,0)
     # The blue message reports an activation, not necessarily the number of shots consumed.
     m = re.fullmatch(r'(?:Use|You have used) (.+)', s, re.I)
@@ -317,7 +323,7 @@ def legacy_ocr_rows(rows):
         isolated=is_yellow or i in repeats or len(rows)==1 or (not batch and (im<128).sum()>24) or (xp_like(batch) and not parse(batch))
         first=single_ocr(im) if isolated else batch
         event=parse(first)
-        if is_yellow and adena_like(first):
+        if is_yellow and adena_like(first) and not (event and event[0]=='item'):
             # The amount is normally the penultimate word. Read just that word
             # with a numeric alphabet, independent of full-line language OCR.
             cols=np.flatnonzero((im<128).any(axis=0))
@@ -335,6 +341,11 @@ def legacy_ocr_rows(rows):
             if event and event==alt_event:
                 yield ('line',first); continue
             yield ('uncertain',f'{first} [alternative: {alt}]'); continue
+        if is_yellow and event and event[0]=='item' and re.search(r'\b(?:earned|eamed)\b',first,re.I):
+            alt=single_ocr(np.where(mask(row),0,255).astype(np.uint8))
+            if parse(alt)==event:yield ('line',first)
+            else:yield ('uncertain',f'{first} [alternative: {alt}]')
+            continue
         if is_yellow and not event:
             alt=single_ocr(np.where(mask(row),0,255).astype(np.uint8)); alt_event=parse(alt)
             # Do not assume an unrecognised yellow message is a valid drop.
@@ -433,6 +444,10 @@ def configured_ocr_rows(rows,colours):
     for row in rows:
         group=row_group(row,colours)
         if not group or group==('other',):continue
+        # Quest rewards share the cash hue in some clients. The words, not
+        # the hue alone, distinguish an earned item from an Adena amount.
+        allowed=set(group)
+        if 'adena' in allowed:allowed.add('item')
         reads=[]
         for tolerance,nearest in ((40,False),(55,True),(30,False)):
             m=pixel_masks(row,colours,tolerance).get(group)
@@ -446,7 +461,7 @@ def configured_ocr_rows(rows,colours):
                 xp_like(text) or adena_like(text) or re.search(r'\b(?:obtained|use|used)\b',text,re.I)
                 and not re.match(r'You use\b',text,re.I)):
                 break
-            valid=[x for text in reads if (x:=parse(text)) and x[0] in group and x[3]>0]
+            valid=[x for text in reads if (x:=parse(text)) and x[0] in allowed and x[3]>0]
             if len(valid)>=2 and len(set(valid))==1 and valid[0][0]!='xp':
                 yield ('line',next(text for text in reads if parse(text)==valid[0]))
                 break
@@ -455,11 +470,13 @@ def configured_ocr_rows(rows,colours):
                 resolved=configured_xp_resolution(row,reads)
                 if resolved:yield resolved;continue
             targets=[k for k in group if k!='other']
+            if 'adena' in targets and 'item' not in targets:
+                if any((e:=parse(text)) and e[0]=='item' for text in reads):targets.append('item')
             parsed={e[0] for text in reads if (e:=parse(text)) and e[0] in targets}
             if len(targets)==1:category=targets[0]
             elif len(parsed)==1:category=next(iter(parsed))
             elif 'xp' in targets and any(xp_like(x) for x in reads):category='xp'
-            elif 'adena' in targets and any(adena_like(x) for x in reads):category='adena'
+            elif 'adena' in targets and 'item' not in targets and any(adena_like(x) for x in reads):category='adena'
             elif 'consumable' in targets and any(re.match(r'(?:Use|You have used)\b',x,re.I) for x in reads):category='consumable'
             else:category=None
             evidence=f'{reads[0] or "(blank)"} [colour OCR: {" | ".join(x or "(blank)" for x in reads[1:])}]'

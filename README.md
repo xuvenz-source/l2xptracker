@@ -107,7 +107,10 @@ The reported screenshot produced 867, 66/ and S67 as OCR interpretations of the 
 ## Sparse chat alignment (v0.43.5)
 The latest user screenshot shows 21-pixel chat spacing with only three bright reward messages. The detector now falls back to tightly palette-matched ordinary chat lines and tests nearby pitches through ±4 pixels. It reprojects the previous committed screenshot when alignment changes, rather than throwing away intervening messages. Identical frames are still not counted twice.
 
-## Current status: v0.43.5
+## Quest item rewards (v0.43.6)
+Earned item messages such as `You have earned Turek Dog Tag.` are counted as item loot, even when they share the yellow Adena colour. Existing item quantities, manual sale values, history and export support apply. Damaged currency messages remain reviewable. Old Adena-colour reviews containing recognisable earned item evidence can be approved as items; no saved review is silently counted.
+
+## Current status: v0.43.6
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

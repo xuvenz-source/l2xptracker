@@ -31,7 +31,8 @@ class ReviewQueue:
         if not event:
             raise ValueError('Enter a complete XP/SP, Adena, item acquisition or consumable usage message.')
         typ, who, item, qty, sp = event
-        if r.category and typ!=r.category:
+        category=effective_category(r,parse)
+        if category and typ!=category:
             raise ValueError('Correct the message using its detected colour category.')
         if qty <= 0 or (typ == 'xp' and (sp is None or sp < 0)):
             raise ValueError('Quantity or XP must be positive; SP must be zero or greater.')
@@ -55,12 +56,27 @@ class ReviewQueue:
         del self.pending[id]
         return r
 
+def effective_category(r,parse):
+    # Older versions classified earned quest items as Adena based on colour.
+    # Reclassify only if the saved OCR evidence actually parses as an item.
+    if r.category!='adena':return r.category
+    first,_,tail=r.text.partition(' [')
+    parts=[first]
+    if tail:
+        _,_,rest=tail.rstrip(']').partition(': ')
+        parts.extend(rest.split(' | '))
+    events=[e for t in parts if (e:=parse(t.strip()))]
+    kinds={e[0] for e in events}
+    if kinds=={'item'} and any(re.search(r'\b(?:earned|eamed)\b',t,re.I) for t in parts):return 'item'
+    if kinds=={'item','adena'}:return None
+    return r.category
+
 def candidates(r, parse, xp_numeric_candidate):
     """Extract only observed values. Never infer an unreadable quantity."""
-    out=[]
+    out=[];category=effective_category(r,parse)
     def add(s):
         e=parse(s)
-        if e and (not r.category or e[0]==r.category) and (r.xp_counted is None or (e[0]=='xp' and e[3]==r.xp_counted)) and (r.sp_counted is None or (e[0]=='xp' and e[4]==r.sp_counted)) and s not in out:
+        if e and (not category or e[0]==category) and (r.xp_counted is None or (e[0]=='xp' and e[3]==r.xp_counted)) and (r.sp_counted is None or (e[0]=='xp' and e[4]==r.sp_counted)) and s not in out:
             out.append(s)
     first, _, tail=r.text.partition(' [')
     parts=[first]
@@ -91,8 +107,8 @@ def review_fields(r, parse, xp_numeric_candidate):
     first=r.text.split(' [',1)[0]
     if r.event_index is not None:
         kind='xp'
-    elif r.category:
-        kind=r.category
+    elif effective_category(r,parse):
+        kind=effective_category(r,parse)
     elif len(kinds)==1:
         kind=next(iter(kinds))
     elif len(kinds)>1:
