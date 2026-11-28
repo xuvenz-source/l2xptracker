@@ -2,7 +2,7 @@
 import tkinter as tk
 from tkinter import ttk,messagebox
 from copy import deepcopy
-from monster_library import expected,counts,assign,learn,save,reward
+from monster_library import expected,counts,assign,learn,save,reward,suggestions
 
 class MonsterLibraryWindow:
     def __init__(self,app):
@@ -56,7 +56,7 @@ class KillReviewWindow:
         ttk.Button(row,text='Select matching rewards',command=self.matching).pack(side='left')
         panel=ttk.Frame(self.win,padding=8);panel.pack(fill='both',expand=True)
         self.tree=ttk.Treeview(panel,columns=('time','xp','sp','level','status','suggestions'),show='headings',selectmode='extended')
-        for k,title,w in [('time','Captured',175),('xp','XP',75),('sp','SP',60),('level','Level',55),('status','Identification',170),('suggestions','Exact candidates',210)]:
+        for k,title,w in [('time','Captured',175),('xp','XP',75),('sp','SP',60),('level','Level',55),('status','Identification',170),('suggestions','Possible matches',210)]:
             self.tree.heading(k,text=title);self.tree.column(k,width=w)
         self.tree.pack(side='left',fill='both',expand=True);sb=ttk.Scrollbar(panel,command=self.tree.yview);sb.pack(side='right',fill='y');self.tree.configure(yscrollcommand=sb.set)
         row=ttk.Frame(self.win,padding=8);row.pack(fill='x')
@@ -78,9 +78,9 @@ class KillReviewWindow:
             if not reward(e):continue
             r=a.monster_kills.get(str(i),{})
             if r.get('id') and not self.all.get():continue
-            ctx=r.get('context',{});matches=[p['name'] for p in ctx.get('candidates',[]) if list(e[4:6]) in p['pairs']]
+            ctx=r.get('context',{});matches=suggestions(e,ctx)
             self.tree.insert('','end',iid=str(i),values=(e[0],e[4] if e[4] is not None else '?',e[5] if e[5] is not None else '?',ctx.get('level') or '?',r.get('name') or r.get('method','unknown'),', '.join(matches)))
-        self.status.set(f'{len(self.tree.get_children())} displayed kills. Review does not modify XP, SP or overall kills.')
+        self.status.set(f'{len(self.tree.get_children())} displayed kills. Reduced-share suggestions are approximate. XP/SP totals are unchanged.')
     def matching(self):
         ids=self.tree.selection()
         if not ids:return

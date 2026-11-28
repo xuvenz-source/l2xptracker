@@ -1049,6 +1049,8 @@ class App:
             old.win.destroy()
         self.kill_review_window=KillReviewWindow(self)
     def edit_monster(self,key):
+        old=getattr(self,'drop_editor',None)
+        if old and old.win.winfo_exists():old.win.destroy()
         self.drop_edit_profile=self.monster_library['profiles'][key]
         self.open_drop_editor()
     def open_drop_editor(self,image=None):

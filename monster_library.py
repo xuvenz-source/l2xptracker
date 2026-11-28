@@ -80,6 +80,27 @@ def at_context(timeline,ts):
 def reward(e):
     return e[1]=='xp' and e[2].casefold()=='you' and (e[4] is not None or e[5] is not None)
 
+def suggestions(e,ctx):
+    """Exact matches first; reduced shares are hints only, not assignments.
+
+    The observed XP and SP must be compatible with one common fraction
+    (allow one unit of truncation in both rewards). This is a heuristic,
+    not a verified implementation of Reborn's damage-sharing mechanics.
+    """
+    xp,sp=e[4:6]
+    if type(xp) is not int or type(sp) is not int or xp<=0 or sp<0:return []
+    exact=[];reduced=[]
+    for p in ctx.get('candidates',[]):
+        if [xp,sp] in p['pairs']:
+            exact.append(p['name']);continue
+        for base_xp,base_sp in p['pairs']:
+            if not 0<xp<base_xp or not 0<=sp<=base_sp:continue
+            lo=max(Decimal(xp)/base_xp,Decimal(sp)/base_sp if base_sp else Decimal(0))
+            hi=min(Decimal(xp+1)/base_xp,Decimal(sp+1)/base_sp if base_sp else Decimal(1))
+            if lo<hi:
+                reduced.append(p['name']+f' (~{100*xp/base_xp:.0f}% XP)');break
+    return exact+reduced
+
 def classify(e,ctx):
     xp,sp=e[4:6]
     result=dict(id=None,name=None,method='unknown',xp=xp,sp=sp,context=ctx)

@@ -21,6 +21,12 @@ class MonsterTests(unittest.TestCase):
         self.assertIsNone(classify(event(247,9),context(library(p),19,True))['id'])
         self.assertIsNone(classify(event(),context(library(p),19,False))['id'])
         self.assertIsNone(classify(event(),context(library(p),None,True))['id'])
+    def test_reduced_share_is_suggestion_not_assignment(self):
+        p=mob('Pincher');ctx=context(library(p),19,True)
+        self.assertEqual(suggestions(event(247,9),ctx),['Pincher Lv.16 (~70% XP)'])
+        self.assertIsNone(classify(event(247,9),ctx)['id'])
+        self.assertEqual(suggestions(event(247,1),ctx),[])
+        self.assertEqual(suggestions(event(),ctx),['Pincher Lv.16'])
     def test_capture_context_and_manual_review(self):
         p=mob('Pincher');q=mob('Other',17,588,26);l=library(p,q)
         events=[event(ts='b'),event(247,9,ts='d'),event(ts='b')]

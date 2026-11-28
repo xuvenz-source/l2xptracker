@@ -152,7 +152,10 @@ The Adena/Loot HUD has a dedicated Select loot table button, clickable even whil
 ## Monster Library (v0.50 experimental)
 Import monster windows once, verify name/level/base XP/SP and desired drops, and enable multiple profiles in Monster Library. Existing single-table settings migrate without inventing missing rewards. Exact unique reward signatures use floor(base / 1.1^max(0, player level - monster level)) only when the player explicitly enables normal full-stamina solo matching and level is available; this model matches the reported level-19 Pincher example but is not universally verified on Reborn. Party, stale level, missing profiles, conflicting signatures and shared-damage mismatches remain unidentified. A shared-damage reward can coincidentally equal another unique signature, so all assignments remain correctable. Review kills independently of OCR, including bulk selection of matching rewards and optional explicit normal-reward learning scoped to player level and solo/full stamina. Learning must not be used for shared damage. Context changes use capture timestamps; level transitions may be delayed by status OCR. Kill IDs reference stable event indexes, never change XP/SP or overall kills. History stores assignments and merged summaries count original sessions once. Each active monster forecasts using its identified kills per overall active session hour, or its own manual rate. First 12 targets appear in HUD; all appear on Dashboard. No automatic target HP/name, stamina or party reward calculation, or attribution of actual loot to specific kills in this version. No automatic game input, memory or network access.
 
-## Current status: v0.50
+## Reduced reward review hints (v0.50.1)
+The kill review lists exact candidates followed by approximate reduced-share suggestions when the observed XP and SP can both result from one fraction of an expected reward (with integer truncation). Suggestions never automatically assign a kill or train the library. This is a review heuristic, not proof of actual damage share. Editing a saved profile opens the requested entry even if another editor was already open.
+
+## Current status: v0.50.1
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 
