@@ -514,6 +514,28 @@ def recover_xp_slash(row,reads,read_number):
         except Exception:return None
     return values
 
+def recover_no_grade_soulshot(reads):
+    """Recover observed Medium-text aliases only, from a blue consumable row.
+
+    Require two complete independently preprocessed messages supporting the
+    same activation. Do not infer a damaged item, arbitrary grade or prefix.
+    A conflicting valid message or an explicit different grade blocks recovery.
+    """
+    votes=0
+    for raw in reads:
+        text=re.sub(r'\s+',' ',raw).strip(' .,;:|')
+        event=parse(text)
+        if event is not None:
+            if event[0]!='consumable' or event[1]!='You' or event[2].casefold()!='soulshot: no grade' or event[3]!=1:return None
+            votes+=1;continue
+        if re.fullmatch(r'Use Soulshot:\s*(?:No Grads|Ne Grace)',text,re.I):
+            votes+=1
+        elif re.search(r'\b(?:Blessed\s+)?(?:Soulshot|Spiritshot)\s*:\s*[DCSBA]\b',text,re.I):
+            return None
+        elif re.search(r'\b(?:Blessed\s+Soulshot|Spiritshot)\b',text,re.I):
+            return None
+    return 'Use Soulshot: No Grade.' if votes>=2 else None
+
 def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
     """Respect shared colours: classify by text where a hue is not unique."""
     for row in rows:
@@ -563,6 +585,13 @@ def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
                 yield report('line',next(text for text in reads if parse(text)==valid[0]))
                 break
         else:
+            # This rule is limited to an unshared, configured consumable hue.
+            # Shared beige chat and ordinary messages must never trigger it.
+            if group==('consumable',) and colours['consumable'].upper()=='#00AAFF':
+                recovered=recover_no_grade_soulshot(reads)
+                if recovered is not None:
+                    yield report('line',recovered)
+                    continue
             def read_number(crop,nearest):
                 # Use the same isolated digits and sixfold scaling as
                 # the screenshot benchmark; no replacement of / with 7.
