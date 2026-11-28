@@ -34,7 +34,7 @@ class PlayerStatus:
         for label,var,values in [('Mode',self.mode,('auto','manual')),('Level cap',self.cap,tuple(str(i) for i in range(2,76))),('Read interval (s)',self.interval,('1','2','5','10'))]:
             ttk.Label(row,text=label).pack(side='left',padx=(0,5))
             cb=ttk.Combobox(row,textvariable=var,values=values,width=8,state='readonly');cb.pack(side='left',padx=(0,16));cb.bind('<<ComboboxSelected>>',self.change)
-        ttk.Label(parent,text='Automatic capture: select only the level digits and the XP percentage, separately.',wraplength=650).pack(anchor='w',pady=(16,6))
+        ttk.Label(parent,text='Automatic capture: select only the level digits and XP percentage. View or edit all bound areas while paused.',wraplength=650).pack(anchor='w',pady=(16,6))
         self.regions=tk.StringVar();self.region_labels()
         row=ttk.Frame(parent);row.pack(fill='x')
         ttk.Button(row,text='Select level digits…',command=lambda:self.calibrate('level')).pack(side='left')
@@ -64,55 +64,7 @@ class PlayerStatus:
         except (ValueError,InvalidOperation):messagebox.showwarning('Player status','Enter a valid level and XP percentage (0–100).',parent=self.app.root);return
         self.mode.set('manual');self.config['mode']='manual';self.generation+=1;self.save()
     def calibrate(self,kind):
-        a=self.app
-        if a.running or a.pending or a.selecting or not a.target:
-            messagebox.showinfo('Player status','Stop tracking and bind the game/chat area first.',parent=a.root);return
-        if not messagebox.askokcancel('Player status','Focus the bound game within five seconds. Select a tight rectangle around the digits.',parent=a.root):return
-        a.selecting=True;a.root.withdraw();a.root.after(5000,lambda:self.select_crop(kind))
-    def select_crop(self,kind):
-        a=self.app
-        from window_focus import Windows,capture_region
-        import mss
-        try:
-            api=Windows();target=a.target
-            with mss.mss() as screen:
-                full=dict(left=0,top=0,width=target.width,height=target.height)
-                rect,reason=capture_region(api,target,full,screen.monitors[0])
-                if not rect:raise RuntimeError(reason)
-                shot=Image.frombytes('RGB',(rect['width'],rect['height']),screen.grab(rect).rgb)
-                if capture_region(api,target,full,screen.monitors[0])[0]!=rect:raise RuntimeError('Game moved during capture')
-        except Exception as e:
-            a.selecting=False;a.root.deiconify();messagebox.showerror('Player status',str(e),parent=a.root);return
-        win=tk.Toplevel(a.root);win.title('Select '+kind+' — use a tight crop');win.attributes('-topmost',True)
-        scale=min(1,(win.winfo_screenwidth()-70)/shot.width,(win.winfo_screenheight()-150)/shot.height)
-        photo=ImageTk.PhotoImage(shot.resize((round(shot.width*scale),round(shot.height*scale))))
-        cv=tk.Canvas(win,width=photo.width(),height=photo.height(),cursor='crosshair');cv.pack();cv.image=photo;cv.create_image(0,0,image=photo,anchor='nw')
-        anchor=[];box=[]
-        def close():
-            a.selecting=False;win.destroy();a.root.deiconify()
-        def down(e):
-            anchor[:]=[e.x,e.y]
-            if box:cv.delete(box[0])
-            box[:]=[cv.create_rectangle(e.x,e.y,e.x,e.y,outline='cyan',width=2)]
-        def drag(e):
-            if anchor:cv.coords(box[0],*anchor,e.x,e.y)
-        def up(e):
-            if not anchor:return
-            x,y=sorted((anchor[0],e.x));t,b=sorted((anchor[1],e.y))
-            l,r=max(0,round(x/scale)),min(shot.width,round(y/scale));t,b=max(0,round(t/scale)),min(shot.height,round(b/scale))
-            if r-l<3 or b-t<3:return
-            binding=binding_for(target)
-            if binding!=self.config['binding']:self.config['regions']={};self.config['binding']=binding;self.calibration_preview={}
-            self.config['regions'][kind]=dict(left=l,top=t,width=r-l,height=b-t)
-            self.config['mode']='auto';self.mode.set('auto');self.progress.clear();self.generation+=1
-            self.calibration_preview[kind]='testing…';self.region_labels();self.save();close()
-            region=dict(self.config['regions'][kind]);image=shot.crop((l,t,r,b))
-            def work():
-                try:value=read_number(image,kind)
-                except Exception:value=None
-                self.calibration_results.put((binding,kind,region,value))
-            threading.Thread(target=work,daemon=True).start()
-        cv.bind('<Button-1>',down);cv.bind('<B1-Motion>',drag);cv.bind('<ButtonRelease-1>',up);win.protocol('WM_DELETE_WINDOW',close)
+        self.app.select(kind)
     def protected(self):
         if self.app.target and self.config['binding']==binding_for(self.app.target):return tuple(self.config['regions'].values())
         return ()
@@ -137,7 +89,7 @@ class PlayerStatus:
                 gen,level,percent=self.results.get_nowait();self.busy=False
                 if gen==self.generation and self.config['mode']=='auto':p.observe(level,percent,self.config['cap'])
         except queue.Empty:pass
-        if self.config['mode']=='auto' and a.running and not a.selecting and not self.busy and now>=self.next_read and len(self.protected())==2:
+        if self.config['mode']=='auto' and a.running and not a.pause_gate.snapshot()[0] and not a.selecting and not self.busy and now>=self.next_read and len(self.protected())==2:
             self.busy=True;self.next_read=now+self.config['interval'];target=a.target;regions=dict(self.config['regions']);gen=self.generation
             def work():
                 level=percent=None

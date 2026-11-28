@@ -131,7 +131,10 @@ The Party tab has eleven editable dropdown slots (you plus up to eleven other ch
 ## Party and currency review hotfix (v0.45.1)
 Party estimates preserve the configured spelling of character names over OCR case variants. Malformed currency messages using either obtained or earned no longer become item drops. Existing saved misclassified reviews are interpreted from their evidence in the review filter, editor and approval; ambiguous amounts remain blank until corrected. No automatic slash substitutions or retroactive changes to counted events.
 
-## Current status: v0.45.1
+## Paused-session region editing (v0.46)
+Bound areas… on the main toolbar or Settings → Tracking opens a single passive screenshot editor. Existing chat (cyan), level (gold) and experience (purple) areas are displayed together. Select an area, move it, redraw to resize, nudge with arrow keys or zoom to native/200% for small fields. Active sessions must be manually paused; Save areas leaves the session paused and Save & resume resumes it. The capture worker receives the updated target and chat rectangle via a revision-protected binding, and status OCR discards old-generation results. Old chat is not replayed; rewards received during pause are not counted. Same-title/class restarted game windows can be rebound without starting a fresh log. Existing manual player-progress mode is preserved. Changes are persisted; Cancel leaves existing geometry unchanged. No game input or memory access.
+
+## Current status: v0.46
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

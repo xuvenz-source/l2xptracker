@@ -30,6 +30,8 @@ from numeric_templates import recognise as recognise_numeric, strict_adena
 from ocr_evidence import OcrEvidence, png as evidence_png
 from scroll_ui import ScrollPage,table_scroll
 from player_ui import PlayerStatus
+from region_editor import RegionEditor,draft_regions,calibration_data
+from leveling import save_status,binding_for
 from hud_layout import WIDGETS, PRESETS, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
 from hud import rate_text
 from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows, row_alignment, aligned_rows, bottom_clipped
@@ -599,6 +601,7 @@ class App:
         self.pause_btn=ttk.Button(actions,text='Pause',command=self.toggle_pause,state='disabled');self.pause_btn.pack(side='left',padx=7)
         self.stop_btn=ttk.Button(actions,text='Stop',command=self.stop,state='disabled',style='Danger.TButton');self.stop_btn.pack(side='left')
         self.reset_btn=ttk.Button(actions,text='Reset',command=self.reset_session,state='disabled');self.reset_btn.pack(side='left',padx=7)
+        ttk.Button(actions,text='Bound areas…',command=self.select,style='Compact.TButton').pack(side='left',padx=(4,0))
         ttk.Label(actions,textvariable=self.party_status,style='Muted.TLabel').pack(side='right')
         self.tabs=ttk.Notebook(root)
         self.pages={}
@@ -678,7 +681,7 @@ class App:
         ttk.Label(content,text='Tracking settings',style='Title.TLabel').pack(anchor='w')
         ttk.Label(content,text='Game capture',style='Section.TLabel').pack(anchor='w',pady=(14,5))
         calibration=ttk.Frame(content);calibration.pack(fill='x',pady=(0,6))
-        ttk.Button(calibration,text='Bind game / chat area',command=self.select).pack(side='left')
+        ttk.Button(calibration,text='View / edit bound areas',command=self.select).pack(side='left')
         ttk.Label(calibration,text='Text size:').pack(side='left',padx=(14,4))
         self.text_size=tk.StringVar(value=self.chat_style['size'])
         sizes=ttk.Combobox(calibration,textvariable=self.text_size,values=(*TEXT_SIZES,'Manual'),state='readonly',width=9);sizes.pack(side='left');sizes.bind('<<ComboboxSelected>>',self.select_text_size)
@@ -975,50 +978,65 @@ class App:
         try:
             data=dict(self.saved,pitch=int(self.pitch.get())); settings.save(data); self.saved=data
         except (ValueError, OSError): pass
-    def select(self):
-        if getattr(self,'update_busy',False):return
-        if self.running or self.pending or self.selecting: return
-        if not messagebox.askokcancel('Bind Lineage 2', 'After clicking OK, you have 5 seconds to focus the actual Lineage 2 game window. The tracker will take one screenshot of that window for chat selection. Include all text, especially the complete bottom line, plus a few pixels of margin underneath. Keep chat visible.'): return
-        self.selecting=True; self.root.withdraw(); self.root.after(5000,self.selector)
-    def selector(self):
+    def select(self,kind='chat'):
+        if getattr(self,'update_busy',False) or self.selecting or self.closing:return
+        if self.pending and not self.running:
+            messagebox.showinfo('Bound areas','Wait for the current session to finish processing.');return
+        if self.running and not self.pause_gate.snapshot()[0]:
+            if not messagebox.askyesno('Bound areas','Pause the current session to edit its bound areas? Your log and totals will be kept.'):return
+            self.toggle_pause()
+        if not messagebox.askokcancel('Bound areas','Focus the Lineage 2 game window within five seconds. A screenshot will open with the existing areas marked. Tracking stays paused until you resume.'):return
+        self.selecting=True
+        if self.hud:self.hud.cancel_placement();self.hud.hide()
+        self.player.generation+=1
+        self.root.withdraw();self.root.after(5000,lambda:self.selector(kind))
+    def selector(self,kind='chat'):
         try:
-            api=Windows(); target=api.bind_foreground()
-            with mss.mss() as s:
+            api=Windows();target=api.bind_foreground()
+            previous=self.target
+            if self.running and previous and (target.title,target.window_class)!=(previous.title,previous.window_class):
+                raise RuntimeError('Focus the same Lineage 2 client type used by this session.')
+            with mss.mss() as screen:
                 full=dict(left=0,top=0,width=target.width,height=target.height)
-                mon,reason=capture_region(api,target,full,s.monitors[0])
-                if not mon: raise RuntimeError(reason)
-                shot=Image.frombytes('RGB', (mon['width'],mon['height']),s.grab(mon).rgb)
-                after,_=capture_region(api,target,full,s.monitors[0])
-                if after!=mon: raise RuntimeError('Window focus or position changed during selection. Try again.')
+                rect,reason=capture_region(api,target,full,screen.monitors[0])
+                if not rect:raise RuntimeError(reason)
+                shot=Image.frombytes('RGB',(rect['width'],rect['height']),screen.grab(rect).rgb)
+                if capture_region(api,target,full,screen.monitors[0])[0]!=rect:raise RuntimeError('Game moved during capture. Try again.')
+            if not previous or (target.hwnd,target.pid)!=(previous.hwnd,previous.pid):
+                if not messagebox.askyesno('Confirm game window',f'Use {target.title!r}? Confirm only if this is your Lineage 2 game.',parent=self.root):
+                    self.finish_region_editor(False);return
+            regions=draft_regions(target,previous,self.region,self.player.config)
+            RegionEditor(self,target,shot,regions,kind,self.apply_bound_regions,self.finish_region_editor)
         except Exception as e:
-            self.selecting=False; self.root.deiconify(); messagebox.showerror('Capture',str(e)); return
-        win=tk.Toplevel(self.root); win.title(f'{target.title} — select chat text, exclude scrollbar'); win.attributes('-topmost',True); self.appearance.restyle(win)
-        scale=min(1,(win.winfo_screenwidth()-70)/shot.width,(win.winfo_screenheight()-150)/shot.height)
-        iw,ih=round(shot.width*scale),round(shot.height*scale)
-        photo=ImageTk.PhotoImage(shot.resize((iw,ih))); canvas=tk.Canvas(win,width=iw,height=ih,cursor='cross',highlightthickness=0); canvas.pack(); canvas.create_image(0,0,image=photo,anchor='nw'); canvas.image=photo
-        anchor=[]; rect=[]
-        def down(e):
-            anchor[:]=[e.x,e.y]
-            if rect: canvas.delete(rect[0])
-            rect[:]=[canvas.create_rectangle(e.x,e.y,e.x,e.y,outline='cyan',width=2)]
-        def drag(e):
-            if anchor: canvas.coords(rect[0],*anchor,e.x,e.y)
-        def up(e):
-            if not anchor:return
-            x1,x2=sorted((anchor[0],e.x)); y1,y2=sorted((anchor[1],e.y)); x1=max(0,x1); y1=max(0,y1); x2=min(iw,x2); y2=min(ih,y2)
-            l,t=round(x1/scale),round(y1/scale); r,b=round(x2/scale),round(y2/scale)
-            if r-l<100 or b-t<54:return
-            if not messagebox.askyesno('Confirm game window',f'Bind to {target.title!r}? Only confirm if this is your Lineage 2 game.',parent=win): return
-            self.region={'left':l,'top':t,'width':r-l,'height':b-t}; self.target=target
-            try:
-                self.persist(); self.status.set(f'Saved chat calibration for {target.title}: {r-l} × {b-t}px. Start, then focus game.')
-            except Exception as e: self.status.set(f'Bound, but settings could not be saved: {e}')
-            self.selecting=False; win.destroy(); self.root.deiconify()
-        def cancel(*_): self.selecting=False; win.destroy(); self.root.deiconify()
-        canvas.bind('<Button-1>',down); canvas.bind('<B1-Motion>',drag); canvas.bind('<ButtonRelease-1>',up); win.bind('<Escape>',cancel); win.protocol('WM_DELETE_WINDOW',cancel)
+            self.finish_region_editor(False);messagebox.showerror('Capture',str(e),parent=self.root)
+    def apply_bound_regions(self,target,regions):
+        if self.running and not self.pause_gate.snapshot()[0]:raise RuntimeError('Pause the session first.')
+        if self.pending and not self.running:raise RuntimeError('Wait for the finishing session.')
+        pitch=self.session_pitch if self.running else int(self.pitch.get())
+        player=self.player;old=player.config
+        data,status=calibration_data(target,regions,pitch,old,self.hud.preferred if self.hud else None)
+        # Persist both calibration records before replacing the live binding.
+        # Restore the original status preferences if the chat write fails.
+        save_status(status)
+        try:settings.save(data)
+        except Exception:
+            save_status(old);raise
+        if self.running:self.pause_gate.replace_binding(target,data['region'])
+        self.target=target;self.region=dict(data['region']);self.saved=data
+        changed=status!=old
+        player.config=status;player.generation+=1;player.next_read=0
+        player.calibration_preview={};player.last_binding=binding_for(target)
+        if changed and status['mode']=='auto':player.progress.clear()
+        if hasattr(player,'regions'):player.region_labels()
+        self.capture_state='WAITING FOR CHAT'
+        if self.running:self.append('SESSION: Bound areas updated while paused; chat will establish a fresh baseline.')
+        self.status.set('Bound areas saved. Resume when ready.' if self.running else 'Bound areas saved. Ready to start.')
+    def finish_region_editor(self,resume):
+        self.selecting=False;self.root.deiconify()
+        if resume and self.running and self.pause_gate.snapshot()[0]:self.toggle_pause()
     def start(self,rollover=None):
         if getattr(self,'update_busy',False):return
-        if self.running or self.pending or self.closing:return
+        if self.running or self.pending or self.closing or getattr(self,'selecting',False):return
         if rollover is None and hasattr(self,'colour_vars') and not self.apply_chat_style():return
         if self.saved and (not self.target or not self.api.usable(self.target.hwnd) or self.api.pid(self.target.hwnd)!=self.target.pid):
             self.target=self.api.find_saved(self.saved)
@@ -1085,7 +1103,7 @@ class App:
             with mss.mss() as s:
                 while not halt.is_set():
                     tick=time.monotonic()
-                    manual,current,pause_on_blur=gate.capture_policy()
+                    manual,current,pause_on_blur,target,region=gate.capture_context(target,region)
                     if current!=revision:
                         old=None;old_rgb=None; failures=0; last_active=None; revision=current;alignment=None
                         capture_state('WAITING FOR CHAT')
@@ -1189,14 +1207,14 @@ class App:
             if end:break
         self.inbox.put(('done','ocr'))
     def toggle_pause(self):
-        if not self.running:return
+        if not self.running or getattr(self,'selecting',False):return
         paused=self.pause_gate.toggle()
         diagnostic('manual pause: %s',paused)
         self.pause_btn.config(text='Resume' if paused else 'Pause')
         self.status.set('Manually paused — click Resume to continue. Buffered lines may still finish.' if paused else 'Resuming — keep Lineage 2 chat visible. Chat will resynchronise.')
         self.append('SESSION: Manually paused.' if paused else 'SESSION: Resumed; skipped messages will not be recovered.')
     def reset_session(self):
-        if not self.running or self.closing or getattr(self,'update_busy',False) or getattr(self,'reset_request',None) is not None:return
+        if not self.running or self.closing or getattr(self,'selecting',False) or getattr(self,'update_busy',False) or getattr(self,'reset_request',None) is not None:return
         # Keep the active configuration, not unapplied edits in Settings.
         colours=getattr(self,'session_colours',None)
         self.reset_request=dict(pitch=self.session_pitch, colours=dict(colours) if colours is not None else None, prices=dict(self.session_prices), loot_prices=dict(getattr(self,'session_loot_prices',{})), party=list(self.party_members), paused=self.pause_gate.snapshot()[0])
@@ -1575,7 +1593,7 @@ class App:
                 net=getattr(self,'hud_net_adena',False)
                 player=getattr(self,'player',None)
                 widgets=dict(getattr(player,'widgets',{}),loot=('LOOT/H',rate_text(getattr(self,'loot_report',{}).get('value',0),self.active_seconds)),cost=('COST/H',rate_text(report.get('cost',0),self.active_seconds)))
-                self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get(),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills,paused=self.pause_gate.snapshot()[0],consumable_cost=report.get('cost',0) if net else None,unpriced_uses=report.get('unpriced',0) if net else 0,widgets=widgets,protected=player.protected() if player else (),capture_state=getattr(self,'capture_state','SESSION ACTIVE'))
+                self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get() and not self.selecting,self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills,paused=self.pause_gate.snapshot()[0],consumable_cost=report.get('cost',0) if net else None,unpriced_uses=report.get('unpriced',0) if net else 0,widgets=widgets,protected=player.protected() if player else (),capture_state=getattr(self,'capture_state','SESSION ACTIVE'))
             except Exception as e:
                 diagnostic('HUD update exception',exc_info=True)
                 hud,self.hud=self.hud,None
@@ -1644,6 +1662,7 @@ class App:
         self.refresh_totals();self.refresh_reviews();self.status.set(f"Opened saved session: {r['name']}. Reviews will update the archive and merged reports.")
         return True
     def close(self):
+        if getattr(self,'selecting',False):return False
         if getattr(self,'update_busy',False):
             messagebox.showinfo('Update in progress','The update is being verified. Close after it finishes or reports an error.');return False
         if self.running or self.pending:

@@ -118,7 +118,7 @@ def capture_region(api, target, local, desktop, pause_on_blur=True):
     if not geo: return None, 'Paused — game window geometry unavailable.'
     x, y, w, height = geo
     if (w, height) != (target.width, target.height):
-        return None, 'Paused — game size changed. Restore its size or stop and reselect chat.'
+        return None, 'Paused — game size changed. Restore its size or pause and edit bound areas.'
     l,t,r,b = local['left'],local['top'],local['width'],local['height']
     if min(l,t)<0 or min(r,b)<=0 or l+r>w or t+b>height:
         return None, 'Paused — selected chat is outside the game client.'

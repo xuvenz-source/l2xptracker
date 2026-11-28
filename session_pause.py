@@ -7,10 +7,19 @@ class PauseGate:
         self.paused=False
         self.revision=0
         self.pause_on_blur=bool(pause_on_blur)
+        self.binding=None
     def snapshot(self):
         with self.lock:return self.paused,self.revision
     def capture_policy(self):
         with self.lock:return self.paused,self.revision,self.pause_on_blur
+    def capture_context(self,target,region):
+        with self.lock:
+            if self.binding is not None:target,region=self.binding
+            return self.paused,self.revision,self.pause_on_blur,target,dict(region)
+    def replace_binding(self,target,region):
+        with self.lock:
+            if not self.paused:raise RuntimeError('Pause tracking before changing bound areas.')
+            self.binding=(target,dict(region));self.revision+=1
     def set_focus_policy(self,value):
         with self.lock:
             if self.pause_on_blur!=bool(value):
