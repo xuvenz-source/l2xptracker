@@ -658,7 +658,7 @@ class App:
         self.hud_net_adena=load_hud_net_adena();self.hud_config=load_hud();self.drop_config=load_drop_targets();self.monster_library=monsters.load();self.monster_kills={};self.monster_contexts=[];self.monster_counts_cache=None;self.monster_tracking=False
         self.default_prices=load_prices();self.session_prices=dict(self.default_prices);self.consumable_report=cost_report([])
         self.default_loot_prices=load_loot_prices();self.session_loot_prices=dict(self.default_loot_prices);self.loot_report=loot_report([]);self.loot_rows={}
-        self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
+        self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message panel and use Auto-fit chat.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
         self.party_members=[]; self.next_party_members=load_current_party(); self.party_periods=[];self.party_cache=None; self.kills=0; self.update_busy=False
         self.sp_anchor=None;self.sp_live=False
         self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False;self.reset_request=None
@@ -1596,7 +1596,7 @@ class App:
                             diagnostic('capture progress: frames=%d queued_batches=%d active_seconds=%.1f',frames,batches,self.active_seconds)
                             last_report=now
                         if clipped:
-                            status('Chat bottom is clipped. Rebind chat to include the entire last line and a small margin. Tracking complete rows only.')
+                            status('Chat bottom is clipped. Rebind the system-message panel and use Auto-fit chat, or include the full last line and a small margin. Tracking complete rows only.')
                         else:status(f'Tracking {target.title} — '+('focused only.' if pause_on_blur else 'visible chat, including in background.'))
                         if old is None:
                             old=new;old_rgb=rgb.copy() if colours else None;capture_state('CHAT READY' if new.sum()>=24 else 'WAITING FOR CHAT')

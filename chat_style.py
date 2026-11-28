@@ -165,3 +165,52 @@ def aligned_rows(rgb,pitch,phase,colours):
     n=len(cropped)//pitch
     rows=cropped[:n*pitch].reshape(n,pitch,rgb.shape[1],3)
     return styled_rows(cropped,pitch,colours,tolerance=25),rows
+
+
+def fit_chat_panel(rgb,pitch,colours):
+    """Find the bottom of the visible chat lattice within a user-drawn panel.
+
+    Return a crop local to rgb, measured pitch and band count, or None.
+    Preserve width and top for future longer messages and initially empty
+    rows. Only trim a positively identified bottom margin.
+    """
+    if rgb.ndim!=3 or rgb.shape[2]!=3 or rgb.shape[1]<100 or not 10<=pitch<=40:return None
+    h,w=rgb.shape[:2]
+    if h<3*pitch:return None
+    # Use the same palette tolerance as live alignment. Ignore tiny
+    # isolated controls, but retain beige status text as lattice anchors.
+    mask=np.logical_or.reduce(list(pixel_masks(rgb,colours,tolerance=30).values()))
+    bands=[]
+    ys=np.flatnonzero(mask.sum(1)>=max(5,round(w*.012)))
+    for group in np.split(ys,np.where(np.diff(ys)>2)[0]+1):
+        if not len(group):continue
+        a,b=int(group[0]),int(group[-1])+1
+        if b-a<5:continue
+        sub=mask[a:b];xs=np.flatnonzero(sub.sum(0)>=3)
+        if not len(xs) or xs[-1]-xs[0]<35 or sub.sum()<60:continue
+        bands.append((a,b,int(xs[min(4,len(xs)-1)])))
+    if len(bands)<3:return None
+    # Use the fifth populated column rather than the first to tolerate
+    # a few stray scrollbar pixels. Reject inconsistent left edges.
+    left=int(np.median([x for _,_,x in bands]))
+    if any(abs(x-left)>18 for _,_,x in bands):return None
+    centres=np.array([(a+b-1)/2 for a,b,_ in bands])
+    measured=fit_lattice(centres,pitch)
+    if measured is None:return None
+    actual,phase,_=measured
+    if any(abs(((c-phase)%actual)-actual/2)>2.5 for c in centres):return None
+    if any(b-a>actual-3 for a,b,_ in bands):return None
+    if np.any(np.diff(centres)>actual*1.5):return None
+    # A large blank tail can mean the selected region includes another
+    # panel, or a sparse/partially populated chat. Do not guess its floor.
+    if h-bands[-1][1]>2*actual:return None
+    # Derive the last complete slot boundary using the live aligner's
+    # phase. Three spare pixels tolerate small changes without a blank row.
+    p,phase,confident=row_alignment(rgb,pitch,colours)
+    if not confident or p!=actual:return None
+    last=bands[-1][1]
+    end=phase+int(np.ceil((last-phase)/p))*p
+    if end-last>p//2 or end+3>h or end<3*p:return None
+    bottom=end+3
+    if row_alignment(rgb[:bottom],pitch,colours)[:2]!=(p,phase):return None
+    return dict(left=0,top=0,width=w,height=bottom),p,len(bands)

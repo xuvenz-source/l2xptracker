@@ -5,6 +5,8 @@ from PIL import Image,ImageTk
 from leveling import binding_for
 from settings import validate
 from copy import deepcopy
+import numpy as np
+from chat_style import fit_chat_panel
 
 LABELS={'chat':'Chat','level':'Level','percent':'Experience %'}
 COLOURS={'chat':'#42e8ed','level':'#ffd35b','percent':'#b9a0ff'}
@@ -48,7 +50,7 @@ class RegionEditor:
         self.info=tk.StringVar(master=win)
         header=ttk.Frame(win,padding=(10,6));header.pack(fill='x')
         ttk.Label(header,text='Edit bound areas',style='Title.TLabel').pack(anchor='w')
-        ttk.Label(header,text='Select an area, drag to move it, or choose Redraw to resize or replace it. Arrow keys nudge by one pixel. Include the complete bottom chat line.',wraplength=760).pack(anchor='w',pady=(3,5))
+        ttk.Label(header,text='For chat, draw around the whole system-message panel (including its border), then click Auto-fit chat. Verify the fitted outline before saving. For level and XP, select the digits. Arrow keys nudge.',wraplength=760).pack(anchor='w',pady=(3,5))
         bar=ttk.Frame(header);bar.pack(fill='x')
         for k,label in LABELS.items():
             ttk.Radiobutton(bar,text=label,value=k,variable=self.selected,command=self.draw).pack(side='left',padx=(0,8))
@@ -60,6 +62,7 @@ class RegionEditor:
         ttk.Label(footer,textvariable=self.info,wraplength=760).pack(fill='x',pady=(0,4))
         row=ttk.Frame(footer);row.pack(fill='x')
         ttk.Button(row,text='Clear selected',command=self.clear).pack(side='left')
+        ttk.Button(row,text='Auto-fit chat',command=self.auto_fit_chat).pack(side='left',padx=5)
         ttk.Button(row,text='Cancel',command=self.cancel).pack(side='right')
         ttk.Button(row,text='Save areas',style='Primary.TButton',command=lambda:self.save(False)).pack(side='right',padx=5)
         if app.running:ttk.Button(row,text='Save & resume',style='Primary.TButton',command=lambda:self.save(True)).pack(side='right',padx=5)
@@ -116,6 +119,23 @@ class RegionEditor:
         k=self.selected.get()
         if k in self.regions:self.regions[k]=move_region(self.regions[k],dx,dy,self.shot.width,self.shot.height);self.draw()
         return 'break'
+    def auto_fit_chat(self):
+        r=self.regions.get('chat')
+        if not r:
+            self.info.set('Draw a rough rectangle around the system-message panel first.');return
+        self.selected.set('chat')
+        x,y,w,h=(r[k] for k in ('left','top','width','height'))
+        style=self.app.chat_style
+        pitch=self.app.session_pitch if self.app.running else int(self.app.pitch.get())
+        colours=getattr(self.app,'session_colours',None) if self.app.running else style['colours']
+        if not colours:colours=style['colours']
+        rgb=np.asarray(self.shot.crop((x,y,x+w,y+h)).convert('RGB'))
+        fit=fit_chat_panel(rgb,pitch,colours)
+        if fit is None:
+            self.draw();self.info.set('Auto-fit could not verify a complete chat lattice. Include only the system-message panel with at least three visible lines and a small bottom margin, or adjust manually.');return
+        local,actual,count=fit
+        self.regions['chat']=dict(left=x+local['left'],top=y+local['top'],width=local['width'],height=local['height'])
+        self.draw();self.info.set(f'Auto-fit: {count} message bands, {actual}px spacing. Removed {h-local["height"]}px bottom margin. Check the outline includes the last message, then save.')
     def clear(self):
         self.regions.pop(self.selected.get(),None);self.draw()
     def cancel(self):
@@ -142,7 +162,9 @@ class OverlayRegionEditor(RegionEditor):
             row=ttk.Frame(bar);row.pack(fill='x')
             for mode,label in [('move','Move'),('draw','Redraw / resize')]:ttk.Radiobutton(row,text=label,value=mode,variable=self.mode,command=self.draw).pack(side='left',padx=3)
             ttk.Button(row,text='Clear',command=self.clear).pack(side='right')
+            ttk.Button(row,text='Auto-fit chat',command=self.auto_fit_chat).pack(side='right',padx=3)
             ttk.Label(bar,textvariable=self.info,wraplength=440).pack(anchor='w',pady=3)
+            ttk.Label(bar,text='Draw around the system-message panel, then Auto-fit chat.',wraplength=440).pack(anchor='w')
             ttk.Label(bar,text='1/2/3 select · M/R move/redraw · arrows nudge · Tab hides toolbar').pack(anchor='w')
             row=ttk.Frame(bar);row.pack(fill='x')
             ttk.Button(row,text='Cancel',command=self.cancel).pack(side='left')
