@@ -36,3 +36,5 @@ The fixed-size character status font is independent of chat text size. Bind the 
 ### Native status digit recogniser (initial coverage)
 
 Character level and XP percentage now attempt exact native pixel matches at two brightness thresholds before OCR. The separate level badge library initially contains 0 and 2. The white status font contains 0, 1, 4, 5, 7, 8, decimal point and percent sign; 5, 7 and 8 are sourced from HP/MP glyphs and still need independent XP-bar examples. Missing digits, changed geometry, additional UI content and ambiguous matches fall back to the existing status OCR. The existing live-reading confirmation rules remain in place. Chat OCR is unchanged. Additional verified native-size screenshots are needed to extend coverage; no automatic template learning from uncertain OCR.
+
+The supplied Character Status window adds verified XP-bar 2 and 6 and a second 5 mask; MP supplies 9. The white bar library now contains nine digits (3 missing), decimal and percent. The gold text in the detailed stats and the level badge remain separate fonts. No raw full-window screenshot is retained.

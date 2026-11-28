@@ -36,4 +36,4 @@ class StatusDigitTests(unittest.TestCase):
             self.assertIsNone(recognise_status(crop('percent'),'percent'))
     def test_verified_template_inventory(self):
         self.assertEqual(set(TEMPLATES['level'][120]),set('20'))
-        self.assertEqual(set(TEMPLATES['percent'][140]),set('014578.%'))
+        self.assertEqual(set(TEMPLATES['percent'][140]),set('012456789.%'))
