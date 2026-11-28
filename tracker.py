@@ -21,7 +21,7 @@ from history_ui import HistoryWindow
 from runtime_ocr import configure_ocr
 from version import VERSION
 from diagnostics import setup_diagnostics, diagnostic
-from appearance import Appearance, Dashboard, save_mode
+from appearance import Appearance, Dashboard, RateTrend, save_mode
 from preferences import load_focus_pause, save_focus_pause, load_auto_update, save_auto_update, load_hud_opacity, save_hud_opacity, HUD_OPACITY_MIN, HUD_OPACITY_MAX, HUD_OPACITY_DEFAULT, load_hud_net_adena, save_hud_net_adena
 from party_setup_ui import PartySetup
 from update_ui import UpdateUI
@@ -569,7 +569,7 @@ def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
 
 class App:
     def __init__(self,root):
-        self.root=root; root.title(f'L2 Legacy Farming Tracker — v{VERSION} Portable'); root.geometry('1020x780'); root.minsize(850,600)
+        self.root=root; root.title(f'L2 Legacy Farming Tracker — v{VERSION} Portable'); root.geometry('1240x800'); root.minsize(1000,650)
         self.appearance=Appearance(root)
         self.pause_on_blur=load_focus_pause();self.auto_update=load_auto_update();self.settings_win=None
         self.hud_opacity=load_hud_opacity();self.hud_opacity_save_job=None
@@ -604,8 +604,8 @@ class App:
         try: self.archive=Archive()
         except Exception as e: messagebox.showerror("Session storage",f"Could not open session history: {e}")
         header=ttk.Frame(root,padding=(20,15,20,6));header.pack(fill='x')
-        ttk.Label(header,text='L2 Legacy Tracker',style='Title.TLabel').pack(side='left')
-        ttk.Label(header,text=f'v{VERSION}  ·  Farming analytics',style='Muted.TLabel').pack(side='left',padx=14)
+        ttk.Label(header,text='L2 LEGACY TRACKER',style='Brand.TLabel').pack(side='left')
+        ttk.Label(header,text=f'v{VERSION}  ·  Farming analytics',style='Muted.TLabel').pack(side='right')
         self.dark_mode=tk.BooleanVar(value=self.appearance.mode=='dark')
         self.party_status=tk.StringVar(value=self.party_label('Next session',self.next_party_members))
         actions=ttk.Frame(root,padding=(20,3,20,8));actions.pack(fill='x')
@@ -615,24 +615,58 @@ class App:
         self.reset_btn=ttk.Button(actions,text='Reset',command=self.reset_session,state='disabled');self.reset_btn.pack(side='left',padx=7)
         ttk.Button(actions,text='Bound areas…',command=self.select,style='Compact.TButton').pack(side='left',padx=(4,0))
         ttk.Label(actions,textvariable=self.party_status,style='Muted.TLabel').pack(side='right')
-        self.tabs=ttk.Notebook(root)
-        self.pages={}
-        for key,label in [('dashboard','Dashboard'),('activity','Activity'),('review','Reviews (0)'),('history','History'),('party','Party'),('settings','Settings')]:
-            page=ttk.Frame(self.tabs,padding=8);self.pages[key]=page;self.tabs.add(page,text=label)
+        self.workspace=ttk.Frame(root)
+        self.sidebar=ttk.Frame(self.workspace,style='Sidebar.TFrame',padding=(8,12));self.sidebar.pack(side='left',fill='y',padx=(0,12))
+        ttk.Label(self.sidebar,text='WORKSPACE',style='SidebarCaption.TLabel',padding=(8,4)).pack(anchor='w',pady=(0,6))
+        self.tabs=ttk.Notebook(self.workspace,style='Workspace.TNotebook')
+        self.pages={};self.nav_buttons={};self.nav_labels={}
+        for key,label in [('dashboard','Overview'),('progression','Progression'),('loot','Loot & Adena'),('monsters','Monster Library'),('party','Party'),('history','Session History'),('review','Reviews (0)'),('activity','Activity Log'),('settings','Settings'),('kill_review','Monster Reviews')]:
+            page=ttk.Frame(self.tabs,padding=(8,5,12,8));self.pages[key]=page;self.tabs.add(page,text=label)
+            if key!='kill_review':
+                self.nav_labels[key]=label
+                button=ttk.Button(self.sidebar,text=label,width=18,style='Nav.TButton',command=lambda k=key:self.navigate(k))
+                button.pack(fill='x',pady=1);self.nav_buttons[key]=button
+        self.nav_buttons['dashboard'].state(['selected'])
+        self.session_state=tk.StringVar(value='Idle')
+        ttk.Label(self.sidebar,textvariable=self.session_state,style='SidebarCaption.TLabel',padding=(8,7),wraplength=150).pack(side='bottom',anchor='w')
         self.dashboard_scroll=ScrollPage(self.pages['dashboard']);self.dashboard_scroll.pack(fill='both',expand=True)
-        dash=self.dashboard_scroll.content
-        self.dashboard=Dashboard(dash);self.dashboard.pack(fill='x',pady=(0,4))
-        self.player.build_dashboard(dash)
-        ttk.Label(dash,textvariable=self.stats,wraplength=880,padding=(0,3,0,12),style='Muted.TLabel').pack(fill='x')
+        overview=self.dashboard_scroll.content
+        ttk.Label(overview,text='Overview',style='Title.TLabel').pack(anchor='w')
+        ttk.Label(overview,text='Live session performance',style='Muted.TLabel').pack(anchor='w',pady=(0,12))
+        self.dashboard=Dashboard(overview);self.dashboard.pack(fill='x',pady=(0,10))
+        self.player.build_dashboard(overview,include_sp=False)
+        self.trend=RateTrend(overview,self.appearance);self.trend.pack(fill='x',pady=(0,8))
+        farm=ttk.Frame(overview,style='Card.TFrame',padding=12);farm.pack(fill='x',pady=(0,8))
+        ttk.Label(farm,text='CURRENT FARM',style='CardLabel.TLabel').pack(anchor='w')
+        self.current_farm=tk.StringVar(value='No default monster selected')
+        ttk.Label(farm,textvariable=self.current_farm,style='CardTitle.TLabel',wraplength=600).pack(anchor='w',pady=5)
+        ttk.Button(farm,text='Monster library',style='Compact.TButton',command=self.open_monster_library).pack(anchor='w')
+        summary=ttk.Label(overview,textvariable=self.stats,wraplength=720,padding=(0,3,0,12),style='Muted.TLabel');summary.pack(fill='x')
+        summary.bind('<Configure>',lambda e:summary.configure(wraplength=max(100,e.width-8)))
+        progression_scroll=ScrollPage(self.pages['progression']);progression_scroll.pack(fill='both',expand=True)
+        progression=progression_scroll.content
+        ttk.Label(progression,text='Progression',style='Title.TLabel').pack(anchor='w')
+        ttk.Label(progression,text='Experience, levels and skill points',style='Muted.TLabel').pack(anchor='w',pady=(0,10))
+        self.player.build_dashboard(progression)
+        row=ttk.Frame(progression);row.pack(fill='x',pady=8)
+        ttk.Button(row,text='Set level / XP %',command=self.open_quick_player_progress).pack(side='left')
+        ttk.Button(row,text='Use automatic OCR',command=self.enable_player_ocr).pack(side='left',padx=5)
+        ttk.Button(row,text='Player settings',command=lambda:self.open_settings_section('Player status')).pack(side='left',padx=5)
+        loot_scroll=ScrollPage(self.pages['loot']);loot_scroll.pack(fill='both',expand=True)
+        dash=loot_scroll.content
+        ttk.Label(dash,text='Loot & Adena',style='Title.TLabel').pack(anchor='w')
+        self.drop_summary=tk.StringVar(value='No desired drops selected.')
+        targets=ttk.Frame(dash,style='Card.TFrame',padding=12);targets.pack(fill='x',pady=(8,12))
+        ttk.Label(targets,text='Desired drops',style='CardTitle.TLabel').pack(anchor='w')
+        drop_label=ttk.Label(targets,textvariable=self.drop_summary,wraplength=700,style='CardBody.TLabel');drop_label.pack(fill='x',pady=5)
+        drop_label.bind('<Configure>',lambda e:drop_label.configure(wraplength=max(100,e.width-8)))
+        ttk.Button(targets,text='Monster library',command=self.open_monster_library,style='Compact.TButton').pack(side='left')
+        ttk.Button(targets,text='Review kills',command=self.open_monster_reviews,style='Compact.TButton').pack(side='left',padx=5)
         loot_header=ttk.Frame(dash);loot_header.pack(fill='x',pady=(2,8))
         ttk.Label(loot_header,text='Session loot',style='Section.TLabel').pack(side='left')
-        ttk.Button(loot_header,text='Monster Library…',command=self.open_monster_library).pack(side='left',padx=6)
-        ttk.Button(loot_header,text='Review kills…',command=self.open_monster_reviews).pack(side='left',padx=4)
-        self.drop_summary=tk.StringVar(value='No desired drops selected.')
-        ttk.Label(dash,textvariable=self.drop_summary,wraplength=850,style='Muted.TLabel').pack(anchor='w',pady=(0,4))
-        ttk.Button(loot_header,text='Export CSV',command=self.export).pack(side='right')
-        ttk.Button(loot_header,text='Set default value…',command=self.edit_default_loot_value).pack(side='right',padx=5)
-        ttk.Button(loot_header,text='Edit item value…',command=self.edit_loot_value).pack(side='right',padx=5)
+        ttk.Button(loot_header,text='Export CSV',command=self.export,style='Compact.TButton').pack(side='right')
+        ttk.Button(loot_header,text='Default value…',command=self.edit_default_loot_value,style='Compact.TButton').pack(side='right',padx=5)
+        ttk.Button(loot_header,text='Edit value…',command=self.edit_loot_value,style='Compact.TButton').pack(side='right',padx=5)
         loot=ttk.Frame(dash);loot.pack(fill='both',expand=True)
         self.tree=ttk.Treeview(loot,columns=('who','item','qty','unit','value'),show='headings',height=9,selectmode='browse')
         for c,t,w in [('who','Player',120),('item','Item',280),('qty','Quantity',90),('unit','Adena / item',110),('value','Est. sell value',130)]:
@@ -662,7 +696,8 @@ class App:
         log_scroll=ttk.Scrollbar(log_frame,orient='vertical',command=self.log.yview);self.log.configure(yscrollcommand=log_scroll.set)
         log_scroll.pack(side='right',fill='y');self.log.pack(fill='both',expand=True)
         bottom=ttk.Frame(root,padding=(12,3,12,7));bottom.pack(side='bottom',fill='x')
-        self.tabs.pack(fill='both',expand=True,padx=8,pady=(0,4))
+        self.workspace.pack(fill='both',expand=True,padx=(12,8),pady=(0,4))
+        self.tabs.pack(side='left',fill='both',expand=True)
         status_label=ttk.Label(bottom,textvariable=self.status,wraplength=600,style='Status.TLabel');status_label.pack(side='left',fill='x',expand=True)
         status_label.bind('<Configure>',lambda e:status_label.configure(wraplength=max(100,e.width-8)))
         self.updates=UpdateUI(self,bottom)
@@ -672,28 +707,40 @@ class App:
         self.appearance.restyle(root)
         root.after(100,self.tick);root.after(25,self.hud_tick);root.protocol('WM_DELETE_WINDOW',self.close)
     def navigate(self,key):
-        if not self.update_busy:self.tabs.select(self.pages[key])
+        if not self.update_busy:
+            self.tabs.select(self.pages[key]);self.sync_navigation(key)
+    def sync_navigation(self,key):
+        active='review' if key=='kill_review' else key
+        for name,button in self.nav_buttons.items():button.state(['selected'] if name==active else ['!selected'])
     def page_changed(self,*_):
         if self.update_busy:
             if self.tabs.select()!=str(self.pages['dashboard']):self.tabs.select(self.pages['dashboard'])
             return
         key=next((k for k,v in self.pages.items() if str(v)==self.tabs.select()),None)
+        self.sync_navigation(key)
         if key=='history':
             if not self.archive:return
             if self.session_id and not self.save_session():return
             if self.history_window:self.history_window.refresh()
             else:self.history_window=HistoryWindow(self,self.pages['history'])
         elif key=='review':self.build_reviews()
+        elif key=='monsters':
+            if not getattr(self,'monster_window',None):self.monster_window=MonsterLibraryWindow(self,self.pages['monsters'])
+        elif key=='kill_review':self.build_monster_reviews()
         elif key=='party':
             if not getattr(self,'party_setup_window',None):self.party_setup_window=PartySetup(self,self.pages['party'])
     def open_settings(self):
         self.navigate('settings')
+    def open_settings_section(self,label):
+        if self.update_busy:return
+        self.navigate('settings');self.settings_tabs.select(self.settings_scroll[label])
     def build_settings(self,win):
+        ttk.Label(win,text='Settings',style='Title.TLabel').pack(anchor='w',pady=(0,8))
         settings_tabs=self.settings_tabs=ttk.Notebook(win);settings_tabs.pack(fill='both',expand=True)
         self.settings_scroll={}
-        for label in ('Tracking','HUD','Player status'):
+        for label in ('Tracking','HUD','Player status','Appearance','Updates','Advanced'):
             page=ScrollPage(settings_tabs,padding=8);settings_tabs.add(page,text=label);self.settings_scroll[label]=page
-        content,hudpage,playerpage=(self.settings_scroll[k].content for k in ('Tracking','HUD','Player status'))
+        content,hudpage,playerpage,appearancepage,updatepage,advancedpage=(self.settings_scroll[k].content for k in ('Tracking','HUD','Player status','Appearance','Updates','Advanced'))
         ttk.Label(content,text='Tracking settings',style='Title.TLabel').pack(anchor='w')
         ttk.Label(content,text='Game capture',style='Section.TLabel').pack(anchor='w',pady=(14,5))
         calibration=ttk.Frame(content);calibration.pack(fill='x',pady=(0,6))
@@ -740,27 +787,24 @@ class App:
         ttk.Label(hudpage,text='Net Adena/h* indicates some recorded uses have no price. Only known costs are deducted.',style='Muted.TLabel',wraplength=760).pack(anchor='w',pady=(0,2))
         self.build_hud_widgets(hudpage)
         self.player.build(playerpage)
-        ttk.Separator(content).pack(fill='x',pady=12)
-        ttk.Label(content,text='Appearance',style='Section.TLabel').pack(anchor='w')
-        ttk.Checkbutton(content,text='Light mode',variable=self.dark_mode,onvalue=False,offvalue=True,command=self.toggle_appearance).pack(anchor='w',pady=(6,5))
-        ttk.Separator(content).pack(fill='x',pady=12)
-        ttk.Label(content,text='Updates',style='Section.TLabel').pack(anchor='w')
+        ttk.Label(appearancepage,text='Appearance',style='Section.TLabel').pack(anchor='w')
+        ttk.Checkbutton(appearancepage,text='Light mode',variable=self.dark_mode,onvalue=False,offvalue=True,command=self.toggle_appearance).pack(anchor='w',pady=(6,5))
+        ttk.Label(updatepage,text='Updates',style='Section.TLabel').pack(anchor='w')
         self.auto_update_var=tk.BooleanVar(master=win,value=self.auto_update)
-        ttk.Checkbutton(content,text='Automatically install updates',variable=self.auto_update_var,command=self.change_update_policy).pack(anchor='w',pady=(6,3))
-        ttk.Label(content,text='On by default. Checks GitHub on launch and every 30 minutes; installs published releases and restarts only when idle. Turn off to approve updates manually.',style='Muted.TLabel',wraplength=500).pack(anchor='w')
-        backup_row=ttk.Frame(content);backup_row.pack(fill='x',pady=(8,2))
+        ttk.Checkbutton(updatepage,text='Automatically install updates',variable=self.auto_update_var,command=self.change_update_policy).pack(anchor='w',pady=(6,3))
+        ttk.Label(updatepage,text='On by default. Checks GitHub on launch and every 30 minutes; installs published releases and restarts only when idle. Turn off to approve updates manually.',style='Muted.TLabel',wraplength=500).pack(anchor='w')
+        backup_row=ttk.Frame(updatepage);backup_row.pack(fill='x',pady=(8,2))
         ttk.Label(backup_row,text='Keep installation backups:').pack(side='left',padx=(0,8))
         self.backup_retention_var=tk.StringVar(value={1:'1 previous version',2:'2 previous versions',0:'Keep all'}[load_backup_retention()])
         backup_picker=ttk.Combobox(backup_row,textvariable=self.backup_retention_var,values=('1 previous version','2 previous versions','Keep all'),state='readonly',width=22);backup_picker.pack(side='left');backup_picker.bind('<<ComboboxSelected>>',self.change_backup_retention)
-        ttk.Label(content,text='Older recognised installation backups are removed on normal startup and after successful updates. Session history and preferences are stored separately.',style='Muted.TLabel',wraplength=620).pack(anchor='w')
-        ttk.Label(content,text='Preferences are saved automatically.',style='Muted.TLabel').pack(anchor='w',pady=(10,0))
-        ttk.Separator(content).pack(fill='x',pady=10)
-        ttk.Label(content,text='OCR troubleshooting',style='Section.TLabel').pack(anchor='w')
+        ttk.Label(updatepage,text='Older recognised installation backups are removed on normal startup and after successful updates. Session history and preferences are stored separately.',style='Muted.TLabel',wraplength=620).pack(anchor='w')
+        ttk.Label(updatepage,text='Preferences are saved automatically.',style='Muted.TLabel').pack(anchor='w',pady=(10,0))
+        ttk.Label(advancedpage,text='OCR troubleshooting',style='Section.TLabel').pack(anchor='w')
         self.ocr_evidence_var=tk.BooleanVar(value=False)
-        ttk.Checkbutton(content,text='Collect OCR evidence for next session',variable=self.ocr_evidence_var).pack(anchor='w')
-        ttk.Label(content,text='Optional: retains up to 12 failed and 4 successful chat rows and the latest queued chat crop in memory. Export manually to share for diagnosis. Chat may contain player names. Nothing is uploaded automatically.',style='Muted.TLabel',wraplength=650).pack(anchor='w')
-        ttk.Button(content,text='Export OCR evidence…',command=self.export_ocr_evidence).pack(anchor='w',pady=(6,0))
-        ttk.Button(content,text='Open diagnostic folder',command=self.open_diagnostic_folder).pack(anchor='w',pady=(7,0))
+        ttk.Checkbutton(advancedpage,text='Collect OCR evidence for next session',variable=self.ocr_evidence_var).pack(anchor='w')
+        ttk.Label(advancedpage,text='Optional: retains up to 12 failed and 4 successful chat rows and the latest queued chat crop in memory. Export manually to share for diagnosis. Chat may contain player names. Nothing is uploaded automatically.',style='Muted.TLabel',wraplength=650).pack(anchor='w')
+        ttk.Button(advancedpage,text='Export OCR evidence…',command=self.export_ocr_evidence).pack(anchor='w',pady=(6,0))
+        ttk.Button(advancedpage,text='Open diagnostic folder',command=self.open_diagnostic_folder).pack(anchor='w',pady=(7,0))
         self.appearance.restyle(win)
     def build_hud_widgets(self,parent):
         row=ttk.Frame(parent);row.pack(fill='x',pady=4)
@@ -1095,6 +1139,7 @@ class App:
         if self.running:
             self.monster_tracking=True;self.record_monster_context();self.save_session(quiet=True)
         self.update_drop_targets()
+        if getattr(self,'monster_window',None):self.monster_window.refresh()
     def save_monster_profile(self,p):
         from copy import deepcopy
         lib=deepcopy(self.monster_library);key=p['id']
@@ -1105,16 +1150,23 @@ class App:
         self.set_monster_library(lib)
     def open_monster_library(self):
         if getattr(self,'selecting',False) or getattr(self,'update_busy',False):return
-        old=getattr(self,'monster_window',None)
-        if old and old.win.winfo_exists():old.refresh();old.win.lift();return
-        self.monster_window=MonsterLibraryWindow(self)
+        self.root.deiconify();self.root.lift();self.navigate('monsters')
     def open_monster_reviews(self):
         if getattr(self,'update_busy',False) or not self.session_id:return
-        old=getattr(self,'kill_review_window',None)
-        if old and old.win.winfo_exists():
-            if old.session==self.session_id:old.refresh();old.win.lift();return
-            old.win.destroy()
-        self.kill_review_window=KillReviewWindow(self)
+        self.root.deiconify();self.root.lift();self.navigate('kill_review')
+        self.build_monster_reviews()
+    def build_monster_reviews(self):
+        page=self.pages['kill_review'];old=getattr(self,'kill_review_window',None)
+        if not self.session_id:
+            for child in page.winfo_children():child.destroy()
+            self.kill_review_window=None
+            ttk.Label(page,text='No session selected.',style='Muted.TLabel').pack(anchor='w')
+            ttk.Button(page,text='Back to reviews',command=self.open_reviews).pack(anchor='w',pady=5)
+            return
+        if old and old.session==self.session_id:
+            old.refresh();return
+        for child in page.winfo_children():child.destroy()
+        self.kill_review_window=KillReviewWindow(self,page)
     def edit_monster(self,key):
         old=getattr(self,'drop_editor',None)
         if old and old.win.winfo_exists():old.win.destroy()
@@ -1166,6 +1218,9 @@ class App:
         if not hasattr(self,'monster_library'):return
         if self.monster_counts_cache is None:self.monster_counts_cache=monsters.counts(self.events,self.monster_kills)
         c,n,unknown=self.monster_counts_cache
+        if hasattr(self,'current_farm'):
+            default=self.monster_library.get('default');p=self.monster_library['profiles'].get(default)
+            self.current_farm.set(f"{p['drop']['monster']}  ·  {c[default]:,} identified kills" if p else 'No default monster selected')
         rows=monsters.forecasts(self.monster_library,c,self.active_seconds)
         if isinstance(self.hud,HudPair):self.hud.set_targets('Monster targets',rows[:12])
         if hasattr(self,'drop_summary'):
@@ -1554,9 +1609,12 @@ class App:
         if hasattr(self,'player'):self.player.tick()
         self.record_monster_context()
         self.update_drop_targets()
+        if hasattr(self,'session_state'):
+            self.session_state.set(('Paused' if self.pause_gate.snapshot()[0] else 'Session active') if self.running else ('Finishing session' if self.pending else 'Idle'))
+        if hasattr(self,'trend'):self.trend.sample(self.session_id,self.active_seconds,self.totals['You','XP / SP'],self.running)
         if self.started is not None:
             dur=self.active_seconds; h=max(1,dur)/3600; xp=self.totals[('You','XP / SP')]; sp=self.totals[('You','SP')]; ad=self.totals[('You','Adena')]
-            if hasattr(self,'dashboard'):self.dashboard.update_metrics(dur,ad,xp,self.kills)
+            if hasattr(self,'dashboard'):self.dashboard.update_metrics(dur,ad,xp,self.kills,self.consumable_report['cost'],self.consumable_report['unpriced'])
             if hasattr(self,'cost_status'):self.cost_status.set(cost_summary(self.consumable_report,ad,dur))
             if hasattr(self,'loot_status'):self.loot_status.set(loot_summary(self.loot_report,dur))
             self.stats.set(f'{"PAUSED  |  " if self.running and self.pause_gate.snapshot()[0] else ""}Active {int(dur)//3600:02}:{int(dur)%3600//60:02}:{int(dur)%60:02}  |  SP {sp:,}  |  Capture/OCR warnings {self.gaps}  |  Pending review {len(self.reviews.pending)}')
@@ -1677,6 +1735,7 @@ class App:
     def refresh_reviews(self):
         self.review_count.set(f'Review ({len(self.reviews.pending)})')
         if hasattr(self,'tabs'):self.tabs.tab(self.pages['review'],text=f'Reviews ({len(self.reviews.pending)})')
+        if hasattr(self,'nav_buttons'):self.nav_buttons['review'].configure(text=f'Reviews ({len(self.reviews.pending)})')
         if not self.review_win or not self.review_win.winfo_exists(): return
         # Preserve current selection and any unsaved manual edit as new OCR arrives.
         ids=set(self.review_tree.get_children())

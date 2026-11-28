@@ -280,7 +280,7 @@ class HistoryWindow:
             messagebox.showinfo('Consumable costs','Expand the group and open an original session to edit its costs.',parent=self.win);return
         if self.app.restore_session(i):
             if not self.embedded:self.win.destroy()
-            self.app.navigate('dashboard')
+            self.app.navigate('loot')
     def export(self):
         i=self.single()
         if not i:return

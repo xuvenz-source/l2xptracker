@@ -3,10 +3,12 @@ import tkinter as tk
 from tkinter import ttk,messagebox
 from copy import deepcopy
 from monster_library import expected,counts,assign,learn,save,reward,suggestions
+from scroll_ui import table_scroll
 
 class MonsterLibraryWindow:
-    def __init__(self,app):
-        self.app=app;self.win=tk.Toplevel(app.root);self.win.title('Monster Library');self.win.geometry('850x570');self.win.minsize(650,420)
+    def __init__(self,app,parent=None):
+        self.app=app;self.embedded=parent is not None;self.win=parent if self.embedded else tk.Toplevel(app.root)
+        if not self.embedded:self.win.title('Monster Library');self.win.geometry('850x570');self.win.minsize(650,420)
         self.full=tk.BooleanVar(value=app.monster_library['full_solo'])
         self.status=tk.StringVar()
         ttk.Label(self.win,text='Monster Library',style='Title.TLabel',padding=10).pack(anchor='w')
@@ -15,7 +17,7 @@ class MonsterLibraryWindow:
         self.tree=ttk.Treeview(panel,columns=('name','base','expected','targets'),show='headings',selectmode='extended')
         for k,title,w in [('name','Monster',220),('base','Base XP / SP',135),('expected','Predicted reward',145),('targets','Desired drops',120)]:
             self.tree.heading(k,text=title);self.tree.column(k,width=w)
-        self.tree.pack(side='left',fill='both',expand=True);sb=ttk.Scrollbar(panel,command=self.tree.yview);sb.pack(side='right',fill='y');self.tree.configure(yscrollcommand=sb.set)
+        table_scroll(panel,self.tree)
         ttk.Checkbutton(self.win,text='Enable exact reward matching: solo, full stamina, normal rewards',variable=self.full).pack(anchor='w',padx=10)
         default_row=ttk.Frame(self.win,padding=8);default_row.pack(fill='x')
         ttk.Label(default_row,text='Default monster for kills:').pack(side='left')
@@ -46,15 +48,20 @@ class MonsterLibraryWindow:
         try:self.app.set_monster_library(lib)
         except OSError as e:messagebox.showerror('Monster Library',str(e),parent=self.win);return
         self.refresh()
-    def import_new(self):self.win.destroy();self.app.capture_drop_window()
+    def import_new(self):
+        if not self.embedded:self.win.destroy()
+        self.app.capture_drop_window()
     def edit(self):
         ids=self.tree.selection()
         if len(ids)!=1:messagebox.showinfo('Monster Library','Select one monster to edit.',parent=self.win);return
-        self.win.destroy();self.app.edit_monster(ids[0])
+        if not self.embedded:self.win.destroy()
+        self.app.edit_monster(ids[0])
 
 class KillReviewWindow:
-    def __init__(self,app):
-        self.app=app;self.session=app.session_id;self.win=tk.Toplevel(app.root);self.win.title('Monster identification reviews');self.win.geometry('880x580');self.win.minsize(650,420)
+    def __init__(self,app,parent=None):
+        self.app=app;self.session=app.session_id;self.embedded=parent is not None;self.win=parent if self.embedded else tk.Toplevel(app.root)
+        if not self.embedded:self.win.title('Monster identification reviews');self.win.geometry('880x580');self.win.minsize(650,420)
+        else:ttk.Button(self.win,text='← OCR reviews',command=app.open_reviews,style='Compact.TButton').pack(anchor='w',padx=8)
         self.all=tk.BooleanVar(value=False);self.learn=tk.BooleanVar(value=False);self.status=tk.StringVar()
         ttk.Label(self.win,text='Monster identification',style='Title.TLabel',padding=10).pack(anchor='w')
         ttk.Label(self.win,text='XP/SP is already counted. Select one or multiple kills and assign a monster. Shared damage: leave learning unchecked.',wraplength=820,padding=8).pack(anchor='w')
@@ -66,7 +73,7 @@ class KillReviewWindow:
         self.tree=ttk.Treeview(panel,columns=('time','xp','sp','level','status','suggestions'),show='headings',selectmode='extended')
         for k,title,w in [('time','Captured',175),('xp','XP',75),('sp','SP',60),('level','Level',55),('status','Identification',170),('suggestions','Possible matches',210)]:
             self.tree.heading(k,text=title);self.tree.column(k,width=w)
-        self.tree.pack(side='left',fill='both',expand=True);sb=ttk.Scrollbar(panel,command=self.tree.yview);sb.pack(side='right',fill='y');self.tree.configure(yscrollcommand=sb.set)
+        table_scroll(panel,self.tree)
         row=ttk.Frame(self.win,padding=8);row.pack(fill='x')
         ttk.Label(row,text='Assign to:').pack(side='left');self.choice=ttk.Combobox(row,state='readonly',width=32);self.choice.pack(side='left',padx=5)
         ttk.Button(row,text='Assign selected',style='Primary.TButton',command=self.apply).pack(side='left')
@@ -77,12 +84,15 @@ class KillReviewWindow:
         app.appearance.restyle(self.win);self.refresh()
     def valid(self):
         if self.session!=self.app.session_id:
-            self.status.set('Session changed. Close and reopen this review window.');return False
+            self.status.set('Session changed. Open monster reviews again.');return False
         return True
     def refresh(self):
         if not self.valid():return
         a=self.app;self.tree.delete(*self.tree.get_children())
         self.profiles=list(a.monster_library['profiles'].values());self.choice['values']=[p['drop']['monster'] for p in self.profiles]
+        default=a.monster_library.get('default');idx=next((i for i,p in enumerate(self.profiles) if p['id']==default),-1)
+        if idx>=0:self.choice.current(idx)
+        else:self.choice.set('')
         for i,e in enumerate(a.events):
             if not reward(e):continue
             r=a.monster_kills.get(str(i),{})

@@ -185,7 +185,10 @@ The main HUD is now a single control strip with Pause/Resume, Reset, lock and se
 ## Default monster kill assignment (v0.52.2)
 Choose Default monster for kills in Monster Library and Apply selection. Personal positive XP/SP rewards without a unique exact signature are assigned to the default even in parties, with shared damage, or when player level is unavailable. These are assumptions, not verified monster identities, and are labelled as default in kill review. Select No default to disable. Changes apply from the capture-time context onward, not retroactively. Existing unidentified kills can be assigned in bulk after confirmation using the kill review window. Explicit manual corrections and manually marked unknown kills are preserved. A previously saved single active monster with exact matching disabled migrates to the default; the first new imported monster becomes the default. No change to XP/SP or overall kill totals.
 
-## Current status: v0.52.2
+## Desktop workspace redesign (v0.53)
+The main window has a permanent sidebar, a charcoal/gold theme, global session controls, and separate Overview, Progression, Loot & Adena, Monster Library, Party, Session History, Reviews, Activity Log and Settings pages. Overview displays live net Adena after known costs, XP and kills, player progression, current default monster and a rolling chart of sampled session-average XP/hr over the last 60 active minutes (live only; no fabricated history). The asterisk on net Adena denotes unpriced uses. Monster library and kill reviews are embedded; screenshot capture, calibration, drop editor and pricing dialogs remain separate. Settings are separated into Tracking, HUD, Player status, Appearance, Updates and Advanced. The native overlays, capture/OCR engine, saved sessions, preferences and updater are retained. The desktop still uses Tkinter/ttk; Qt migration, historical comparisons and a full inline-editor redesign are deferred. Windows CI and live gameplay verification remain necessary.
+
+## Current status: v0.53
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

@@ -24,12 +24,16 @@ class PlayerStatus:
         self.sp_summary=tk.StringVar(value='Enter your current SP to estimate your balance at the next level.')
         self.sp_projection=tk.StringVar(value='Waiting for session rewards.')
         self.sp_context=tk.StringVar(value='Set the actual in-game balance before starting, or update it during a session.')
-    def build_dashboard(self,parent):
-        panel=ttk.Frame(parent);panel.pack(fill='x',pady=(0,5))
-        ttk.Label(panel,textvariable=self.summary,style='Section.TLabel',wraplength=870).pack(anchor='w')
-        ttk.Progressbar(panel,variable=self.percent_var,maximum=100).pack(fill='x',pady=(2,0))
-        ttk.Label(panel,textvariable=self.details,style='Muted.TLabel',wraplength=870).pack(anchor='w')
-        self.build_sp(panel)
+    def build_dashboard(self,parent,include_sp=True):
+        panel=ttk.Frame(parent,style='Card.TFrame',padding=12);panel.pack(fill='x',pady=(0,8))
+        ttk.Label(panel,text='Player progression',style='CardLabel.TLabel').pack(anchor='w')
+        for variable,style in ((self.summary,'CardTitle.TLabel'),):
+            label=ttk.Label(panel,textvariable=variable,style=style,wraplength=650);label.pack(fill='x',pady=(4,0))
+            label.bind('<Configure>',lambda e,w=label:w.configure(wraplength=max(100,e.width-8)))
+        ttk.Progressbar(panel,variable=self.percent_var,maximum=100).pack(fill='x',pady=(7,4))
+        label=ttk.Label(panel,textvariable=self.details,style='CardBody.TLabel',wraplength=650);label.pack(fill='x')
+        label.bind('<Configure>',lambda e,w=label:w.configure(wraplength=max(100,e.width-8)))
+        if include_sp:self.build_sp(parent)
     def build_sp(self,parent):
         panel=ttk.LabelFrame(parent,text='Skill points (SP) — next level estimate',padding=8)
         panel.pack(fill='x',pady=(8,3))
