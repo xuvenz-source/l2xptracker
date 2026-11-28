@@ -30,6 +30,19 @@ def clean_status(raw):
 def load_status(path=None):return clean_status(read_preferences(path).get('player_status'))
 def save_status(value,path=None):write_preference('player_status',clean_status(value),path)
 def binding_for(target):return [target.title,target.window_class,target.width,target.height]
+def manual_values(level,percent,cap):
+    """Accept displayed percentages, including a trailing percent sign."""
+    level=str(level).strip();percent=str(percent).strip().removesuffix('%').strip()
+    if not re.fullmatch(r'[0-9]{1,2}',level) or not re.fullmatch(r'[0-9]{1,3}(?:\.[0-9]{1,8})?',percent):
+        raise ValueError('Enter a whole level and XP percentage from 0 to 100.')
+    lv=int(level);pct=Decimal(percent)
+    if not 1<=lv<=cap or not 0<=pct<=100:raise ValueError(f'Level must be 1–{cap}; XP percentage must be 0–100.')
+    return lv,pct
+
+def xp_after(events,anchor):
+    """Only personal verified XP captured after the entered balance."""
+    return sum(e[4] for e in events if e[0]>anchor and e[1]=='xp' and e[2].casefold()=='you' and type(e[4]) is int and e[4]>=0)
+
 def absolute_xp(level,percent):
     p=Decimal(str(percent))
     if not 1<=level<=75 or not p.is_finite() or not 0<=p<=100:raise ValueError('Invalid level or XP percentage')

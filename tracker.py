@@ -992,6 +992,8 @@ class App:
         if menu is None:
             menu=self.hud_settings_menu=tk.Menu(self.root,tearoff=False)
             menu.add_command(label='View / edit bound areas…',command=lambda:self.select('chat',direct=True))
+            menu.add_command(label='Set level / XP %…',command=self.open_quick_player_progress)
+            menu.add_command(label='Use automatic level / XP OCR',command=self.enable_player_ocr)
             menu.add_command(label='Monster Library…',command=self.open_monster_library)
             menu.add_command(label='Review monster kills…',command=self.open_monster_reviews)
             menu.add_separator()
@@ -1008,6 +1010,14 @@ class App:
         x,y=self.root.winfo_pointerxy()
         try:menu.tk_popup(x,y)
         finally:menu.grab_release()
+    def open_quick_player_progress(self):
+        if not self.running or getattr(self,'selecting',False) or getattr(self,'update_busy',False) or getattr(self,'closing',False):return
+        self.player.open_quick_manual()
+    def enable_player_ocr(self):
+        if not self.running or getattr(self,'selecting',False) or getattr(self,'update_busy',False) or getattr(self,'closing',False):return
+        if len(self.player.protected())!=2:
+            messagebox.showinfo('Player status','Bind both level and XP percentage regions first.',parent=self.root);return
+        self.player.enable_auto()
     def open_hud_settings(self):
         if getattr(self,'selecting',False) or getattr(self,'update_busy',False):return
         self.root.deiconify();self.root.lift();self.navigate('settings')
@@ -1492,7 +1502,7 @@ class App:
             if extra:self.stats.set(self.stats.get()+'\n'+extra)
     def refresh_totals(self):
         self.party_cache=None
-        if hasattr(self,'player'):self.player.sp_cache=None
+        if hasattr(self,'player'):self.player.sp_cache=None;self.player.manual_xp_cache=None
         self.kills=count_kills(self.events)
         if hasattr(self,'monster_library'):
             if self.monster_tracking:monsters.sync(self.events,self.monster_kills,self.monster_contexts)

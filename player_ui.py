@@ -6,7 +6,7 @@ import threading,time,queue
 from datetime import datetime
 from sp_forecast import parse_balance,reward_stats,project
 from PIL import Image,ImageTk
-from leveling import Progress,load_status,save_status,binding_for,read_number,eta,XP
+from leveling import Progress,load_status,save_status,binding_for,read_number,eta,XP,manual_values,xp_after
 from hud_layout import WIDGETS,PRESETS,SIZES,clean,load,save,geometry
 from hud import rate_text
 
@@ -16,7 +16,7 @@ class PlayerStatus:
         self.results=queue.Queue();self.busy=False;self.generation=0;self.next_read=0
         self.source=tk.StringVar(value='Calibrate player status or enter manually.')
         self.summary=tk.StringVar(value='Player progress: not calibrated')
-        self.last_run=None;self.last_xp=0;self.last_binding=None
+        self.last_run=None;self.last_xp=0;self.last_binding=None;self.manual_anchor=None;self.manual_xp_cache=None
         self.calibration_results=queue.Queue();self.calibration_preview={}
         self.percent_var=tk.DoubleVar(value=0)
         self.details=tk.StringVar(value='')
@@ -121,16 +121,67 @@ class PlayerStatus:
         self.regions.set('  |  '.join(k+': '+(self.calibration_preview.get(k,'selected') if k in self.config['regions'] else 'not selected') for k in ('level','percent')))
     def change(self,*_):
         mode=self.mode.get()
-        if mode!=self.config['mode']:self.progress.clear();self.generation+=1
+        if mode!=self.config['mode']:
+            self.progress.clear();self.generation+=1;self.manual_anchor=None;self.manual_xp_cache=None;self.next_read=0
         self.config.update(mode=mode,cap=int(self.cap.get()),interval=int(self.interval.get()));self.save()
+    def apply_manual_values(self,level,percent):
+        a=self.app
+        lv,pct=manual_values(level,percent,self.config['cap'])
+        if a.pending and not a.running:raise ValueError('Wait for the finishing session before calibrating.')
+        # The displayed game percentage already contains earlier rewards,
+        # even if their OCR jobs or manual reviews finish later.
+        self.manual_anchor=datetime.now().isoformat(timespec='microseconds') if a.running else None
+        self.manual_xp_cache=None
+        baseline=0 if self.manual_anchor is not None else a.totals['You','XP / SP']
+        self.progress.clear();self.progress.manual(lv,pct,baseline)
+        self.last_run=a.run_id;self.last_xp=baseline
+        self.config['mode']='manual';self.mode.set('manual');self.generation+=1
+        self.level.set(str(lv));self.percent.set(format(pct,'f'));self.save()
+        self.tick()
+        a.record_monster_context()
     def manual(self):
-        try:
-            lv=int(self.level.get());p=Decimal(self.percent.get())
-            if lv>int(self.cap.get()):raise ValueError('Above level cap')
-            self.progress.manual(lv,p,self.app.totals['You','XP / SP'])
-            self.last_run=self.app.run_id;self.last_xp=self.app.totals['You','XP / SP']
-        except (ValueError,InvalidOperation):messagebox.showwarning('Player status','Enter a valid level and XP percentage (0–100).',parent=self.app.root);return
-        self.mode.set('manual');self.config['mode']='manual';self.generation+=1;self.save()
+        try:self.apply_manual_values(self.level.get(),self.percent.get())
+        except (ValueError,InvalidOperation) as e:messagebox.showwarning('Player status',str(e),parent=self.app.root)
+    def enable_auto(self):
+        if self.config['mode']=='auto':return
+        self.mode.set('auto');self.change()
+        self.tick();self.app.record_monster_context()
+    def open_quick_manual(self):
+        a=self.app
+        old=getattr(self,'quick_window',None)
+        if old is not None and old.winfo_exists():old.lift();old.focus_force();return
+        win=self.quick_window=tk.Toplevel(a.root);win.title('Set level / XP');win.attributes('-topmost',True);win.resizable(False,False)
+        run_id=a.run_id
+        panel=ttk.Frame(win,padding=12);panel.pack(fill='both',expand=True)
+        ttk.Label(panel,text='Player progress',style='Title.TLabel').pack(anchor='w')
+        ttk.Label(panel,text='Enter your current in-game values. Manual mode advances using recorded chat XP.',wraplength=310).pack(anchor='w',pady=(4,8))
+        row=ttk.Frame(panel);row.pack(fill='x')
+        level=tk.StringVar(master=win,value=str(self.progress.level) if self.progress.level is not None else '')
+        percent=tk.StringVar(master=win,value=f'{self.progress.percent:.2f}' if self.progress.percent is not None else '')
+        ttk.Label(row,text='Level').pack(side='left');entry=ttk.Entry(row,textvariable=level,width=6);entry.pack(side='left',padx=(5,12))
+        ttk.Label(row,text='XP %').pack(side='left');ttk.Entry(row,textvariable=percent,width=10).pack(side='left',padx=5)
+        error=tk.StringVar(master=win,value='')
+        ttk.Label(panel,textvariable=error,wraplength=310).pack(anchor='w',pady=4)
+        ttk.Label(panel,text='Stop killing briefly while entering the values. No session reset.',style='Muted.TLabel',wraplength=310).pack(anchor='w',pady=(0,6))
+        def apply():
+            if not a.running or a.run_id!=run_id:
+                error.set('Session changed. Close and reopen the editor.');return
+            try:self.apply_manual_values(level.get(),percent.get())
+            except (ValueError,InvalidOperation) as e:error.set(str(e));return
+            win.destroy()
+        row=ttk.Frame(panel);row.pack(fill='x',pady=(4,0))
+        ttk.Button(row,text='Cancel',command=win.destroy).pack(side='left')
+        ttk.Button(row,text='Apply manual reading',style='Primary.TButton',command=apply).pack(side='right')
+        win.bind('<Escape>',lambda e:win.destroy());win.bind('<Return>',lambda e:apply())
+        a.appearance.restyle(win);win.update_idletasks()
+        # Near the HUD pointer on the primary screen; native WM placement
+        # remains the fallback on monitors with negative coordinates.
+        x,y=a.root.winfo_pointerxy()
+        if x>=0 and y>=0:
+            x=max(0,min(x,win.winfo_screenwidth()-win.winfo_reqwidth()-12))
+            y=max(0,min(y,win.winfo_screenheight()-win.winfo_reqheight()-40))
+            win.geometry(f'+{x}+{y}')
+        win.lift();win.focus_force();entry.focus_set();entry.selection_range(0,'end')
     def calibrate(self,kind):
         self.app.select(kind)
     def protected(self):
@@ -150,8 +201,12 @@ class PlayerStatus:
         except queue.Empty:pass
         if self.config['mode']=='manual':
             if self.last_run!=a.run_id:
-                p.rebase(self.last_xp,self.config['cap']);self.last_run=a.run_id;self.last_xp=0
-            if a.running or a.pending or finished:p.advance(xp,self.config['cap']);self.last_xp=xp
+                p.rebase(self.last_xp,self.config['cap']);self.last_run=a.run_id;self.last_xp=0;self.manual_anchor=None;self.manual_xp_cache=None
+            if a.running or a.pending or finished:
+                if getattr(self,'manual_anchor',None) is not None:
+                    if self.manual_xp_cache is None:self.manual_xp_cache=xp_after(a.events,self.manual_anchor)
+                    xp=self.manual_xp_cache
+                p.advance(xp,self.config['cap']);self.last_xp=xp
         try:
             while True:
                 gen,level,percent=self.results.get_nowait();self.busy=False
