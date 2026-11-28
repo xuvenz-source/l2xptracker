@@ -2,13 +2,13 @@
 import queue,threading
 import numpy as np
 from leveling import binding_for
-from vitals import crop_bar,bar_fraction,read_vital_pair,display_value
+from vitals import crop_bar,bar_fraction,read_vital_pair,display_value,current_pair
 
 class VitalMonitor:
     def __init__(self):
         self.frames=queue.Queue();self.numbers=queue.Queue()
-        self.capture_busy=False;self.ocr_busy=False;self.key=None
-        self.next_capture=0;self.next_ocr=0;self.sample=None;self.exact={};self.readings={}
+        self.capture_busy=False;self.ocr_busy=set();self.key=None
+        self.next_capture=0;self.next_ocr={};self.sample=None;self.exact={};self.readings={};self.invalid_since=0
     def tick(self,a,config,generation,now):
         layout=config.get('vitals');target=a.target
         gate=a.pause_gate
@@ -16,34 +16,36 @@ class VitalMonitor:
         active=bool(layout and target and config['binding']==binding_for(target) and a.running and not paused and not a.selecting)
         key=(generation,revision,a.run_id,target.hwnd,target.pid) if active else None
         if key!=self.key:
-            self.key=key;self.sample=None;self.exact={};self.next_capture=0;self.next_ocr=0
+            self.key=key;self.sample=None;self.exact={};self.next_capture=0;self.next_ocr={};self.invalid_since=now
         while True:
             try:token,stamp,rgb=self.frames.get_nowait()
             except queue.Empty:break
             self.capture_busy=False
             if token!=key or key is None:continue
             if rgb is None:
-                self.sample=None;self.exact={};continue
+                self.sample=None;self.exact={};self.invalid_since=stamp;continue
             bars={k:crop_bar(rgb,r) for k,r in layout['bars'].items()}
             fractions={k:bar_fraction(b,k) for k,b in bars.items()}
             # Keep the fill crop exact; the text reader needs one extra row
             # on each side to preserve antialiased digit strokes.
             numeric_bars={k:rgb[max(0,r['top']-1):r['top']+r['height']+1,r['left']:r['left']+r['width']] for k,r in layout['bars'].items()}
             self.sample=(stamp,fractions)
-            if not self.ocr_busy and now>=self.next_ocr and any(v is not None for v in fractions.values()):
-                self.ocr_busy=True;self.next_ocr=now+2
-                def read(token=token,stamp=stamp,bars=numeric_bars,fractions=fractions):
-                    result={}
-                    try:
-                        for k,b in bars.items():result[k]=read_vital_pair(b,fractions[k])
+            for k,bar in numeric_bars.items():
+                fraction=fractions[k]
+                if fraction is None or k in self.ocr_busy or now<self.next_ocr.get(k,0):continue
+                self.ocr_busy.add(k);self.next_ocr[k]=now+2
+                def read(token=token,stamp=stamp,k=k,bar=bar,fraction=fraction):
+                    result=None
+                    try:result=read_vital_pair(bar,fraction)
                     except Exception:pass
-                    finally:self.numbers.put((token,stamp,result))
+                    finally:self.numbers.put((token,stamp,k,fraction,result))
                 threading.Thread(target=read,daemon=True).start()
         while True:
-            try:token,stamp,result=self.numbers.get_nowait()
+            try:token,stamp,k,seen_fraction,result=self.numbers.get_nowait()
             except queue.Empty:break
-            self.ocr_busy=False
-            if token==key and key is not None:self.exact={k:(stamp,v) for k,v in result.items() if v is not None}
+            self.ocr_busy.discard(k)
+            if token==key and key is not None and stamp>=self.invalid_since and result is not None:
+                self.exact[k]=(stamp,seen_fraction,result)
         if active and not self.capture_busy and now>=self.next_capture:
             self.capture_busy=True;self.next_capture=now+.25
             region=dict(layout['frame'])
@@ -67,8 +69,8 @@ class VitalMonitor:
         values={};self.readings={}
         for k in ('hp','mp'):
             fraction=self.sample[1].get(k) if active and self.sample and now-self.sample[0]<=1.5 else None
-            stamp,pair=self.exact.get(k,(0,None))
-            if fraction is None or pair is None or now-stamp>4 or abs(pair[0]/pair[1]-fraction)>.015:pair=None
+            stamp,seen_fraction,pair=self.exact.get(k,(0,None,None))
+            pair=current_pair(fraction,seen_fraction,pair,now-stamp)
             self.readings[k]=(fraction,pair)
             values[k]=(k.upper(),display_value(fraction,pair))
         return values

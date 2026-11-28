@@ -15,7 +15,7 @@ def local_rect(hud,geo):
     return (dict(left=hud.position[0]-geo[0],top=hud.position[1]-geo[1],width=w,height=h),)
 class HudPair:
     def __init__(self,primary,loot,main=None,vitals=None):
-        self.primary=primary;self.loot=loot;self.main=main;self.vitals=vitals;self.config=None;self.details=[];self.title='ADENA / LOOT';self.next_detail_paint=0
+        self.primary=primary;self.loot=loot;self.main=main;self.vitals=vitals;self.globes={};self.config=None;self.details=[];self.title='ADENA / LOOT';self.next_detail_paint=0
     @property
     def preferred(self):return self.primary.preferred
     @preferred.setter
@@ -24,7 +24,7 @@ class HudPair:
     def placement(self):return self.primary.placement
     def dimensions(self):return self.primary.dimensions()
     def arm_placement(self):self.primary.arm_placement()
-    def panels(self):return tuple(h for h in (self.main,self.primary,self.loot,self.vitals) if h is not None)
+    def panels(self):return tuple(h for h in (self.main,self.primary,self.loot,self.vitals,*self.globes.values()) if h is not None)
     def cancel_placement(self):
         for h in self.panels():h.cancel_placement()
     def hide(self):
@@ -37,7 +37,10 @@ class HudPair:
                 try:
                     if self.main:self.main.close()
                 finally:
-                    if self.vitals:self.vitals.close()
+                    try:
+                        if self.vitals:self.vitals.close()
+                    finally:
+                        for globe in self.globes.values():globe.close()
     def set_opacity(self,value):
         for h in self.panels():h.set_opacity(value)
     def configure_layout(self,config):
@@ -45,6 +48,7 @@ class HudPair:
         self.primary.configure_layout(panel_config(self.config,'progression'),'XP / SP')
         self.loot.configure_layout(panel_config(self.config,'loot'),self.title,len(self.details))
         if self.vitals:self.vitals.configure_layout(panel_config(self.config,'vitals'),'HP / MP')
+        for kind,globe in self.globes.items():globe.configure_layout(self.config,kind.upper()+' GLOBE')
         if self.main:
             self.main.configure_layout(main_config(self.config),'MAIN HUD')
             visibility=dict(progression=self.config['show_xp'],loot=self.config['show_loot'])
@@ -66,7 +70,10 @@ class HudPair:
         # Hide disabled panels first, so stale rectangles never block placement.
         active={self.primary:running and self.config['show_xp'],self.loot:running and self.config['show_loot']}
         if self.main:active[self.main]=running
-        if self.vitals:active[self.vitals]=running and self.config['show_vitals']
+        detached=self.config['vital_style']=='Globes' and bool(self.globes)
+        if self.vitals:active[self.vitals]=running and self.config['show_vitals'] and not detached
+        for kind,globe in self.globes.items():
+            active[globe]=running and self.config['show_vitals'] and detached and kind in self.config['enabled']
         for h in self.panels():
             if not active[h]:h.hide()
         # Main controls get first placement priority. Each later panel protects

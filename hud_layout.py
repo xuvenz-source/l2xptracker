@@ -28,7 +28,10 @@ def clean(raw=None):
     modes=r.get('vital_modes',{})
     modes=modes if isinstance(modes,dict) else {}
     modes={k:modes.get(k) if modes.get(k) in DISPLAY_MODES else 'Both' for k in ('hp','mp')}
-    return dict(vital_modes=modes,vital_style=r.get('vital_style') if r.get('vital_style') in ('Numbers','Globes') else 'Numbers',panel_rows=overrides,show_vitals=r['show_vitals'] if type(r.get('show_vitals')) is bool else any(k in enabled for k in ('hp','mp')),show_xp=r.get('show_xp') if type(r.get('show_xp')) is bool else True,show_loot=r.get('show_loot') if type(r.get('show_loot')) is bool else True,order=order,enabled=enabled,widgets_per_row=n,size=r.get('size') if r.get('size') in SIZES else 'compact',layout=r.get('layout') if r.get('layout') in ('single','double') else 'single',**{k:r[k] if type(r.get(k)) is bool else True for k in ('status','pause','reset','visible')})
+    diameters=r.get('globe_sizes',{})
+    diameters=diameters if isinstance(diameters,dict) else {}
+    diameters={k:diameters[k] if type(diameters.get(k)) is int and 80<=diameters[k]<=240 else 120 for k in ('hp','mp')}
+    return dict(globe_sizes=diameters,vital_modes=modes,vital_style=r.get('vital_style') if r.get('vital_style') in ('Numbers','Globes') else 'Numbers',panel_rows=overrides,show_vitals=r['show_vitals'] if type(r.get('show_vitals')) is bool else any(k in enabled for k in ('hp','mp')),show_xp=r.get('show_xp') if type(r.get('show_xp')) is bool else True,show_loot=r.get('show_loot') if type(r.get('show_loot')) is bool else True,order=order,enabled=enabled,widgets_per_row=n,size=r.get('size') if r.get('size') in SIZES else 'compact',layout=r.get('layout') if r.get('layout') in ('single','double') else 'single',**{k:r[k] if type(r.get(k)) is bool else True for k in ('status','pause','reset','visible')})
 def load(path=None):return clean(read_preferences(path).get('hud_layout'))
 def save(value,path=None):write_preference('hud_layout',clean(value),path)
 
@@ -58,6 +61,9 @@ def geometry(config,title=None,details=0,select_loot=False,main_controls=False):
         if reset:x+=60
         width=max(64,x+48)
         return dict(toggles={},width=width,height=28,small=small,large=large,cells=[],title=None,detail_y=28,details=0,select_loot=None,lock=(width-44,0,width-22,28),settings=(width-22,0,width,28),reset=reset,pause=pause,status=False,footer=bool(pause or reset),toolbar=0)
+    if title in ('HP GLOBE','MP GLOBE'):
+        kind=title[:2].lower();d=c['globe_sizes'][kind]
+        return dict(width=d,height=d,small=max(10,d//11),large=max(12,d//8),cells=[(kind,0,0,d,d)],title=title,orb_diameter=d,standalone_globe=True,toolbar=0,toggles={},lock=None,settings=None,pause=None,reset=None,select_loot=None,footer=False,status=False,details=0,detail_y=d)
     vitals=title=='HP / MP'
     globes=vitals and c['vital_style']=='Globes'
     if vitals:

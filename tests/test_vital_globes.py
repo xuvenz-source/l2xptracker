@@ -45,5 +45,5 @@ class GlobeTests(unittest.TestCase):
         a.hud_config=clean(dict(enabled=['hp','mp'],vital_style='Globes',vital_modes={'hp':'Both','mp':'Percent'}))
         a.preview_hud()
         values=[c.kwargs.get('text') for c in a.hud_preview.create_text.call_args_list]
-        self.assertIn('449/505 - 89%',values);self.assertIn('31%',values)
+        self.assertIn('449/505',values);self.assertIn('89%',values);self.assertIn('31%',values)
         self.assertGreater(a.hud_preview.create_rectangle.call_count,100)

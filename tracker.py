@@ -12,6 +12,7 @@ import pytesseract
 from window_focus import Windows, capture_region, BACKGROUND_WAIT
 import settings
 from hud import Hud, WIDTH, HEIGHT, safe_position, hud_position
+from globe_hud import GlobeHud
 from session_pause import PauseGate
 from review import ReviewQueue, candidates, review_fields, correction_message, effective_category, currency_message
 from history import Archive, new_id, now, snapshot, totals_for, review_queue, count_kills, rate, consumables_for
@@ -34,7 +35,7 @@ from player_ui import PlayerStatus
 from region_editor import RegionEditor,OverlayRegionEditor,draft_regions,calibration_data
 from leveling import save_status,binding_for
 from sp_forecast import clean_anchor
-from hud_pair import HudPair,load_loot_position,load_main_position,load_vitals_position
+from hud_pair import HudPair,load_loot_position,load_main_position,load_vitals_position,load_position
 from drop_targets import load as load_drop_targets, display as display_drops
 from drop_ui import DropEditor,CropWindow,OverlayCropWindow
 import monster_library as monsters
@@ -715,6 +716,8 @@ class App:
                 self.hud=HudPair(self.hud,loot)
                 self.hud.main=Hud(preferred=load_main_position(),on_move=lambda pos:self.inbox.put(('main_hud_move',pos)),on_pause=self.queue_hud_pause,opacity=self.hud_opacity,on_reset=self.queue_hud_reset,on_settings=self.queue_hud_settings,name_suffix='_main',on_panel_toggle=self.queue_panel_toggle)
                 self.hud.vitals=Hud(preferred=load_vitals_position(),on_move=lambda pos:self.inbox.put(('vitals_hud_move',pos)),opacity=self.hud_opacity,on_settings=lambda:self.queue_panel_settings('vitals'),name_suffix='_vitals')
+                for kind in VITALS:
+                    self.hud.globes[kind]=GlobeHud(preferred=load_position(kind+'_globe_position'),on_move=lambda pos,k=kind:self.inbox.put((k+'_globe_move',pos)),opacity=self.hud_opacity,name_suffix='_'+kind+'_globe')
                 self.hud.configure_layout(self.hud_config)
             except Exception as e:
                 self.hud.close();self.hud=None;self.hud_enabled.set(False);self.status.set('HUD layout unavailable: '+str(e))
@@ -985,11 +988,16 @@ class App:
         for k,label in [('show_xp','Show XP/SP'),('show_loot','Show Adena/Loot'),('show_vitals','Show HP/MP')]:ttk.Checkbutton(visibility,text=label,variable=self.hud_show[k],command=self.apply_hud_config).pack(side='left',padx=4)
         self.vital_modes={k:tk.StringVar(value=self.hud_config['vital_modes'][k]) for k in VITALS}
         self.vital_style=tk.StringVar(value=self.hud_config['vital_style'])
+        self.globe_sizes=dict(self.hud_config['globe_sizes'])
         vital_row=ttk.Frame(parent);vital_row.pack(fill='x',pady=4)
         for label,var,options in [('HP/MP style',self.vital_style,('Numbers','Globes')),('HP text',self.vital_modes['hp'],DISPLAY_MODES),('MP text',self.vital_modes['mp'],DISPLAY_MODES)]:
             ttk.Label(vital_row,text=label).pack(side='left',padx=4)
             cb=ttk.Combobox(vital_row,textvariable=var,values=options,state='readonly',width=10)
             cb.pack(side='left');cb.bind('<<ComboboxSelected>>',self.apply_hud_config)
+        globe_row=ttk.Frame(parent);globe_row.pack(fill='x',pady=4)
+        for kind in VITALS:
+            ttk.Button(globe_row,text='Move '+kind.upper()+' globe',command=lambda k=kind:self.place_globe(k)).pack(side='left',padx=3)
+            ttk.Button(globe_row,text='Resize '+kind.upper(),command=lambda k=kind:self.resize_globe(k)).pack(side='left',padx=3)
         for label,var,options in [('Font',self.hud_size,('compact','standard','large')),('Default rows',self.hud_rows,ROW_OPTIONS)]:
             ttk.Label(row,text=label).pack(side='left',padx=4)
             cb=ttk.Combobox(row,textvariable=var,values=options,state='readonly',width=18 if var is self.hud_rows else 10);cb.pack(side='left');cb.bind('<<ComboboxSelected>>',self.apply_hud_config)
@@ -1040,7 +1048,7 @@ class App:
         self.hud_enabled.set(True)
         for k,v in self.hud_show.items():v.set(k!='show_vitals')
         for k in VITALS:self.hud_vars[k].set(False)
-        self.vital_style.set('Numbers')
+        self.vital_style.set('Numbers');self.globe_sizes={k:120 for k in VITALS}
         for v in self.vital_modes.values():v.set('Both')
         for v in self.hud_panel_rows.values():v.set('Shared default')
         for v in self.hud_controls.values():v.set(True)
@@ -1056,7 +1064,7 @@ class App:
             if show.get() and not old_visible and not selected:
                 for k in VITALS:self.hud_vars[k].set(True)
             elif not show.get() and not old_visible and selected-set(old_enabled):show.set(True)
-        self.hud_config=clean_hud(dict(vital_style=self.vital_style.get() if hasattr(self,'vital_style') else 'Numbers',vital_modes={k:v.get() for k,v in getattr(self,'vital_modes',{}).items()},panel_rows={k:v.get() for k,v in getattr(self,'hud_panel_rows',{}).items()},**{k:v.get() for k,v in getattr(self,'hud_show',{}).items()},order=self.hud_order,enabled=[k for k,v in self.hud_vars.items() if v.get()],size=self.hud_size.get(),visible=self.hud_enabled.get(),**row_settings(self.hud_rows.get()),**{k:v.get() for k,v in self.hud_controls.items()}))
+        self.hud_config=clean_hud(dict(globe_sizes=getattr(self,'globe_sizes',{}),vital_style=self.vital_style.get() if hasattr(self,'vital_style') else 'Numbers',vital_modes={k:v.get() for k,v in getattr(self,'vital_modes',{}).items()},panel_rows={k:v.get() for k,v in getattr(self,'hud_panel_rows',{}).items()},**{k:v.get() for k,v in getattr(self,'hud_show',{}).items()},order=self.hud_order,enabled=[k for k,v in self.hud_vars.items() if v.get()],size=self.hud_size.get(),visible=self.hud_enabled.get(),**row_settings(self.hud_rows.get()),**{k:v.get() for k,v in self.hud_controls.items()}))
         try:save_hud(self.hud_config)
         except OSError as e:self.status.set('HUD preferences not saved: '+str(e))
         if self.hud:self.hud.configure_layout(self.hud_config)
@@ -1069,7 +1077,9 @@ class App:
         panels=[hud_geometry(main_config(c),'MAIN HUD',main_controls=True)]
         if c['show_xp']:panels.append(hud_geometry(panel_config(c,'progression'),'XP / SP'))
         if c['show_loot']:panels.append(hud_geometry(panel_config(c,'loot'),'ADENA / LOOT',select_loot=True))
-        if c['show_vitals']:panels.append(hud_geometry(panel_config(c,'vitals'),'HP / MP'))
+        if c['show_vitals']:
+            if c['vital_style']=='Globes':panels.extend(hud_geometry(c,k.upper()+' GLOBE') for k in VITALS if k in c['enabled'])
+            else:panels.append(hud_geometry(panel_config(c,'vitals'),'HP / MP'))
         scale=min(1,max(1,cv.winfo_width()-8)/max(g['width'] for g in panels)) if cv.winfo_width()>10 else 1
         height=round(sum(g['height']+6 for g in panels)*scale)+6
         if int(cv.cget('height'))!=height:cv.configure(height=height)
@@ -1083,6 +1093,12 @@ class App:
             def rect(l,t,r,b,fill):cv.create_rectangle((l+3)*scale,(t+y0)*scale,(r+3)*scale,(b+y0)*scale,fill=blend(fill),outline='')
             def text(x,y,value,colour='#FFFFFF',size=None,anchor='nw',bold=False):
                 cv.create_text((x+3)*scale,(y+y0)*scale,text=value,anchor=anchor,font=('Segoe UI',-max(7,round((size or g['small'])*scale)), 'bold' if bold else 'normal'),fill=blend(colour))
+            if g.get('standalone_globe'):
+                k=g['cells'][0][0];d=g['orb_diameter']
+                for l,t,r,b,col in globe_rectangles(k,d,449/505 if k=='hp' else 58/187):rect(l,t,r,b,'#%02x%02x%02x'%col)
+                lines=sample[k].split(' - ',1);h=max(15,d//6);top=(d-h*len(lines))//2
+                for i,line in enumerate(lines):text(d//2,top+i*h+h//2,line,'#F8F5EF',size=g['large'],anchor='center',bold=True)
+                y0+=g['height']+6;continue
             rect(0,0,g['width'],g['height'],'#111419')
             if g['title']:text(8,4,g['title'],'#A0A5B0')
             if g.get('toolbar'):rect(4,g['toolbar']-1,g['width']-4,g['toolbar'],'#30291F')
@@ -1271,6 +1287,7 @@ class App:
                 menu.add_checkbutton(label='Show XP/SP',variable=self.hud_show['show_xp'],command=self.apply_hud_config)
                 menu.add_checkbutton(label='Show Adena/Loot',variable=self.hud_show['show_loot'],command=self.apply_hud_config)
                 menu.add_checkbutton(label='Show HP/MP',variable=self.hud_show['show_vitals'],command=self.apply_hud_config)
+                menu.add_command(label='HP/MP and globe settings…',command=lambda:self.show_hud_settings('vitals'))
                 menu.add_separator()
                 menu.add_checkbutton(label='Pause when Lineage 2 loses focus',variable=self.focus_pause_var,command=self.change_focus_policy)
                 font=tk.Menu(menu,tearoff=False)
@@ -1302,6 +1319,8 @@ class App:
                         for choice in DISPLAY_MODES:
                             mode.add_radiobutton(label=choice,variable=self.vital_modes[k],value=choice,command=self.apply_hud_config)
                         menu.add_cascade(label=k.upper()+' text',menu=mode)
+                        menu.add_command(label='Move '+k.upper()+' globe…',command=lambda k=k:self.place_globe(k))
+                        menu.add_command(label='Resize '+k.upper()+' globe…',command=lambda k=k:self.resize_globe(k))
                 else:
                     menu.add_command(label='Monster Library…',command=self.open_monster_library)
                     menu.add_command(label='Review monster kills…',command=self.open_monster_reviews)
@@ -1321,6 +1340,18 @@ class App:
         x,y=self.root.winfo_pointerxy()
         try:menu.tk_popup(x,y)
         finally:menu.grab_release()
+    def place_globe(self,kind):
+        globe=getattr(self.hud,'globes',{}).get(kind) if self.hud else None
+        if not globe or not self.running or not self.hud_enabled.get() or not self.hud_config['show_vitals'] or self.hud_config['vital_style']!='Globes' or kind not in self.hud_config['enabled']:
+            messagebox.showinfo('Move globe','Start tracking and enable the selected globe first.',parent=self.root);return
+        if globe.placement is not None:
+            globe.cancel_placement();self.status.set('Globe move cancelled.');return
+        self.hud.cancel_placement();globe.arm_placement()
+        self.status.set(kind.upper()+' globe move armed — return to Lineage 2, move the pointer, then tap Shift to save.')
+    def resize_globe(self,kind):
+        value=simpledialog.askinteger('Resize '+kind.upper()+' globe','Diameter in pixels (80–240):',initialvalue=self.globe_sizes[kind],minvalue=80,maxvalue=240,parent=self.root)
+        if value is not None:
+            self.globe_sizes[kind]=value;self.apply_hud_config()
     def open_quick_player_progress(self):
         if not self.running or getattr(self,'selecting',False) or getattr(self,'update_busy',False) or getattr(self,'closing',False):return
         self.player.open_quick_manual()
@@ -1780,8 +1811,8 @@ class App:
             elif kind=='select_loot':
                 if self.running and data==self.run_id:self.capture_drop_window(direct=True)
             elif kind=='hud_move':self.save_hud_position(data)
-            elif kind in ('loot_hud_move','main_hud_move','vitals_hud_move'):
-                try:write_preference({'loot_hud_move':'loot_hud_position','main_hud_move':'main_hud_position','vitals_hud_move':'vitals_hud_position'}[kind],list(data))
+            elif kind in ('loot_hud_move','main_hud_move','vitals_hud_move','hp_globe_move','mp_globe_move'):
+                try:write_preference({'loot_hud_move':'loot_hud_position','main_hud_move':'main_hud_position','vitals_hud_move':'vitals_hud_position','hp_globe_move':'hp_globe_position','mp_globe_move':'mp_globe_position'}[kind],list(data))
                 except OSError as e:self.status.set('HUD position not saved: '+str(e))
             elif kind=='done':
                 self.pending-=1

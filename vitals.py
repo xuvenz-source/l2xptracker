@@ -59,18 +59,33 @@ def verified_pair(readings,fraction):
     if len(counts)==1 and next(iter(counts.values()))>=2:return next(iter(counts))
     return None
 
+def current_pair(fraction,seen_fraction,pair,age):
+    """Use the same fill tolerance as OCR, but invalidate on actual fill movement."""
+    if fraction is None or seen_fraction is None or pair is None or age>4 or age<0:return None
+    if abs(fraction-seen_fraction)>.012 or abs(pair[0]/pair[1]-fraction)>.04:return None
+    return pair
+
 def read_vital_pair(bar,fraction):
     """Use isolated white digits and require two matching, fill-checked reads."""
     if fraction is None:return None
     import pytesseract
     w=bar.shape[1];a=bar[:,max(0,w//2-50):min(w,w//2+50)].astype(np.int16)
     reads=[]
-    for threshold in (115,120,100):
-        mask=(a.min(2)>=threshold)&(a.max(2)-a.min(2)<=45)
+    def read(mask,psm=7,scale=6):
         im=Image.fromarray(np.where(mask,0,255).astype(np.uint8))
-        im=ImageOps.expand(im.resize((im.width*6,im.height*6),Image.Resampling.LANCZOS),border=12,fill=255)
-        try:reads.append(pytesseract.image_to_string(im,config='--psm 7 -c tessedit_char_whitelist=0123456789/',timeout=3))
+        im=ImageOps.expand(im.resize((im.width*scale,im.height*scale),Image.Resampling.LANCZOS),border=12,fill=255)
+        try:reads.append(pytesseract.image_to_string(im,config=f'--psm {psm} -c tessedit_char_whitelist=0123456789/',timeout=2))
         except RuntimeError:pass
+    neutral=a.max(2)-a.min(2)
+    for threshold in (115,140,100):
+        read((a.min(2)>=threshold)&(neutral<=45))
+    answer=verified_pair(reads,fraction)
+    if answer is not None:return answer
+    # On antialiased text, a strict neutral mask can erase coloured edges.
+    # Luminance and a wider chroma allowance recover different strokes.
+    gray=(a[:,:,0].astype(np.int32)*299+a[:,:,1].astype(np.int32)*587+a[:,:,2].astype(np.int32)*114)//1000
+    for threshold in (140,175):
+        read((gray>=threshold)&(neutral<=80),psm=8,scale=8)
     return verified_pair(reads,fraction)
 
 DISPLAY_MODES=('Value','Percent','Both')

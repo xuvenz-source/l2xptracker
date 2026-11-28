@@ -31,7 +31,7 @@ def safe_position(geo, chat, desktop, preferred, size=(WIDTH,HEIGHT), extra=()):
     return x+a,y+d
 
 
-def hud_position(geo, chat, desktop=None, preferred=None, size=(WIDTH,HEIGHT), extra=()):
+def hud_position(geo, chat, desktop=None, preferred=None, size=(WIDTH,HEIGHT), extra=(), additional=False):
     WIDTH,HEIGHT=size
     if preferred is not None:
         pos=safe_position(geo,chat,desktop,preferred,size,extra)
@@ -39,7 +39,12 @@ def hud_position(geo, chat, desktop=None, preferred=None, size=(WIDTH,HEIGHT), e
     x,y,width,height=geo
     if width<WIDTH+24 or height<HEIGHT+24: return None
     l,t,r,b=chat['left'],chat['top'],chat['width'],chat['height']
-    for a,d in ((width-WIDTH-12,12),(12,12),(width-WIDTH-12,height-HEIGHT-12),(12,height-HEIGHT-12)):
+    candidates=((width-WIDTH-12,12),(12,12),(width-WIDTH-12,height-HEIGHT-12),(12,height-HEIGHT-12))
+    if additional:
+        # More than four overlays can coexist; retain normal corner placement
+        # for existing panels and find a free slot for independent globes.
+        candidates+=tuple((a,d) for d in (height-HEIGHT-12,12,max(0,(height-HEIGHT)//2)) for a in range(12,max(13,width-WIDTH-11),WIDTH+12))
+    for a,d in candidates:
         if any(overlaps(a,d,WIDTH,HEIGHT,r) for r in (chat,*extra) if r):continue
         if desktop and not (desktop['left']<=x+a and desktop['top']<=y+d and x+a+WIDTH<=desktop['left']+desktop['width'] and y+d+HEIGHT<=desktop['top']+desktop['height']): continue
         return x+a,y+d
@@ -158,7 +163,7 @@ class Hud:
         self.g.SetTextColor(dc,self.rgb(*colour)); r=w.RECT(*rect)
         self.u.DrawTextW(dc,string,-1,c.byref(r),0x00000020|0x00000004|0x00000800|(1 if center else 0)) # single line, vertical centre, no prefix
         self.g.SelectObject(dc,prev)
-    def fitted_text(self,dc,string,rect,font,colour,size,weight):
+    def fitted_text(self,dc,string,rect,font,colour,size,weight,center=False):
         """Keep long values legible inside compact cells without resizing the HUD."""
         available=rect[2]-rect[0]
         if available<=0:return
@@ -171,7 +176,7 @@ class Hud:
             finally:self.g.SelectObject(dc,prev)
         measured=measure(font)
         if measured<=available:
-            self.text(dc,string,rect,font,colour);return
+            self.text(dc,string,rect,font,colour,center=True) if center else self.text(dc,string,rect,font,colour);return
         # Measure the smaller font again: font hinting is not exactly linear.
         reduced=max(8,min(size-1,int(size*available/measured)))
         while reduced>=8:
@@ -179,10 +184,10 @@ class Hud:
             if not candidate:break
             try:
                 if measure(candidate)<=available or reduced==8:
-                    self.text(dc,string,rect,candidate,colour);return
+                    self.text(dc,string,rect,candidate,colour,center=True) if center else self.text(dc,string,rect,candidate,colour);return
             finally:self.g.DeleteObject(candidate)
             reduced-=1
-        self.text(dc,string,rect,font,colour)
+        self.text(dc,string,rect,font,colour,center=True) if center else self.text(dc,string,rect,font,colour)
     def hit_rect(self,point,rect):
         if rect is None or not self.shown or not self.position or point is None or getattr(self,'placement',None) is not None:return False
         x,y=self.position;l,t,r,b=rect
@@ -498,7 +503,7 @@ class Hud:
             self.set_interactive(False)
             # No overlay clicks or mouse routing: move with pointer and tap Shift.
             candidate=self.placement_position(geo,chat,desktop,shift,self.cursor())
-            pos=candidate or hud_position(geo,chat,desktop,self.preferred,self.dimensions(),self.protected())
+            pos=candidate or hud_position(geo,chat,desktop,self.preferred,self.dimensions(),self.protected(),additional=bool(getattr(self,'standalone_globe',False)))
         else:
             point=self.cursor()
             self.set_interactive(self.wants_input(point))
@@ -510,7 +515,7 @@ class Hud:
                     self.drag_poll_seen=True
                     self.move_drag(point)
                 elif not getattr(self,'native_drag',False):self.finish_drag()
-            pos=hud_position(geo,chat,desktop,self.preferred,self.dimensions(),self.protected())
+            pos=hud_position(geo,chat,desktop,self.preferred,self.dimensions(),self.protected(),additional=bool(getattr(self,'standalone_globe',False)))
         if pos is None:self.hide();return
         label,adena_rate=adena_metric(adena,seconds,consumable_cost,unpriced_uses)
         values=(adena_rate,rate_text(xp,seconds),rate_text(kills,seconds))
@@ -527,7 +532,7 @@ class Hud:
             now=time.monotonic()
             due=not self.shown or now>=getattr(self,'next_metric_paint',0)
             if due:
-                self.next_metric_paint=now+(.25 if layout.get('title')=='HP / MP' else 1)
+                self.next_metric_paint=now+(.25 if layout.get('title')=='HP / MP' or layout.get('standalone_globe') else 1)
                 changed=visible!=getattr(self,'widget_values',{})
                 self.widget_values=visible;self.values=values;self.adena_label=label
             else:changed=False
