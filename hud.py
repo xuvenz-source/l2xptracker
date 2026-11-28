@@ -129,6 +129,9 @@ class Hud:
         g=layout_geometry(config)
         if g==getattr(self,'layout',None):return
         self.finish_drag()
+        # Do not briefly resize a visible overlay into a protected chat area.
+        # The next HUD tick finds a safe position for the new geometry.
+        if self.shown:self.hide()
         old=(self.small,self.large)
         self.small=self.font(g['small'],400);self.large=self.font(g['large'],600)
         for f in old:self.g.DeleteObject(f)

@@ -137,7 +137,10 @@ Bound areas… on the main toolbar or Settings → Tracking opens a single passi
 ## HUD settings shortcut (v0.46.1)
 A gear beside the lock opens a compact settings menu with View / edit bound areas and HUD settings. The gear works while locked or unlocked; native clicks are queued to Tk just like Pause and Reset. Calibration uses the existing paused-session editor. HUD layout reserves space for both icons. The v0.46 HUD regression test failure was caused by a lightweight test instance missing the selecting flag; the HUD visibility check now safely defaults to false. No OCR changes.
 
-## Current status: v0.46.1
+## In-game HUD customization (v0.47)
+The gear menu now includes Visible widgets (individual checkboxes for all eight metrics) and Widgets per row (1–8, auto one row or auto two rows). The main HUD settings use the same variables and persistent configuration. The HUD wraps immediately without restarting or pausing the session; the previous one/two-row layouts migrate unchanged until a specific column limit is chosen. Widget visibility only affects display, never session accounting. Layout changes briefly hide the overlay before repositioning to avoid covering protected OCR regions. Extra header room keeps the gear and lock clear of metric cells.
+
+## Current status: v0.47
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

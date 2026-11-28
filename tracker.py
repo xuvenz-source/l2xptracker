@@ -32,7 +32,7 @@ from scroll_ui import ScrollPage,table_scroll
 from player_ui import PlayerStatus
 from region_editor import RegionEditor,draft_regions,calibration_data
 from leveling import save_status,binding_for
-from hud_layout import WIDGETS, PRESETS, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
+from hud_layout import WIDGETS, PRESETS, ROW_OPTIONS, row_choice, row_settings, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
 from hud import rate_text
 from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows, row_alignment, aligned_rows, bottom_clipped
 from party import roster, report as party_report, display_rows as party_rows, summary_text as party_summary, load_current_party, remember_party
@@ -748,10 +748,10 @@ class App:
         self.appearance.restyle(win)
     def build_hud_widgets(self,parent):
         row=ttk.Frame(parent);row.pack(fill='x',pady=4)
-        self.hud_size=tk.StringVar(value=self.hud_config['size']);self.hud_rows=tk.StringVar(value=self.hud_config['layout'])
-        for label,var,options in [('Font',self.hud_size,('compact','standard','large')),('Layout',self.hud_rows,('single','double'))]:
+        self.hud_size=tk.StringVar(value=self.hud_config['size']);self.hud_rows=tk.StringVar(value=row_choice(self.hud_config))
+        for label,var,options in [('Font',self.hud_size,('compact','standard','large')),('Widgets per row',self.hud_rows,ROW_OPTIONS)]:
             ttk.Label(row,text=label).pack(side='left',padx=4)
-            cb=ttk.Combobox(row,textvariable=var,values=options,state='readonly',width=10);cb.pack(side='left');cb.bind('<<ComboboxSelected>>',self.apply_hud_config)
+            cb=ttk.Combobox(row,textvariable=var,values=options,state='readonly',width=18 if var is self.hud_rows else 10);cb.pack(side='left');cb.bind('<<ComboboxSelected>>',self.apply_hud_config)
         presets=ttk.Frame(parent);presets.pack(fill='x',pady=3)
         for name in PRESETS:ttk.Button(presets,text=name,command=lambda n=name:self.hud_preset(n),style='Compact.TButton').pack(side='left',padx=3)
         self.hud_order=list(self.hud_config['order']);self.hud_vars={k:tk.BooleanVar(value=k in self.hud_config['enabled']) for k in WIDGETS}
@@ -794,13 +794,13 @@ class App:
         for k,v in self.hud_vars.items():v.set(k in PRESETS[name])
         self.apply_hud_config()
     def hud_defaults(self):
-        self.hud_order=list(WIDGETS);self.hud_size.set('compact');self.hud_rows.set('single')
+        self.hud_order=list(WIDGETS);self.hud_size.set('compact');self.hud_rows.set(ROW_OPTIONS[0])
         self.hud_enabled.set(True)
         for v in self.hud_controls.values():v.set(True)
         self.draw_hud_list();self.hud_preset('Classic');self.reset_hud_opacity()
         self.hud_net_adena_var.set(False);self.change_hud_net_adena()
     def apply_hud_config(self,*_):
-        self.hud_config=clean_hud(dict(order=self.hud_order,enabled=[k for k,v in self.hud_vars.items() if v.get()],size=self.hud_size.get(),layout=self.hud_rows.get(),visible=self.hud_enabled.get(),**{k:v.get() for k,v in self.hud_controls.items()}))
+        self.hud_config=clean_hud(dict(order=self.hud_order,enabled=[k for k,v in self.hud_vars.items() if v.get()],size=self.hud_size.get(),visible=self.hud_enabled.get(),**row_settings(self.hud_rows.get()),**{k:v.get() for k,v in self.hud_controls.items()}))
         try:save_hud(self.hud_config)
         except OSError as e:self.status.set('HUD preferences not saved: '+str(e))
         if self.hud:self.hud.configure_layout(self.hud_config)
@@ -821,7 +821,8 @@ class App:
         for k,x,y,w,rh in g['cells']:
             cv.create_text(x+2,y+3,text=('NET ADENA/H' if k=='ad' and self.hud_net_adena else WIDGETS[k][1]),anchor='nw',font=('Segoe UI',-max(7,round(g['small']*scale))),fill=blend('#B4BECD'))
             cv.create_text(x+2,y+21,text=('9,300' if k=='ad' and self.hud_net_adena else sample[k]),anchor='nw',font=('Segoe UI',-max(9,round(g['large']*scale)),'bold'),fill=blend('#%02x%02x%02x'%WIDGETS[k][2]))
-        cv.create_text(g['width']-10,12,text='▣',fill=blend('#FFFFFF'))
+        cv.create_text(g['width']-33,12,text='▣',fill=blend('#FFFFFF'))
+        cv.create_text(g['width']-11,12,text='⚙',fill=blend('#FFFFFF'))
         if g['footer']:
             if g['status']:cv.create_text(9,g['height']-14,text='SESSION ACTIVE',anchor='w',fill='#86E0B7')
             for k in ('pause','reset'):
@@ -975,6 +976,15 @@ class App:
         if menu is None:
             menu=self.hud_settings_menu=tk.Menu(self.root,tearoff=False)
             menu.add_command(label='View / edit bound areas…',command=lambda:self.select('chat'))
+            menu.add_separator()
+            widgets=tk.Menu(menu,tearoff=False)
+            for k in WIDGETS:
+                widgets.add_checkbutton(label=WIDGETS[k][0],variable=self.hud_vars[k],command=self.apply_hud_config)
+            menu.add_cascade(label='Visible widgets',menu=widgets)
+            rows=tk.Menu(menu,tearoff=False)
+            for choice in ROW_OPTIONS:
+                rows.add_radiobutton(label=choice,variable=self.hud_rows,value=choice,command=self.apply_hud_config)
+            menu.add_cascade(label='Widgets per row',menu=rows)
             menu.add_separator()
             menu.add_command(label='HUD settings…',command=self.open_hud_settings)
         x,y=self.root.winfo_pointerxy()
