@@ -32,3 +32,7 @@ Large-text slash recovery: for exact magenta personal XP/SP and yellow personal 
 ## Character level and experience percentage
 
 The fixed-size character status font is independent of chat text size. Bind the level badge and the XP percentage including the decimal and percent sign, but exclude the name, HP and MP. Saving bound areas now checks the selected fields against the captured image and reports their readings in Settings → Player status. Live automatic readings still require confirmation and reject conflicting valid numbers. Low-confidence fields are not guessed. The status reader uses alternate thresholds, contrast and scaling if the normal two passes cannot agree.
+
+### Native status digit recogniser (initial coverage)
+
+Character level and XP percentage now attempt exact native pixel matches at two brightness thresholds before OCR. The separate level badge library initially contains 0 and 2. The white status font contains 0, 1, 4, 5, 7, 8, decimal point and percent sign; 5, 7 and 8 are sourced from HP/MP glyphs and still need independent XP-bar examples. Missing digits, changed geometry, additional UI content and ambiguous matches fall back to the existing status OCR. The existing live-reading confirmation rules remain in place. Chat OCR is unchanged. Additional verified native-size screenshots are needed to extend coverage; no automatic template learning from uncertain OCR.

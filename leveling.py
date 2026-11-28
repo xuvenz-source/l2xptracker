@@ -72,6 +72,17 @@ def parse_number(text,kind):
     return p if 0<=p<=100 else None
 
 def read_number(image,kind):
+    """Try fixed native glyphs first; retain the established OCR fallback."""
+    from status_digits import recognise_status
+    try:value=recognise_status(image,kind)
+    except Exception:
+        from diagnostics import diagnostic
+        diagnostic('Status glyph recognition failed; using OCR',exc_info=True)
+        value=None
+    if value is not None:return value
+    return read_number_ocr(image,kind)
+
+def read_number_ocr(image,kind):
     """Read small native status glyphs independently of chat text size."""
     from PIL import ImageOps,Image
     import pytesseract
