@@ -5,7 +5,7 @@ from hud_pair import HudPair
 from hud import Hud
 from tracker import App
 from drop_ui import DropEditor
-from test_v036 import ResetTests
+import test_v036
 
 class LootButtonTests(unittest.TestCase):
     def test_button_geometry(self):
@@ -30,7 +30,7 @@ class LootButtonTests(unittest.TestCase):
         self.assertEqual(h.on_select_loot.call_count,2)
         h.on_pause.assert_not_called();h.on_reset.assert_not_called();h.on_settings.assert_not_called()
     def test_run_tagged_callback(self):
-        a=ResetTests().app();a.last_archive_save=float('inf');a.capture_drop_window=Mock()
+        a=test_v036.ResetTests().app();a.last_archive_save=float('inf');a.capture_drop_window=Mock()
         a.inbox.put(('select_loot',a.run_id-1));a.process_inbox();a.capture_drop_window.assert_not_called()
         a.queue_select_loot();a.capture_drop_window.assert_not_called()
         a.process_inbox();a.capture_drop_window.assert_called_once_with(direct=True)

@@ -11,6 +11,8 @@ Share with friends/
 settings.json
 *.csv
 *.log
+# Rotating diagnostics (e.g. tracker-diagnostics.log.1)
+*.log.[0-9]*
 .env*
 *.db
 *.db-*

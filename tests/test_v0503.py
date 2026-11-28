@@ -5,7 +5,7 @@ from monster_header import split_name,labelled_rewards,read_header
 from monster_library import profile
 from hud_layout import geometry
 from hud_pair import HudPair
-from test_v08 import DragTests
+import test_v08
 from test_v06 import TARGET,REG
 
 class HeaderTests(unittest.TestCase):
@@ -26,7 +26,7 @@ class HeaderTests(unittest.TestCase):
 
 class PaintTests(unittest.TestCase):
     def test_visible_metrics_throttled_but_pause_immediate(self):
-        h,api,tick=DragTests().make_hud();h.layout=geometry(dict(enabled=['xp']))
+        h,api,tick=test_v08.DragTests().make_hud();h.layout=geometry(dict(enabled=['xp']))
         def update(xp,ad=20,paused=False):
             h.update(api,TARGET,REG,True,100,ad,xp,paused=paused)
         with patch('hud.time.monotonic',return_value=100):
@@ -37,7 +37,7 @@ class PaintTests(unittest.TestCase):
         with patch('hud.time.monotonic',return_value=104):
             update(40,999,True);h.u.InvalidateRect.assert_not_called()
     def test_buffered_paint_cleans_up(self):
-        h,_,_=DragTests().make_hud();h.g=Mock();h.paint_layout=Mock()
+        h,_,_=test_v08.DragTests().make_hud();h.g=Mock();h.paint_layout=Mock()
         h.g.CreateCompatibleDC.return_value=101;h.g.CreateCompatibleBitmap.return_value=102
         h.g.SelectObject.return_value=103;h.g.BitBlt.return_value=True
         h.paint_buffered(99);h.paint_layout.assert_called_once_with(101)

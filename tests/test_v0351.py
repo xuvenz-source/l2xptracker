@@ -1,10 +1,10 @@
 import unittest
 from unittest.mock import Mock
-from test_v08 import DragTests
+import test_v08
 
 class NativeDragTests(unittest.TestCase):
     def make(self):
-        h,api,tick=DragTests().make_hud()
+        h,api,tick=test_v08.DragTests().make_hud()
         h.u.GetCapture.return_value=h.hwnd
         tick();h.locked=False;tick()
         return h,api,tick

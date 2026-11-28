@@ -6,7 +6,7 @@ This describes the v0.56.3 Prestige source interface; earlier installed releases
 
 - Extract the full portable archive and launch the tracker. Keep its installation folder dedicated to the application.
 - Use windowed/borderless Lineage II and keep system chat visible, scrolled to the bottom and unobstructed.
-- Open Bound areas (or Settings → Tracking → View / edit bound areas). Focus the game when prompted. Select the message text, not scrollbars or controls. See [calibration](CALIBRATION.md).
+- Open Bound areas (or Settings → Tracking → View / edit bound areas). Focus the game when prompted. Draw around the system-message panel, including its border, and choose Auto-fit chat. Check the fitted outline before saving; manual text-only selection remains available. Do not include the separate world chat panel. See [calibration](CALIBRATION.md).
 - Start the session. Existing chat is a baseline, not newly earned loot. Pause/Resume and Stop share the same session controls as the HUD. Stop lets queued OCR finish before saving. Reset saves the prior session and starts a new one; avoid combat during the transition.
 
 The timer normally continues while the game loses focus. Capture only reads safely visible pixels; minimised or covered chat cannot be recovered. Enable pause on focus loss in Settings → Tracking if preferred. Resizing or changing chat layout can require recalibration.
@@ -26,9 +26,11 @@ Press Ctrl+K for quick navigation to pages and common settings.
 
 ## Floating HUDs
 
-The compact main HUD contains Pause/Resume, Reset, lock and gear. Its cog includes tracker visibility. XP/SP and Adena/Loot panels each have a toolbar and scoped settings. Hiding a panel does not pause tracking.
+The compact main HUD contains Pause/Resume, Reset, lock and gear. Its cog includes tracker visibility. XP/SP, Adena/Loot and optional HP/MP panels each have a toolbar and scoped settings. Hiding a panel does not pause tracking.
 
 Double-click a padlock to unlock, drag the body and click the padlock to lock. Move panels away from chat and calibrated status regions. Settings → HUD controls global visibility, opacity, font size, widget order, presets and layout. Each tracker gear offers its own rows and visible widgets. Net Adena/hr subtracts known consumable costs; an asterisk indicates unpriced uses.
+
+For HP/MP, use Settings → Player status → Select player frame, draw around the compact frame and choose Auto-fit player. Save the verified regions, then enable Show HP/MP in the main HUD gear. A `~` value is an estimated bar percentage; a dash means unavailable. The separate HP/MP HUD has its own position, visible widgets and row arrangement. Animated orbs are not yet implemented.
 
 ## Updates and support
 

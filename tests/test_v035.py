@@ -6,7 +6,7 @@ from collections import Counter
 from preferences import load_hud_net_adena,save_hud_net_adena,write_preference
 from hud import adena_metric
 from tracker import App
-from test_v08 import DragTests
+import test_v08
 from test_v06 import TARGET,REG
 
 class NetHudTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class NetHudTests(unittest.TestCase):
         self.assertEqual(adena_metric(100,1800.5,Decimal('150.25'),2),('NET ADENA/H*','-100'))
         self.assertEqual(adena_metric(1,0,Decimal('1')),('NET ADENA/H','—'))
     def test_label_only_change_repaints(self):
-        h,api,tick=DragTests().make_hud();tick()
+        h,api,tick=test_v08.DragTests().make_hud();tick()
         h.u.InvalidateRect.reset_mock()
         h.update(api,TARGET,REG,True,100,20,30,consumable_cost=Decimal(0))
         self.assertEqual(h.adena_label,'NET ADENA/H');self.assertEqual(h.values[0],'720')

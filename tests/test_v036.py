@@ -5,7 +5,7 @@ from session_pause import PauseGate
 from tracker import App
 from review import ReviewQueue
 from hud import RESET_RECT
-from test_v08 import DragTests
+import test_v08
 
 class ResetTests(unittest.TestCase):
     def app(self):
@@ -38,7 +38,7 @@ class ResetTests(unittest.TestCase):
         a.last_archive_save=float('inf');a.process_inbox();self.assertTrue(a.running)
         a.queue_hud_reset();a.process_inbox();self.assertFalse(a.running)
     def test_hud_reset_click_locked_and_unlocked(self):
-        h,api,tick=DragTests().make_hud();h.on_reset=Mock();h.on_pause=Mock();tick()
+        h,api,tick=test_v08.DragTests().make_hud();h.on_reset=Mock();h.on_pause=Mock();tick()
         for locked in (True,False):
             h.locked=locked;l,t,_,_=RESET_RECT
             h.cursor.return_value=(h.position[0]+l+2,h.position[1]+t+2);tick()

@@ -2,8 +2,8 @@ import unittest
 from unittest.mock import Mock,patch
 from hud import SETTINGS_RECT
 from hud_layout import geometry, WIDGETS
-from test_v08 import DragTests
-from test_v036 import ResetTests
+import test_v08
+import test_v036
 
 class HudSettingsTests(unittest.TestCase):
     def test_controls_do_not_overlap_widgets(self):
@@ -16,7 +16,7 @@ class HudSettingsTests(unittest.TestCase):
                     for _,x,y,w,h in g['cells']:
                         self.assertLessEqual(x+w,g['lock'][0])
     def test_gear_click_locked_and_unlocked_no_drag(self):
-        h,api,tick=DragTests().make_hud();h.on_settings=Mock();h.on_reset=Mock();h.on_pause=Mock();tick()
+        h,api,tick=test_v08.DragTests().make_hud();h.on_settings=Mock();h.on_reset=Mock();h.on_pause=Mock();tick()
         for locked in (True,False):
             h.locked=locked;l,t,_,_=SETTINGS_RECT
             h.cursor.return_value=(h.position[0]+l+2,h.position[1]+t+2);tick()
@@ -26,7 +26,7 @@ class HudSettingsTests(unittest.TestCase):
             h.keys=set();tick()
         self.assertEqual(h.on_settings.call_count,2);h.on_pause.assert_not_called();h.on_reset.assert_not_called()
     def test_queue_only_and_stale_run(self):
-        a=ResetTests().app();a.last_archive_save=float('inf');a.show_hud_settings=Mock()
+        a=test_v036.ResetTests().app();a.last_archive_save=float('inf');a.show_hud_settings=Mock()
         a.inbox.put(('hud_settings',a.run_id-1));a.process_inbox();a.show_hud_settings.assert_not_called()
         a.queue_hud_settings();a.show_hud_settings.assert_not_called()
         a.process_inbox();a.show_hud_settings.assert_called_once_with()

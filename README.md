@@ -8,15 +8,15 @@ Independent Windows farming analytics for Lineage II C1. Reads visible system-ch
 
 1. Download the Windows x64 **Portable.zip** from Releases (not Source code or a Delta.zip).
 2. Extract the entire archive to a dedicated writable folder. Keep the executable, `_internal` and `ocr` directories together.
-3. Run `L2 Legacy Tracker.exe`, open the game in windowed/borderless mode, and bind the visible system-message area.
+3. Run `L2 Legacy Tracker.exe`, open the game in windowed/borderless mode, and bind the visible system-message panel with Auto-fit chat, or adjust the text region manually.
 4. Start a session. Configure the floating HUD and, if desired, select a default farming monster.
 
 Python and Tesseract are bundled in the portable release. The application is unsigned. Obtain server staff approval before using it in game.
 
 ## Features
 
-- Live XP, SP, Adena, kills/hour and player-level forecasts; net Adena after known consumable costs.
-- Three independently positionable floating HUDs: main controls, XP/SP and Adena/Loot.
+- Live XP, SP, Adena, kills/hour and player-level forecasts; net Adena after known consumable costs; passive HP/MP readings from a bound player frame.
+- Four independently positionable floating HUDs: main controls, XP/SP, Adena/Loot and optional HP/MP.
 - Monster library, default kill assignment, drop estimates and bulk identification reviews.
 - Observed loot, item valuations, consumable expenses, party rosters and saved presets.
 - Local session history, folders, drag-and-drop merging, CSV exports and OCR corrections.

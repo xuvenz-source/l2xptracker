@@ -1,6 +1,6 @@
 # Chat calibration
 
-In Settings → Tracking, select View / edit bound areas and bind visible system-message text. Include complete rows; exclude scrollbars. Keep the game windowed/borderless and chat unobstructed. Rebind after changing game font, scaling or layout.
+In Settings → Tracking, select View / edit bound areas. Draw around the visible system-message panel and use Auto-fit chat, or manually select the text area with complete rows and no scrollbar interference. Check the fitted outline before saving. Keep the game windowed/borderless and chat unobstructed. Rebind after changing game font, scaling or layout.
 
 ## Text size and colours
 
@@ -21,7 +21,7 @@ Choose the actual in-game text size or manually set the observed spacing. Use th
 | Consumables | #B09B79 | #00AAFF |
 | Other | #B09B79 | #B09B79 |
 
-Apply chat settings before tracking. Shared colours are distinguished by text; uncertain rows may require review. Experimental large-text numeric recognition is off by default. It falls back to OCR when digit templates are uncertain.
+Apply chat settings before tracking. Shared colours are distinguished by text; uncertain rows may require review. Experimental native chat recognition (Large / Medium / Small) is off by default. It falls back to OCR when templates are uncertain.
 
 ## Troubleshooting
 
@@ -31,7 +31,7 @@ Large-text slash recovery: for exact magenta personal XP/SP and yellow personal 
 
 ## Character level and experience percentage
 
-The fixed-size character status font is independent of chat text size. Bind the level badge and the XP percentage including the decimal and percent sign, but exclude the name, HP and MP. Saving bound areas now checks the selected fields against the captured image and reports their readings in Settings → Player status. Live automatic readings still require confirmation and reject conflicting valid numbers. Low-confidence fields are not guessed. The status reader uses alternate thresholds, contrast and scaling if the normal two passes cannot agree.
+The fixed-size character status font is independent of chat text size. Prefer Auto-fit player for the entire compact frame. For manual binding, select only the level badge and XP percentage (including decimal and percent sign), excluding the name, HP and MP. Saving bound areas now checks the selected fields against the captured image and reports their readings in Settings → Player status. Live automatic readings still require confirmation and reject conflicting valid numbers. Low-confidence fields are not guessed. The status reader uses alternate thresholds, contrast and scaling if the normal two passes cannot agree.
 
 ### Native status digit recogniser (initial coverage)
 
@@ -63,11 +63,11 @@ Small Soulshot OCR fallback (v0.55.4): `Wis Grade` is an additional weak alias, 
 
 ## Auto-fit compact player frame (v0.55.5)
 
-In Settings → Player status, choose Select player frame, draw around the whole compact player frame (level/name, HP, MP and XP), then click Auto-fit player. The detector uses the red HP and blue MP bars to locate the native level badge and percentage. Both candidate crops must be readable by the existing status recogniser before either replaces its draft binding. Check the displayed values and outlines, then save. Only the two standard digit regions are persisted; the full frame is a temporary selection. Manual field binding remains available. This version is calibrated to the supplied native compact frame; other layouts/scaling, nearly empty bars or clipped/obscured frames may need manual selection. The detailed Character Status window is not supported by this auto-fit.
+In Settings → Player status, choose Select player frame, draw around the whole compact player frame (level/name, HP, MP and XP), then click Auto-fit player. The detector uses the red HP and blue MP bars to locate the native level badge and percentage. Both candidate crops must be readable by the existing status recogniser before either replaces its draft binding. Check the displayed values and outlines, then save. The two standard digit regions and (since v0.56) verified compact-frame/bar geometry are persisted. Manual field binding remains available. This version is calibrated to the supplied native compact frame; other layouts/scaling, nearly empty bars or clipped/obscured frames may need manual selection. The detailed Character Status window is not supported by this auto-fit.
 
 ## HP / MP tracking foundation (v0.56)
 
-Rebind using Select player frame → Auto-fit player after updating. The compact frame and bar geometry are now saved in addition to the original level/XP rectangles. The frame remains protected from overlay placement. During an unpaused live session, HP/MP bar fill is sampled about every 250 ms (subject to UI polling and capture latency), with separate slower numeric OCR. Two matching numeric readings must agree with the measured fill. Exact values expire when stale or the fill changes; a `~` percentage is approximate and an em dash means unavailable. Empty or heavily obscured bars may be unavailable. Enable Health (HP) and Mana (MP) in the XP/SP HUD gear → Visible widgets. Both are off by default. Older digit-only bindings still work but have no HP/MP data. No health/mana event history or automated gameplay is added. Animated orbs are deferred until this foundation is validated.
+Rebind using Select player frame → Auto-fit player after updating. The compact frame and bar geometry are now saved in addition to the original level/XP rectangles. The frame remains protected from overlay placement. During an unpaused live session, HP/MP bar fill is sampled about every 250 ms (subject to UI polling and capture latency), with separate slower numeric OCR. Two matching numeric readings must agree with the measured fill. Exact values expire when stale or the fill changes; a `~` percentage is approximate and an em dash means unavailable. Empty or heavily obscured bars may be unavailable. Enable Show HP/MP in the main HUD gear, then choose Health (HP) and Mana (MP) under its own Visible widgets. The panel is off by default on new installations. Older digit-only bindings still work but have no HP/MP data. No health/mana event history or automated gameplay is added. Animated orbs are deferred until this foundation is validated.
 
 ### Independent HP/MP HUD (v0.56.3)
 HP and MP now belong to their own native overlay. Use Main HUD gear → Show HP/MP or the HUD settings page. Previously enabled HP/MP widgets migrate automatically; new installations keep it hidden until enabled. Its own gear controls the two values, row arrangement and frame binding. Unlock and drag to reposition; its position persists separately. Hide/show does not change tracking or other panels. Vital readings update up to four times per second. Orbs are not yet implemented.
