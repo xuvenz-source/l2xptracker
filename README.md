@@ -155,7 +155,10 @@ Import monster windows once, verify name/level/base XP/SP and desired drops, and
 ## Reduced reward review hints (v0.50.1)
 The kill review lists exact candidates followed by approximate reduced-share suggestions when the observed XP and SP can both result from one fraction of an expected reward (with integer truncation). Suggestions never automatically assign a kill or train the library. This is a review heuristic, not proof of actual damage share. Editing a saved profile opens the requested entry even if another editor was already open.
 
-## Current status: v0.50.1
+## Direct cumulative updates (v0.50.2)
+Each release attempts to generate direct-to-latest differential ZIPs for the eight newest eligible stable public base versions. Each contains the final changed/new files once and the complete target SHA-256 inventory. Unchanged files are reused locally and obsolete files excluded. Existing updaters already support these names. Each delta is reconstructed and compared to the full target installer in CI; the staged app must pass a smoke test before switching. Missing, invalid or larger-than-full deltas fall back to the verified full installer. Settings/history and backup/rollback behavior are unchanged. This is file-level, not binary-level patching; changed executables are transferred whole.
+
+## Current status: v0.50.2
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

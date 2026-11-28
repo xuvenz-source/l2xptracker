@@ -117,18 +117,27 @@ jobs:
             jq -e --arg sha "$GITHUB_SHA" '.target_commitish == $sha' <<< "$release" >/dev/null
           fi
           assets=("$NAME" "$NAME.sha256")
-          # Optional, exact-version delta against the latest public release.
-          # Failure to download/build a patch never prevents a full installer.
-          if [[ "$release" == "null" && "$BASE" != "$TAG" ]]; then
-            OLD="L2_Legacy_Tracker_${BASE}_Windows_x64_Portable.zip"
-            PATCH="L2_Legacy_Tracker_${BASE}_to_${TAG}_Windows_x64_Delta.zip"
-            if gh release download "$BASE" --repo "$GITHUB_REPOSITORY" --pattern "$OLD" --pattern "$OLD.sha256" && sha256sum -c "$OLD.sha256" && python3 ../delta.py "$OLD" "$NAME" "${BASE#v}" "$VERSION" "$PATCH" && test -f "$PATCH"; then
-              unzip -tq "$PATCH"
-              sha256sum "$PATCH" > "$PATCH.sha256"
-              assets+=("$PATCH" "$PATCH.sha256")
-            else
-              echo "::warning::No verified incremental patch; full package remains available."
+          # Build direct-to-target archives from complete old/new inventories.
+          # Never chain patches. Unsupported bases retain the full installer.
+          if [[ "$release" == "null" ]]; then
+            if ! bases=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --slurp | python3 ../release_bases.py "$VERSION"); then
+              echo "::warning::Could not enumerate base releases; trying latest only."
+              bases="$BASE"
             fi
+            while IFS= read -r base; do
+              [[ -n "$base" ]] || continue
+              [[ "$base" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || continue
+              OLD="L2_Legacy_Tracker_${base}_Windows_x64_Portable.zip"
+              PATCH="L2_Legacy_Tracker_${base}_to_${TAG}_Windows_x64_Delta.zip"
+              if gh release download "$base" --repo "$GITHUB_REPOSITORY" --pattern "$OLD" --pattern "$OLD.sha256" && sha256sum -c "$OLD.sha256" && python3 ../delta.py "$OLD" "$NAME" "${base#v}" "$VERSION" "$PATCH" && test -f "$PATCH" && unzip -tq "$PATCH"; then
+                sha256sum "$PATCH" > "$PATCH.sha256"
+                assets+=("$PATCH" "$PATCH.sha256")
+              else
+                echo "::warning::No verified direct patch from $base; full package remains available."
+                rm -f -- "$PATCH" "$PATCH.sha256"
+              fi
+              rm -f -- "$OLD" "$OLD.sha256"
+            done <<< "$bases"
           fi
           if [[ "$release" == "null" ]]; then
             gh release create "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title "L2 Legacy Tracker $TAG" --notes "Automated portable Windows x64 release. Unit tests, frozen-app smoke test, ZIP integrity and checksums are required before publication. Unsigned experimental build; live gameplay and clean-PC upgrade testing are not confirmed by CI. Extract the full ZIP into a writable directory. See bundled dependency notices and obtain server approval before use."

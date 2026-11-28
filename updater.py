@@ -57,7 +57,8 @@ def release_info(data,current=VERSION):
     info=dict(version=version,name=name,url=asset(name),checksum=asset(name+'.sha256'),notes=str(data.get('body') or '')[:1200])
     sizes={a.get('name'):a.get('size') for a in data.get('assets',[])}
     if type(sizes.get(name)) is int and 0<sizes[name]<=MAX_ZIP:info['size']=sizes[name]
-    # Older releases and skipped versions still use the verified full package.
+    # Exact installed-version to latest-version delta; no intermediate patches.
+    # Unsupported bases still use the verified full package.
     from delta import delta_name
     patch=delta_name(current,version)
     try:
@@ -169,7 +170,7 @@ def stage_update(info,root,progress=lambda text:None,byte_progress=None):
         if patch:
             try:
                 from delta import reconstruct
-                progress(f"Downloading incremental patch ({patch['size']/1024**2:.1f} MiB)…")
+                progress(f"Downloading direct update v{VERSION} → v{info['version']} ({patch['size']/1024**2:.1f} MiB)…")
                 digest=expected_hash(small(patch['checksum'],4096),patch['name'])
                 archive=staging/patch['name'];fetch(patch,archive,digest)
                 progress('Verifying and reconstructing incremental update…')
