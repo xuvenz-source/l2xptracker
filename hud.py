@@ -130,7 +130,7 @@ class Hud:
         g=getattr(self,'layout',None)
         return g[name] if g else default
     def configure_layout(self,config,title=None,details=0):
-        g=layout_geometry(config,title,details,select_loot=bool(getattr(self,'on_select_loot',None)),main_controls=bool(getattr(self,'on_panel_toggle',None)))
+        g=layout_geometry(config,title,details,select_loot=bool(getattr(self,'on_select_loot',None)),main_controls=title=='MAIN HUD')
         if g==getattr(self,'layout',None):return
         self.finish_drag()
         # Do not briefly resize a visible overlay into a protected chat area.
@@ -346,6 +346,7 @@ class Hud:
         fill=lambda rect,brush:self.u.FillRect(dc,c.byref(w.RECT(*rect)),brush)
         fill((0,0,width,height),self.brush);self.g.SetBkMode(dc,1)
         if g.get('title'):self.text(dc,g['title'],(8,2,width-48,22),self.small,(180,190,205))
+        if g.get('toolbar'):fill((4,g['toolbar']-1,width-4,g['toolbar']),self.divider)
         values=getattr(self,'widget_values',{})
         for k,x,y,cw,rh in g['cells']:
             _,label,colour=WIDGETS[k]
@@ -371,7 +372,7 @@ class Hud:
             fill(action,self.control)
             self.text(dc,'  Select loot table…',action,self.small,(235,240,248))
         if g['footer']:
-            fill((8,height-31,width-8,height-30),self.divider)
+            if height>=32:fill((8,height-31,width-8,height-30),self.divider)
             if g['status']:self.text(dc,'PAUSED' if self.paused else getattr(self,'capture_state','SESSION ACTIVE'),(8,height-28,122,height-4),self.small,(247,202,102) if self.paused or getattr(self,'capture_state','SESSION ACTIVE')!='SESSION ACTIVE' else (134,224,183))
             for k,label in [('pause','  Resume' if self.paused else '  Pause'),('reset','  Reset')]:
                 if g[k]:fill(g[k],self.control);self.text(dc,label,g[k],self.small,(235,240,248))

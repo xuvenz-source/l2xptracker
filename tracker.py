@@ -778,7 +778,7 @@ class App:
         self.hud_list=ttk.Frame(parent);self.hud_list.pack(fill='x')
         self.draw_hud_list()
         row=ttk.Frame(parent);row.pack(fill='x',pady=4)
-        self.hud_controls={k:tk.BooleanVar(value=self.hud_config[k]) for k in ('status','pause','reset')}
+        self.hud_controls={k:tk.BooleanVar(value=self.hud_config[k]) for k in ('pause','reset')}
         for k,v in self.hud_controls.items():ttk.Checkbutton(row,text='Show '+k,variable=v,command=self.apply_hud_config).pack(side='left',padx=4)
         ttk.Button(row,text='Restore defaults',command=self.hud_defaults).pack(side='right')
         ttk.Label(parent,text='Widget order • drag the handles or use arrows to reorder',style='Muted.TLabel').pack(anchor='w')
@@ -848,7 +848,9 @@ class App:
             def text(x,y,value,colour='#FFFFFF',size=None,anchor='nw',bold=False):
                 cv.create_text((x+3)*scale,(y+y0)*scale,text=value,anchor=anchor,font=('Segoe UI',-max(7,round((size or g['small'])*scale)), 'bold' if bold else 'normal'),fill=blend(colour))
             rect(0,0,g['width'],g['height'],'#141921')
-            text(8,4,g['title'],'#B4BECD');text(g['width']-33,12,'▣',anchor='center');text(g['width']-11,12,'⚙',anchor='center')
+            if g['title']:text(8,4,g['title'],'#B4BECD')
+            if g.get('toolbar'):rect(4,g['toolbar']-1,g['width']-4,g['toolbar'],'#2E3D4E')
+            text(g['width']-33,12,'▣',anchor='center');text(g['width']-11,12,'⚙',anchor='center')
             for k,x,y,w,rh in g['cells']:
                 text(x,y+3,'NET ADENA/H' if k=='ad' and self.hud_net_adena else WIDGETS[k][1],'#B4BECD')
                 text(x,y+21,'9,300' if k=='ad' and self.hud_net_adena else sample[k],'#%02x%02x%02x'%WIDGETS[k][2],g['large'],bold=True)

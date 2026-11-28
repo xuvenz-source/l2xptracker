@@ -179,7 +179,10 @@ Enable Kills until next level from either HUD gear → Visible widgets, or Setti
 ## Main HUD and independent tracker panels (v0.52)
 The main floating HUD contains shared pause/reset/status, general capture settings, font size/opacity, stop, and two clickable Show XP/SP and Show Adena/Loot controls. Each tracker has a scoped gear menu: XP/SP has manual/automatic progress, status calibration and progression widgets; Adena/Loot has monster library, kill review, loot-table capture, net Adena and loot widgets. Each tracker has its own row override or can use the common default. All three windows have independent lock/drag positions and share the same session; hiding a tracker never pauses capture or changes accumulated totals. Visibility and row overrides persist. Existing XP/SP and loot positions and widget choices are retained, with both tracker panels visible by default on migration. Main HUD stays visible when both trackers are hidden (while the global HUD is enabled and game focused). The main app retains its shared appearance/ordering controls and now previews all visible panels separately. Placement protects chat, player status and peer HUD rectangles; on cramped clients a panel may not fit, so move or reduce other panels. Native interaction still needs live Windows testing.
 
-## Current status: v0.52
+## Compact HUD refinements (v0.52.1)
+The main HUD is now a single control strip with Pause/Resume, Reset, lock and settings. Tracker visibility remains in the main gear menu and the app settings. XP/SP and Adena/Loot have a dedicated header above the widgets, eliminating the extra horizontal space previously reserved for their lock and gear. Loot detail rows retain enough width for their labels and values. Existing preferences and positions are preserved; live in-game testing is still required.
+
+## Current status: v0.52.1
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 
