@@ -25,7 +25,7 @@ class GdiTahoma:
             ('SetTextColor',[H,D],D),('SetBkMode',[H,I],I),
             ('GetTextFaceW',[H,I,w.LPWSTR],I),
             ('GetTextExtentPoint32W',[H,w.LPCWSTR,I,c.POINTER(w.SIZE)],B),
-            ('TextOutW',[H,I,I,w.LPCWSTR,I],B),('GdiFlush',[],B)):
+            ('SetTextCharacterExtra',[H,I],I),('TextOutW',[H,I,I,w.LPCWSTR,I],B),('GdiFlush',[],B)):
             bind(self.g,name,args,result)
         self.dc=self.bitmap=self.font=self.old_bitmap=self.old_font=None
         self.data=c.c_void_p()
@@ -47,7 +47,8 @@ class GdiTahoma:
                 raise OSError('Requested Tahoma was not selected: '+face.value)
             self.g.SetTextColor(self.dc,0xffffff);self.g.SetBkMode(self.dc,1)
         except Exception:self.close();raise
-    def render(self,text):
+    def render(self,text,tracking=0):
+        if self.g.SetTextCharacterExtra(self.dc,tracking)==-2147483648:raise OSError('SetTextCharacterExtra failed')
         size=w.SIZE()
         if not self.g.GetTextExtentPoint32W(self.dc,text,len(text),c.byref(size)):
             raise OSError('GetTextExtentPoint32W failed')

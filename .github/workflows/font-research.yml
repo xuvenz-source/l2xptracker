@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'gdi_tahoma.py'
+      - 'calibrate_texture.py'
+      - 'tests/test_texture_calibration.py'
       - 'calibrate_rasterisation.py'
       - 'font_library.py'
       - 'tests/test_rasterisation_calibration.py'
@@ -24,8 +26,12 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - run: python -m unittest discover -s tests -p test_rasterisation_calibration.py -v
       - run: python calibrate_rasterisation.py --output font-research.json
+      - run: python -m unittest discover -s tests -p test_texture_calibration.py -v
+      - run: python calibrate_texture.py --output font-texture.json
       - uses: actions/upload-artifact@v4
         with:
           name: Tahoma-rasterisation-report
-          path: font-research.json
+          path: |
+            font-research.json
+            font-texture.json
           if-no-files-found: error
