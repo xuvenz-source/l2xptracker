@@ -16,16 +16,16 @@ def save(value,path=None):write_preference('hud_layout',clean(value),path)
 def geometry(config):
     c=clean(config);ids=c['enabled'];cell,rh,small,large=SIZES[c['size']]
     cols=max(1,(len(ids)+1)//2 if c['layout']=='double' else len(ids));rows=max(1,(len(ids)+cols-1)//cols)
-    # Reserve lock space in the header and a separate footer for buttons.
+    # Reserve adjacent lock and gear hit targets, plus a separate footer.
     footer=c['status'] or c['pause'] or c['reset']
-    width=max(cols*cell+24, (120 if c['status'] else 0)+(72 if c['pause'] else 0)+(60 if c['reset'] else 0)+12,115)
+    width=max(cols*cell+48, (120 if c['status'] else 0)+(72 if c['pause'] else 0)+(60 if c['reset'] else 0)+12,115)
     height=rows*rh+8+(32 if footer else 0)
     cells=[(k,8+(i%cols)*cell,5+(i//cols)*rh,cell,rh) for i,k in enumerate(ids)]
     right=width-6
     reset=(right-54,height-26,right,height-4) if c['reset'] else None
     if reset:right-=60
     pause=(right-68,height-26,right,height-4) if c['pause'] else None
-    return dict(width=width,height=height,small=small,large=large,cells=cells,lock=(width-22,0,width,24),reset=reset,pause=pause,status=c['status'],footer=footer)
+    return dict(width=width,height=height,small=small,large=large,cells=cells,lock=(width-44,0,width-22,24),settings=(width-22,0,width,24),reset=reset,pause=pause,status=c['status'],footer=footer)
 
 def overlaps(a,b,w,h,r):
     return a<r['left']+r['width'] and a+w>r['left'] and b<r['top']+r['height'] and b+h>r['top']

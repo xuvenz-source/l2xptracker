@@ -582,7 +582,7 @@ class App:
                 self.status.set('Saved chat calibration loaded. Start when the matching game is open.')
         except Exception as e: self.status.set(f'Could not restore calibration: {e}. Bind game again.')
         self.chat_style=load_style(fallback_pitch=int(self.pitch.get()));self.pitch.set(str(self.chat_style['pitch']))
-        try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.queue_hud_move,on_pause=self.queue_hud_pause,opacity=self.hud_opacity,on_reset=self.queue_hud_reset)
+        try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.queue_hud_move,on_pause=self.queue_hud_pause,opacity=self.hud_opacity,on_reset=self.queue_hud_reset,on_settings=self.queue_hud_settings)
         except Exception as e: self.hud_enabled.set(False); self.status.set(self.status.get()+f' HUD unavailable: {e}')
         if self.hud:
             try:self.hud.configure_layout(self.hud_config)
@@ -673,7 +673,7 @@ class App:
     def open_settings(self):
         self.navigate('settings')
     def build_settings(self,win):
-        settings_tabs=ttk.Notebook(win);settings_tabs.pack(fill='both',expand=True)
+        settings_tabs=self.settings_tabs=ttk.Notebook(win);settings_tabs.pack(fill='both',expand=True)
         self.settings_scroll={}
         for label in ('Tracking','HUD','Player status'):
             page=ScrollPage(settings_tabs,padding=8);settings_tabs.add(page,text=label);self.settings_scroll[label]=page
@@ -966,6 +966,24 @@ class App:
     def queue_hud_reset(self):
         # Native callback only enqueues a run-tagged request.
         self.inbox.put(('hud_reset',self.run_id))
+    def queue_hud_settings(self):
+        # Native HUD callbacks only enqueue. Tk menus are opened on the UI thread.
+        self.inbox.put(('hud_settings',self.run_id))
+    def show_hud_settings(self):
+        if not self.running or getattr(self,'selecting',False) or getattr(self,'closing',False) or getattr(self,'update_busy',False):return
+        menu=getattr(self,'hud_settings_menu',None)
+        if menu is None:
+            menu=self.hud_settings_menu=tk.Menu(self.root,tearoff=False)
+            menu.add_command(label='View / edit bound areas…',command=lambda:self.select('chat'))
+            menu.add_separator()
+            menu.add_command(label='HUD settings…',command=self.open_hud_settings)
+        x,y=self.root.winfo_pointerxy()
+        try:menu.tk_popup(x,y)
+        finally:menu.grab_release()
+    def open_hud_settings(self):
+        if getattr(self,'selecting',False) or getattr(self,'update_busy',False):return
+        self.root.deiconify();self.root.lift();self.navigate('settings')
+        self.settings_tabs.select(self.settings_scroll['HUD'])
     def queue_hud_move(self,position):
         self.inbox.put(('hud_move',position))
     def save_hud_position(self,position):
@@ -1245,6 +1263,8 @@ class App:
                 if self.running and data==self.run_id:self.toggle_pause()
             elif kind=='hud_reset':
                 if self.running and data==self.run_id:self.reset_session()
+            elif kind=='hud_settings':
+                if self.running and data==self.run_id:self.show_hud_settings()
             elif kind=='hud_move':self.save_hud_position(data)
             elif kind=='done':
                 self.pending-=1
@@ -1593,7 +1613,7 @@ class App:
                 net=getattr(self,'hud_net_adena',False)
                 player=getattr(self,'player',None)
                 widgets=dict(getattr(player,'widgets',{}),loot=('LOOT/H',rate_text(getattr(self,'loot_report',{}).get('value',0),self.active_seconds)),cost=('COST/H',rate_text(report.get('cost',0),self.active_seconds)))
-                self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get() and not self.selecting,self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills,paused=self.pause_gate.snapshot()[0],consumable_cost=report.get('cost',0) if net else None,unpriced_uses=report.get('unpriced',0) if net else 0,widgets=widgets,protected=player.protected() if player else (),capture_state=getattr(self,'capture_state','SESSION ACTIVE'))
+                self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get() and not getattr(self,'selecting',False),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills,paused=self.pause_gate.snapshot()[0],consumable_cost=report.get('cost',0) if net else None,unpriced_uses=report.get('unpriced',0) if net else 0,widgets=widgets,protected=player.protected() if player else (),capture_state=getattr(self,'capture_state','SESSION ACTIVE'))
             except Exception as e:
                 diagnostic('HUD update exception',exc_info=True)
                 hud,self.hud=self.hud,None

@@ -11,6 +11,7 @@ WIDTH, HEIGHT = 310, 86
 PAUSE_RECT = (174, 60, 244, 82)
 RESET_RECT = (248, 60, 304, 82)
 LOCK_RECT = (288, 2, 309, 24)
+SETTINGS_RECT = (266, 2, 288, 24)
 
 
 
@@ -55,13 +56,13 @@ def adena_metric(adena,seconds,consumable_cost=None,unpriced_uses=0):
 
 
 class Hud:
-    def __init__(self, preferred=None, on_move=None, on_pause=None, opacity=HUD_OPACITY_DEFAULT, on_reset=None):
+    def __init__(self, preferred=None, on_move=None, on_pause=None, opacity=HUD_OPACITY_DEFAULT, on_reset=None, on_settings=None):
         self.opacity=validate_hud_opacity(opacity)
         self.hwnd=None; self.shown=False; self.position=None; self.values=('—','—','—'); self.adena_label='ADENA / HR'
         self.preferred=preferred; self.on_move=on_move; self.drag=None; self.interactive=False
         self.locked=True; self.lock_first=None; self.press_handled=False; self.native_released=False
         self.native_drag=False; self.drag_poll_seen=False; self.drag_context=None; self.drag_rejected=False; self.native_activity=0.0; self.moving=False
-        self.last_mouse_down=None; self.placement=None; self.on_pause=on_pause; self.on_reset=on_reset; self.paused=False; self.pause_pressed=False
+        self.last_mouse_down=None; self.placement=None; self.on_pause=on_pause; self.on_reset=on_reset; self.on_settings=on_settings; self.paused=False; self.pause_pressed=False
         self.u=c.WinDLL('user32',use_last_error=True); self.g=c.WinDLL('gdi32',use_last_error=True); self.k=c.WinDLL('kernel32',use_last_error=True)
         H=w.HANDLE; L=c.c_ssize_t; U=c.c_size_t
         self.proc_type=c.WINFUNCTYPE(L,w.HWND,w.UINT,U,L)
@@ -157,10 +158,12 @@ class Hud:
         return self.hit_rect(point,self.rect('lock',LOCK_RECT))
     def reset_hit(self,point):
         return bool(getattr(self,'on_reset',None)) and self.hit_rect(point,self.rect('reset',RESET_RECT))
+    def settings_hit(self,point):
+        return bool(getattr(self,'on_settings',None)) and self.hit_rect(point,self.rect('settings',SETTINGS_RECT))
     def body_hit(self,point):
-        return self.hit_rect(point,(0,0,*self.dimensions())) and not self.lock_hit(point) and not self.pause_hit(point) and not self.reset_hit(point)
+        return self.hit_rect(point,(0,0,*self.dimensions())) and not self.lock_hit(point) and not self.pause_hit(point) and not self.reset_hit(point) and not self.settings_hit(point)
     def wants_input(self,point):
-        return self.drag is not None or self.lock_hit(point) or self.pause_hit(point) or self.reset_hit(point) or (not self.locked and self.body_hit(point))
+        return self.drag is not None or self.lock_hit(point) or self.pause_hit(point) or self.reset_hit(point) or self.settings_hit(point) or (not self.locked and self.body_hit(point))
     def toggle_lock_press(self):
         # Unlock requires two distinct presses within Windows' double-click interval.
         # Lock immediately on the first click while unlocked.
@@ -183,7 +186,8 @@ class Hud:
         if self.lock_hit(point):
             self.toggle_lock_press();return
         self.lock_first=None
-        if self.reset_hit(point):self.on_reset()
+        if self.settings_hit(point):self.on_settings()
+        elif self.reset_hit(point):self.on_reset()
         elif self.pause_hit(point):self.pause_click()
         elif not self.locked and self.body_hit(point):self.begin_drag(point)
     def release_press(self):
@@ -271,12 +275,13 @@ class Hud:
                     self.g.SetBkMode(dc,1)
                     for i,(label,value,colour) in enumerate(zip((getattr(self,'adena_label','ADENA / HR'),'EXP / HR','KILLS / HR'),self.values,((247,202,102),(134,224,183),(214,224,245)))):
                         x=i*103+8
-                        self.text(dc,label,(x,7,288 if i==2 else x+91,24),self.small,(180,190,205))
+                        self.text(dc,label,(x,7,(266 if getattr(self,'on_settings',None) else 288) if i==2 else x+91,24),self.small,(180,190,205))
                         self.text(dc,value,(x,26,x+91,53),self.large,colour)
                     # Small vector padlock: no emoji/font dependency.
                     parts=[(295,11,304,12),(295,18,304,19),(295,12,296,18),(303,12,304,18),(299,14,300,17)]
                     parts += ([(297,7,302,8),(297,8,298,11),(301,8,302,11)] if self.locked else [(297,6,302,7),(297,7,298,11),(301,7,302,9)])
                     for part in parts:self.u.FillRect(dc,c.byref(w.RECT(*part)),self.lock_brush)
+                    self.paint_gear(dc,SETTINGS_RECT)
                     self.u.FillRect(dc,c.byref(w.RECT(8,56,302,57)),self.divider)
                     self.u.FillRect(dc,c.byref(w.RECT(*PAUSE_RECT)),self.control)
                     paused=getattr(self,'paused',False)
@@ -288,6 +293,15 @@ class Hud:
                 finally:self.u.EndPaint(h,c.byref(ps))
             return 0
         return self.u.DefWindowProcW(h,msg,wp,lp)
+    def paint_gear(self,dc,rect):
+        if not getattr(self,'on_settings',None) or not rect:return
+        # Draw a small gear from filled pixel rectangles. No emoji or font
+        # dependency, and no extra GDI objects to allocate on each paint.
+        l,t,r,b=rect;x=(l+r)//2-7;y=(t+b)//2-7
+        rows=('.....####.....','.....####.....','..##.####.##..','.############.','.############.','##############','#####....#####','#####....#####','##############','.############.','.############.','..##.####.##..','.....####.....','.....####.....')
+        for j,row in enumerate(rows):
+            for i,ch in enumerate(row):
+                if ch=='#':self.u.FillRect(dc,c.byref(w.RECT(x+i,y+j,x+i+1,y+j+1)),self.lock_brush)
     def paint_layout(self,dc):
         g=self.layout;width,height=self.dimensions()
         fill=lambda rect,brush:self.u.FillRect(dc,c.byref(w.RECT(*rect)),brush)
@@ -298,10 +312,11 @@ class Hud:
             label,value=values.get(k,(label,'—'))
             self.text(dc,label,(x,y,x+cw-3,y+18),self.small,(180,190,205))
             self.text(dc,value,(x,y+18,x+cw-3,y+rh-2),self.large,colour)
-        x=width-15
+        x=(g['lock'][0]+g['lock'][2])//2-4
         parts=[(x,11,x+9,12),(x,18,x+9,19),(x,12,x+1,18),(x+8,12,x+9,18),(x+4,14,x+5,17)]
         parts += [(x+2,7,x+7,8),(x+2,8,x+3,11),(x+6,8,x+7,11 if self.locked else 9)]
         for part in parts:fill(part,self.lock_brush)
+        self.paint_gear(dc,g['settings'])
         if g['footer']:
             fill((8,height-31,width-8,height-30),self.divider)
             if g['status']:self.text(dc,'PAUSED' if self.paused else getattr(self,'capture_state','SESSION ACTIVE'),(8,height-28,122,height-4),self.small,(247,202,102) if self.paused or getattr(self,'capture_state','SESSION ACTIVE')!='SESSION ACTIVE' else (134,224,183))
