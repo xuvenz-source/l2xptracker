@@ -516,7 +516,7 @@ def recover_xp_slash(row,reads,read_number):
     return values
 
 def recover_no_grade_soulshot(reads):
-    """Recover observed Medium-text aliases only, from a blue consumable row.
+    """Recover observed OCR aliases only, from a blue consumable row.
 
     Require two complete independently preprocessed messages supporting the
     same activation. Do not infer a damaged item, arbitrary grade or prefix.
@@ -531,9 +531,10 @@ def recover_no_grade_soulshot(reads):
             votes+=1;non_ao+=1;continue
         if re.fullmatch(r'Use Soulshot:\s*(?:No Grads|Ne Grace|(?:Ni|Ho|Wo|Heo) Grade)',text,re.I):
             votes+=1;non_ao+=1
-        elif re.fullmatch(r'Use Soulshot:\s*Ao Grade',text,re.I):
-            # Ao could be a damaged A-grade message. Require another
-            # independently preprocessed No-grade-like reading as well.
+        elif re.fullmatch(r'Use Soulshot:\s*(?:Ao|Wis) Grade',text,re.I):
+            # Ao and Wis are weaker observed aliases. Require another
+            # independently preprocessed, stronger No-grade-like reading.
+            # A damaged prefix (e.g. Lise) never supplies a vote.
             votes+=1
         elif re.search(r'\b(?:Blessed\s+)?(?:Soulshot|Spiritshot)\s*:\s*[DCSBA]\b',text,re.I):
             return None

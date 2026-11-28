@@ -24,6 +24,20 @@ class ReportedAliasesTests(unittest.TestCase):
             out=list(configured_ocr_rows([row((0,170,255))],CUSTOM_COLOURS))
         self.assertEqual(out,[('line',SHOT)])
         self.assertEqual(parse(out[0][1]),('consumable','You','Soulshot: No Grade',1,0))
+    def test_small_wis_wo_lise_regression(self):
+        reads=['Use Soulshot: Wis Grade,','Use Soulshot: Wo Grade,','Lise Soulshot: Heo Grade,']
+        self.assertEqual(recover_no_grade_soulshot(reads),SHOT)
+        with patch('tracker.single_ocr',side_effect=reads):
+            out=list(configured_ocr_rows([row((0,170,255))],CUSTOM_COLOURS))
+        self.assertEqual(out,[('line',SHOT)])
+        self.assertEqual(parse(out[0][1]),('consumable','You','Soulshot: No Grade',1,0))
+    def test_weak_alias_and_damaged_prefix_require_corroboration(self):
+        for reads in (['Use Soulshot: Wis Grade,']*3,
+                      ['Use Soulshot: Wis Grade,','Use Soulshot: Ao Grade,','Lise Soulshot: Heo Grade,'],
+                      ['Lise Soulshot: Heo Grade,']*3,
+                      ['Use Soulshot: Wis Grade,','Use Soulshot: Wo Grade,','Use Soulshot: A Grade.'],
+                      ['Use Soulshot: Wis Grade,','Use Soulshot: Wo Grade,','Use Spiritshot: No Grade.']):
+            self.assertIsNone(recover_no_grade_soulshot(reads))
     def test_recipe_consensus(self):
         for reads in ([WRONG,RECIPE,RECIPE],[RECIPE,WRONG,RECIPE],[RECIPE,RECIPE,WRONG]):
             self.assertEqual(recover_blue_diamond_recipe(reads),RECIPE)

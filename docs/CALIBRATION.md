@@ -58,3 +58,5 @@ The dedicated blue No Grade Soulshot fallback also recognizes observed `Ni Grade
 ### Small Soulshot full-line recovery (v0.55.3)
 
 A dedicated exact 9 × 135 pixel No Grade Soulshot signature at blue thresholds 230 and 250 is used after ordinary OCR cannot agree, only for the distinct #00AAFF consumable colour. Both complete masks must match; any parsed conflicting event blocks this recovery. It works even if experimental native recognition is disabled. Large/Medium OCR paths are unchanged. Four rows in one screenshot supplied the masks; 10 of 13 rows from the other four supplied Small screenshots matched both thresholds, with three abstentions. This is a development check, not a live accuracy estimate. No actual other-grade samples were available for negative validation.
+
+Small Soulshot OCR fallback (v0.55.4): `Wis Grade` is an additional weak alias, accepted only with a stronger complete No Grade-like reading such as `Wo Grade`. Damaged prefixes such as `Lise` do not contribute a vote. Weak aliases alone and conflicting valid grades or shot types remain uncounted. The exact pixel templates are unchanged.
