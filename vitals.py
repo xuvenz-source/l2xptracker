@@ -65,27 +65,41 @@ def current_pair(fraction,seen_fraction,pair,age):
     if abs(fraction-seen_fraction)>.012 or abs(pair[0]/pair[1]-fraction)>.04:return None
     return pair
 
+def vital_masks(bar):
+    w=bar.shape[1];a=bar[:,max(0,w//2-50):min(w,w//2+50)].astype(np.int16)
+    neutral=a.max(2)-a.min(2)
+    gray=(a[:,:,0].astype(np.int32)*299+a[:,:,1].astype(np.int32)*587+a[:,:,2].astype(np.int32)*114)//1000
+    return tuple((a.min(2)>=t)&(neutral<=45) for t in (115,140,100))+tuple((gray>=t)&(neutral<=80) for t in (140,175))
+
+def vital_signature(bar):
+    """Identity of the exact OCR inputs, never fuzzy glyph similarity."""
+    masks=vital_masks(bar)
+    if any(m.sum()<20 for m in masks):
+        w=bar.shape[1];crop=bar[:,max(0,w//2-50):min(w,w//2+50)]
+        return ('raw',crop.shape,crop.tobytes())
+    return (masks[0].shape,*(np.packbits(m).tobytes() for m in masks))
+
+def compatible_pair(pair,fraction):
+    return pair is not None and fraction is not None and abs(pair[0]/pair[1]-fraction)<=.04
+
 def read_vital_pair(bar,fraction):
     """Use isolated white digits and require two matching, fill-checked reads."""
     if fraction is None:return None
     import pytesseract
-    w=bar.shape[1];a=bar[:,max(0,w//2-50):min(w,w//2+50)].astype(np.int16)
+    masks=vital_masks(bar)
     reads=[]
     def read(mask,psm=7,scale=6):
         im=Image.fromarray(np.where(mask,0,255).astype(np.uint8))
         im=ImageOps.expand(im.resize((im.width*scale,im.height*scale),Image.Resampling.LANCZOS),border=12,fill=255)
         try:reads.append(pytesseract.image_to_string(im,config=f'--psm {psm} -c tessedit_char_whitelist=0123456789/',timeout=2))
         except RuntimeError:pass
-    neutral=a.max(2)-a.min(2)
-    for threshold in (115,140,100):
-        read((a.min(2)>=threshold)&(neutral<=45))
+    # Stop at the original three-mask consensus, or try the two
+    # alternate luminance masks if necessary. Do not skip a conflicting
+    # third standard read just because the first two matched.
+    for mask in masks[:3]:read(mask)
     answer=verified_pair(reads,fraction)
     if answer is not None:return answer
-    # On antialiased text, a strict neutral mask can erase coloured edges.
-    # Luminance and a wider chroma allowance recover different strokes.
-    gray=(a[:,:,0].astype(np.int32)*299+a[:,:,1].astype(np.int32)*587+a[:,:,2].astype(np.int32)*114)//1000
-    for threshold in (140,175):
-        read((gray>=threshold)&(neutral<=80),psm=8,scale=8)
+    for mask in masks[3:]:read(mask,psm=8,scale=8)
     return verified_pair(reads,fraction)
 
 DISPLAY_MODES=('Value','Percent','Both')

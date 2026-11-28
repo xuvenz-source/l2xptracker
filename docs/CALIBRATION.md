@@ -83,3 +83,7 @@ Globes mode hides the rectangular HP/MP panel and shows individual click-through
 ### Ornate glass globes (v0.59)
 
 Globes now use an original supersampled bronze frame, dark glass cavity, curved red/blue liquid surface, specular highlight and per-pixel alpha via UpdateLayeredWindow. Both text mode places the percentage above the exact value; Value and Percent use a single centered line. Settings preview renders the same art. No image assets or font files are bundled; the renderer uses the installed Windows Segoe UI font with a Pillow fallback. Existing independent positions, sizes (80–240 px), opacity, click-through behaviour and OCR rules are retained. Liquid curvature is static, not animated. Windows visual validation is required.
+
+### Responsive HP/MP numbers (v0.59.2)
+
+The numeric reader now schedules changed digit masks after a minimum 350 ms interval rather than a fixed two-second delay; an unchanged unsuccessful input retries after 750 ms. One worker per resource remains bounded. A 96-entry per-resource in-memory cache reuses previously verified values only for identical OCR inputs and compatible current fill. Weak masks require identical raw digit crops. Fresh captured pixels, not the age of the previous OCR result, determine whether a cached number is displayed. Cache clears on capture loss and binding/session/pause changes. The original three-pass consensus and extra fallback masks remain intact. Unknown readings remain unavailable, not inferred. New values still depend on OCR processing time; live performance needs validation.
