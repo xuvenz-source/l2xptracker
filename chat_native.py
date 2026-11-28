@@ -1,19 +1,10 @@
 """Conservative native reward recognition. No runtime font synthesis or learning."""
-import base64,json,zlib
-from functools import lru_cache
 import numpy as np
-from chat_native_data import DATA
-
-HEIGHT={'Large':12,'Medium':10,'Small':9}
+from font_library import CHAT_DATA as DATA,CHAT_HEIGHT as HEIGHT,chat_library as library
 THRESHOLDS={'xp':(235,245),'shot':(235,245),'adena':(180,195)}
 PATTERNS={'xp':('You','have','acquired',None,'XP','and',None,'SP.'),
           'adena':('You','have','obtained',None,'Adena.'),
           'shot':('Use','Soulshot:','No','Grade.')}
-
-@lru_cache(maxsize=1)
-def library():
-    raw=json.loads(zlib.decompress(base64.b64decode(DATA)))
-    return {k:{label:tuple((s.split(':')[0],int(s.split(':')[1],16)) for s in variants) for label,variants in d.items()} for k,d in raw.items()}
 
 def colour_mask(row,kind,threshold):
     r,g,b=row.astype(np.int16).transpose(2,0,1)

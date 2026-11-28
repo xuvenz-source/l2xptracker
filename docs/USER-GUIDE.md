@@ -1,6 +1,6 @@
 # User guide
 
-This describes the v0.60 Prestige source interface; earlier installed releases may use tabs or slightly different labels. Check the version on the main window and the published release before troubleshooting.
+This describes the v0.60.1 Prestige source interface; earlier installed releases may use tabs or slightly different labels. Check the version on the main window and the published release before troubleshooting.
 
 ## First session
 

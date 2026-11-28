@@ -11,7 +11,7 @@ The application is unsigned. Verify its origin and obtain server staff approval.
 It reads visible pixels using local OCR; no injection, game memory reading,
 network interception, client changes or automated inputs.
 
-WORKSPACE (v0.60 — Prestige)
+WORKSPACE (v0.60.1 — Prestige)
 Overview: live farming metrics and level progress.
 Progression: XP/SP and next-level estimates.
 Loot & Adena: item prices, expenses and desired drops.

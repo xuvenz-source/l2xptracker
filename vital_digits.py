@@ -7,21 +7,9 @@ thresholds, fit the native baseline and agree with the measured bar fill.
 import re
 import numpy as np
 from PIL import Image
-from status_digits import TEMPLATES,VARIANTS,signature
+from font_library import EXTRA,mask_string as signature,vital_lookup
 
-# Digit 3 from the 23.03% compact-frame sample. Slash from the HP/MP bars.
-EXTRA={
-    140:{'3':'01110/10001/00001/00110/00001/00001/10001/01110',
-         '/':'001/001/001/001/010/010/010/110'},
-    175:{'3':'01110/10001/00001/00010/00001/00001/10001/01110',
-         '/':'01/01/01/10/10/10'},
-}
-LOOKUP={}
-for threshold in (140,175):
-    glyphs={s:c for c,s in TEMPLATES['percent'][threshold].items() if c.isdigit()}
-    glyphs.update({s:c for s,c in VARIANTS.get(('percent',threshold),{}).items() if c.isdigit()})
-    glyphs.update({s:c for c,s in EXTRA[threshold].items()})
-    LOOKUP[threshold]=glyphs
+LOOKUP={threshold:vital_lookup(threshold) for threshold in (140,175)}
 
 def decode(mask,threshold):
     if mask.ndim!=2 or min(mask.shape)<3 or mask[0].any() or mask[-1].any() or mask[:,0].any() or mask[:,-1].any():return None

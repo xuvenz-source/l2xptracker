@@ -1,11 +1,8 @@
 """Conservative, passive numeric recognition for verified Large chat glyphs."""
 import numpy as np
-import json,base64,zlib
 from functools import lru_cache
 
-# Binary glyph masks only; no screenshots, names or game background.
-# Derived from 11 verified Large-text samples; 32 distinct digit masks.
-DATA = 'eNrNV02P2zYQ/S8+CwWHQ1PD3PoPAuTSoNiDNCTbvWzQbdIcgv3vfUPJktaWvd4CBSJgbZlP8+ZxvsT9cciPfzx+/fvw4cfBHT78fiDf9R1LGkhJ2EXXvjKTukO3j8o5Ot60HW/Z5j30AfCs7dh5YgmeXPtIdbbFOl9f1+062Pyy0z4lIeddIIlOvIPrvi566l2o3oXqhMI7z95j1w8Mbifq8CicjDpZnyO8Qeo4IQXMQBIQcIZlR+awJx+DDASHwTUVJ1UTOpyjYDiuMSnTpl111O4q8ZqjS5R3Udmi4I8LP6kpdzXJMGeZNjVwiaZ9lO5Bxx00S9mi0NYv2qqF1bJFKEGxSOPHmtNLlF1jkDWnI0skzSUP7SatOT1DcjHLdNl1khE98+BZ1t5Ib6O8QdnQh5fu8P3Lc279/fnLt9mXP3bYAi4ULT5J7NMFJTQKBSIrL3KKloEX65tA1kHeJbTRDIQQIzkoyrOIRmpEni5IORDfRarXSHkmVSONE2nksZEKbOMeqTTSohGOWWlqvz+Hf8ocB3ZdE2mBmK7Tz0IloipVTZfpJu/BF1g11UKcyKN3goQjihwuSSEgKJpcC0G9UJk28JaL0lzo5IL3XaRdF3q3C/hoLvjcxUhxx0XeuKgWsUH/+vb4XPJpBh+72Q+98jpd4dWvEZlihDCh3jExNISUXELnRB/d5BRxdZBQkX1kMAjX5Oq89QQ6lFNAScPMqjXwaiZOeiaKuPBESmlED/ShhxmVpYTeK7ef5BYyufpTy62v5KrGvJUrV+XGW3JlI7fncSuXV7lTL/32ca4Jih1aXCN7u9CaVkz4E/wQxrz1DmsOGHzYAD29kmCo+4Z49a+G8YphgWEPQ75m+Mqj1fLTqYy979aQTrE+Fl+sShWJtyCQla70yW4tYJjadotuCpoznOV5Su1T0f9KNd6gwkY/ffzllJvUIXFi0xCD0U5CyLpTZ6PRYUr3IHdsdebNaxAMW7JesIfnYF+nqHZIuY+inyn0/RTYUBmen5YZFGK33xW0XUYyKR7VRg9eEHi1JBHFqqDe0QwIGqZgCXYuVJzS8LK25fYCMxhPoQcctacjllsv2KkMV3XFlq1zpw3eJ6nOkpDRVZJel5T/g6SKsf0eSbRIiiXGnnKTRNck1bcllUWSrFFCDn/N5Wk41WXApJNVSlneW+64ivV4k6KXIcD5iEME2bFa7IiSbK7ZCVYw3or5cPZlwji1c4BvotphIEmbePjHAlMyQmdkxzxQsXY5lSgEoVTeFIThUpog/ikERd0I4o0guSWo2lS8KajgNAnmOgt6eHn5FxjpMGo='
+from font_library import LARGE_DATA as DATA,large_library as library
 
 def trim(mask):
     y,x=np.nonzero(mask)
@@ -15,11 +12,6 @@ def trim(mask):
 def decode(value):
     h,w,raw=value.split(',');h,w=int(h),int(w)
     return np.unpackbits(np.frombuffer(bytes.fromhex(raw),dtype=np.uint8),count=h*w).reshape(h,w).astype(bool)
-
-@lru_cache(maxsize=1)
-def library():
-    data=json.loads(zlib.decompress(base64.b64decode(DATA)))
-    return {kind:{k:tuple(decode(v) for v in vals) for k,vals in group.items()} for kind,group in data.items()}
 
 def score(glyph,templates):
     return max((1-float(np.mean(glyph!=t)) for t in templates if t.shape==glyph.shape),default=0.)
