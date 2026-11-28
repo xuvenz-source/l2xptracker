@@ -3,6 +3,7 @@ import queue,threading
 from collections import OrderedDict
 import numpy as np
 from leveling import binding_for
+from vital_digits import recognise_vital_pair
 from vitals import crop_bar,bar_fraction,read_vital_pair,display_value,vital_signature,compatible_pair
 
 CACHE_LIMIT=96
@@ -38,6 +39,9 @@ class VitalMonitor:
             numeric_bars={k:rgb[max(0,r['top']-1):r['top']+r['height']+1,r['left']:r['left']+r['width']] for k,r in layout['bars'].items()}
             self.sample=(stamp,fractions)
             self.latest={k:(stamp,bar,fractions[k],vital_signature(bar)) for k,bar in numeric_bars.items() if fractions[k] is not None}
+            # Native recognition runs on the newest pixels, even while an
+            # older Tesseract fallback is still in flight. No process launch.
+            self.native={k:recognise_vital_pair(bar,fraction) for k,(_,bar,fraction,_) in self.latest.items()}
         while True:
             try:token,stamp,k,signature,seen_fraction,result=self.numbers.get_nowait()
             except queue.Empty:break
@@ -48,7 +52,7 @@ class VitalMonitor:
         # the cache, but cannot overwrite different current pixels.
         for k,(stamp,bar,fraction,signature) in self.latest.items():
             if key is None or now-stamp>1.5 or k in self.ocr_busy:continue
-            if self.cached(k,signature,fraction) is not None:continue
+            if self.native.get(k) is not None or self.cached(k,signature,fraction) is not None:continue
             previous,last=self.attempts.get(k,(None,-1e9))
             if now-last<(RETRY_SECONDS if signature==previous else CHANGE_INTERVAL):continue
             self.ocr_busy.add(k);self.attempts[k]=(signature,now)
@@ -82,14 +86,14 @@ class VitalMonitor:
         for k in ('hp','mp'):
             fraction=self.sample[1].get(k) if active and self.sample and now-self.sample[0]<=1.5 else None
             latest=self.latest.get(k)
-            pair=self.cached(k,latest[3],fraction) if latest is not None and fraction is not None else None
+            pair=(self.native.get(k) or self.cached(k,latest[3],fraction)) if latest is not None and fraction is not None else None
             self.readings[k]=(fraction,pair)
             values[k]=(k.upper(),display_value(fraction,pair))
         return values
 
     def clear_evidence(self):
         self.cache={k:OrderedDict() for k in ('hp','mp')}
-        self.attempts={};self.latest={}
+        self.attempts={};self.latest={};self.native={}
 
     def remember(self,k,signature,pair):
         cache=self.cache[k]

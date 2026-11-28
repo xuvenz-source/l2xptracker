@@ -21,7 +21,7 @@ Python and Tesseract are bundled in the portable release. The application is uns
 - Observed loot, item valuations, consumable expenses, party rosters and saved presets.
 - Local session history, folders, drag-and-drop merging, CSV exports and OCR corrections.
 - Dark/light appearance, automatic verified updates and incremental downloads for compatible installations.
-- Prestige workspace in v0.59.2 source: Overview, Progression, Loot & Adena, Monster Library, Party, History, Reviews, Activity Log and Settings.
+- Prestige workspace in v0.60 source: Overview, Progression, Loot & Adena, Monster Library, Party, History, Reviews, Activity Log and Settings.
 
 The latest downloadable version is shown on Releases; source changes are not necessarily published yet.
 
