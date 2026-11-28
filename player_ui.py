@@ -118,7 +118,7 @@ class PlayerStatus:
         ttk.Button(row,text='Select XP %…',command=lambda:self.calibrate('percent')).pack(side='left',padx=6)
         ttk.Label(parent,textvariable=self.regions,style='Muted.TLabel').pack(anchor='w',pady=6)
         ttk.Label(parent,textvariable=self.vital_summary,style='Section.TLabel').pack(anchor='w')
-        ttk.Label(parent,text='HP/MP uses the saved whole frame during an active session. A ~ value is an estimated bar percentage. Enable HP/MP in HUD visible widgets.',wraplength=650,style='Muted.TLabel').pack(anchor='w',pady=(2,6))
+        ttk.Label(parent,text='HP/MP uses the saved whole frame during an active session. A ~ value is an estimated bar percentage. Enable the independent HP/MP HUD in the main HUD settings.',wraplength=650,style='Muted.TLabel').pack(anchor='w',pady=(2,6))
         ttk.Separator(parent).pack(fill='x',pady=10)
         ttk.Label(parent,text='Manual calibration (switches to manual mode)',style='Section.TLabel').pack(anchor='w')
         row=ttk.Frame(parent);row.pack(fill='x',pady=6)

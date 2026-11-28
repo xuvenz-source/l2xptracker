@@ -39,5 +39,6 @@ class VitalsTests(unittest.TestCase):
     def test_widgets_opt_in(self):
         self.assertNotIn('hp',clean()['enabled'])
         c=clean({'enabled':['hp','mp','ad']})
-        self.assertEqual(set(panel_config(c,'progression')['enabled']),{'hp','mp'})
+        self.assertEqual(panel_config(c,'progression')['enabled'],[])
+        self.assertEqual(set(panel_config(c,'vitals')['enabled']),{'hp','mp'})
         self.assertEqual(panel_config(c,'loot')['enabled'],['ad'])

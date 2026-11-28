@@ -483,7 +483,7 @@ class Hud:
             now=time.monotonic()
             due=not self.shown or now>=getattr(self,'next_metric_paint',0)
             if due:
-                self.next_metric_paint=now+1
+                self.next_metric_paint=now+(.25 if layout.get('title')=='HP / MP' else 1)
                 changed=visible!=getattr(self,'widget_values',{})
                 self.widget_values=visible;self.values=values;self.adena_label=label
             else:changed=False

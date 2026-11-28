@@ -34,13 +34,13 @@ from player_ui import PlayerStatus
 from region_editor import RegionEditor,OverlayRegionEditor,draft_regions,calibration_data
 from leveling import save_status,binding_for
 from sp_forecast import clean_anchor
-from hud_pair import HudPair,load_loot_position,load_main_position
+from hud_pair import HudPair,load_loot_position,load_main_position,load_vitals_position
 from drop_targets import load as load_drop_targets, display as display_drops
 from drop_ui import DropEditor,CropWindow,OverlayCropWindow
 import monster_library as monsters
 from monster_ui import MonsterLibraryWindow,KillReviewWindow
 from preferences import write_preference
-from hud_layout import WIDGETS, PRESETS, ROW_OPTIONS, PROGRESSION, LOOT, panel_config, main_config, row_choice, row_settings, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
+from hud_layout import WIDGETS, PRESETS, ROW_OPTIONS, PROGRESSION, LOOT, VITALS, panel_config, main_config, row_choice, row_settings, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
 from hud import rate_text
 from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows, row_alignment, aligned_rows, bottom_clipped
 from party import roster, report as party_report, display_rows as party_rows, summary_text as party_summary, load_current_party, remember_party
@@ -712,6 +712,7 @@ class App:
                 loot=Hud(preferred=load_loot_position(),on_move=self.queue_loot_hud_move,opacity=self.hud_opacity,on_settings=lambda:self.queue_panel_settings('loot'),name_suffix='_loot',on_select_loot=self.queue_select_loot)
                 self.hud=HudPair(self.hud,loot)
                 self.hud.main=Hud(preferred=load_main_position(),on_move=lambda pos:self.inbox.put(('main_hud_move',pos)),on_pause=self.queue_hud_pause,opacity=self.hud_opacity,on_reset=self.queue_hud_reset,on_settings=self.queue_hud_settings,name_suffix='_main',on_panel_toggle=self.queue_panel_toggle)
+                self.hud.vitals=Hud(preferred=load_vitals_position(),on_move=lambda pos:self.inbox.put(('vitals_hud_move',pos)),opacity=self.hud_opacity,on_settings=lambda:self.queue_panel_settings('vitals'),name_suffix='_vitals')
                 self.hud.configure_layout(self.hud_config)
             except Exception as e:
                 self.hud.close();self.hud=None;self.hud_enabled.set(False);self.status.set('HUD layout unavailable: '+str(e))
@@ -976,10 +977,10 @@ class App:
     def build_hud_widgets(self,parent):
         row=ttk.Frame(parent);row.pack(fill='x',pady=4)
         self.hud_size=tk.StringVar(value=self.hud_config['size']);self.hud_rows=tk.StringVar(value=row_choice(self.hud_config))
-        self.hud_show={k:tk.BooleanVar(value=self.hud_config[k]) for k in ('show_xp','show_loot')}
-        self.hud_panel_rows={k:tk.StringVar(value=self.hud_config['panel_rows'].get(k,'Shared default')) for k in ('progression','loot')}
+        self.hud_show={k:tk.BooleanVar(value=self.hud_config[k]) for k in ('show_xp','show_loot','show_vitals')}
+        self.hud_panel_rows={k:tk.StringVar(value=self.hud_config['panel_rows'].get(k,'Shared default')) for k in ('progression','loot','vitals')}
         visibility=ttk.Frame(parent);visibility.pack(fill='x',pady=4)
-        for k,label in [('show_xp','Show XP/SP'),('show_loot','Show Adena/Loot')]:ttk.Checkbutton(visibility,text=label,variable=self.hud_show[k],command=self.apply_hud_config).pack(side='left',padx=4)
+        for k,label in [('show_xp','Show XP/SP'),('show_loot','Show Adena/Loot'),('show_vitals','Show HP/MP')]:ttk.Checkbutton(visibility,text=label,variable=self.hud_show[k],command=self.apply_hud_config).pack(side='left',padx=4)
         for label,var,options in [('Font',self.hud_size,('compact','standard','large')),('Default rows',self.hud_rows,ROW_OPTIONS)]:
             ttk.Label(row,text=label).pack(side='left',padx=4)
             cb=ttk.Combobox(row,textvariable=var,values=options,state='readonly',width=18 if var is self.hud_rows else 10);cb.pack(side='left');cb.bind('<<ComboboxSelected>>',self.apply_hud_config)
@@ -1022,17 +1023,28 @@ class App:
     def hud_preset(self,name):
         self.hud_order=PRESETS[name]+[k for k in WIDGETS if k not in PRESETS[name]]
         self.draw_hud_list()
-        for k,v in self.hud_vars.items():v.set(k in PRESETS[name])
+        for k,v in self.hud_vars.items():
+            if k not in VITALS:v.set(k in PRESETS[name])
         self.apply_hud_config()
     def hud_defaults(self):
         self.hud_order=list(WIDGETS);self.hud_size.set('compact');self.hud_rows.set(ROW_OPTIONS[0])
         self.hud_enabled.set(True)
-        for v in self.hud_show.values():v.set(True)
+        for k,v in self.hud_show.items():v.set(k!='show_vitals')
+        for k in VITALS:self.hud_vars[k].set(False)
         for v in self.hud_panel_rows.values():v.set('Shared default')
         for v in self.hud_controls.values():v.set(True)
         self.draw_hud_list();self.hud_preset('Classic');self.reset_hud_opacity()
         self.hud_net_adena_var.set(False);self.change_hud_net_adena()
     def apply_hud_config(self,*_):
+        show=getattr(self,'hud_show',{}).get('show_vitals')
+        if show is not None:
+            old=getattr(self,'hud_config',{})
+            old_visible=old.get('show_vitals',False)
+            old_enabled=set(old.get('enabled',[]))
+            selected={k for k in VITALS if self.hud_vars[k].get()}
+            if show.get() and not old_visible and not selected:
+                for k in VITALS:self.hud_vars[k].set(True)
+            elif not show.get() and not old_visible and selected-set(old_enabled):show.set(True)
         self.hud_config=clean_hud(dict(panel_rows={k:v.get() for k,v in getattr(self,'hud_panel_rows',{}).items()},**{k:v.get() for k,v in getattr(self,'hud_show',{}).items()},order=self.hud_order,enabled=[k for k,v in self.hud_vars.items() if v.get()],size=self.hud_size.get(),visible=self.hud_enabled.get(),**row_settings(self.hud_rows.get()),**{k:v.get() for k,v in self.hud_controls.items()}))
         try:save_hud(self.hud_config)
         except OSError as e:self.status.set('HUD preferences not saved: '+str(e))
@@ -1046,6 +1058,7 @@ class App:
         panels=[hud_geometry(main_config(c),'MAIN HUD',main_controls=True)]
         if c['show_xp']:panels.append(hud_geometry(panel_config(c,'progression'),'XP / SP'))
         if c['show_loot']:panels.append(hud_geometry(panel_config(c,'loot'),'ADENA / LOOT',select_loot=True))
+        if c['show_vitals']:panels.append(hud_geometry(panel_config(c,'vitals'),'HP / MP'))
         scale=min(1,max(1,cv.winfo_width()-8)/max(g['width'] for g in panels)) if cv.winfo_width()>10 else 1
         height=round(sum(g['height']+6 for g in panels)*scale)+6
         if int(cv.cget('height'))!=height:cv.configure(height=height)
@@ -1223,12 +1236,12 @@ class App:
     def queue_panel_toggle(self,panel):
         self.inbox.put(('panel_toggle',(self.run_id,panel)))
     def toggle_tracker_panel(self,panel):
-        key={'progression':'show_xp','loot':'show_loot'}.get(panel)
+        key={'progression':'show_xp','loot':'show_loot','vitals':'show_vitals'}.get(panel)
         if key is None or not self.running:return
         var=self.hud_show[key];var.set(not var.get());self.apply_hud_config()
     def show_hud_settings(self,panel='main'):
         if not self.running or getattr(self,'selecting',False) or getattr(self,'closing',False) or getattr(self,'update_busy',False):return
-        if panel not in ('main','progression','loot'):return
+        if panel not in ('main','progression','loot','vitals'):return
         menus=getattr(self,'hud_menus',None)
         if menus is None:menus=self.hud_menus={}
         menu=menus.get(panel)
@@ -1238,6 +1251,7 @@ class App:
                 menu.add_command(label='View / edit bound areas…',command=lambda:self.select('chat',direct=True))
                 menu.add_checkbutton(label='Show XP/SP',variable=self.hud_show['show_xp'],command=self.apply_hud_config)
                 menu.add_checkbutton(label='Show Adena/Loot',variable=self.hud_show['show_loot'],command=self.apply_hud_config)
+                menu.add_checkbutton(label='Show HP/MP',variable=self.hud_show['show_vitals'],command=self.apply_hud_config)
                 menu.add_separator()
                 menu.add_checkbutton(label='Pause when Lineage 2 loses focus',variable=self.focus_pause_var,command=self.change_focus_policy)
                 font=tk.Menu(menu,tearoff=False)
@@ -1258,6 +1272,8 @@ class App:
                     menu.add_command(label='Bind player frame…',command=lambda:self.select('frame',direct=True))
                     menu.add_command(label='Bind level digits…',command=lambda:self.select('level',direct=True))
                     menu.add_command(label='Bind XP percentage…',command=lambda:self.select('percent',direct=True))
+                elif panel=='vitals':
+                    menu.add_command(label='Bind player frame…',command=lambda:self.select('frame',direct=True))
                 else:
                     menu.add_command(label='Monster Library…',command=self.open_monster_library)
                     menu.add_command(label='Review monster kills…',command=self.open_monster_reviews)
@@ -1265,7 +1281,7 @@ class App:
                     menu.add_checkbutton(label='Net Adena/hr',variable=self.hud_net_adena_var,command=self.change_hud_net_adena)
                 menu.add_separator()
                 widgets=tk.Menu(menu,tearoff=False)
-                keys=PROGRESSION if panel=='progression' else LOOT
+                keys={'progression':PROGRESSION,'loot':LOOT,'vitals':VITALS}[panel]
                 for k in keys:
                     widgets.add_checkbutton(label=WIDGETS[k][0],variable=self.hud_vars[k],command=self.apply_hud_config)
                 menu.add_cascade(label='Visible widgets',menu=widgets)
@@ -1736,8 +1752,8 @@ class App:
             elif kind=='select_loot':
                 if self.running and data==self.run_id:self.capture_drop_window(direct=True)
             elif kind=='hud_move':self.save_hud_position(data)
-            elif kind in ('loot_hud_move','main_hud_move'):
-                try:write_preference('loot_hud_position' if kind=='loot_hud_move' else 'main_hud_position',list(data))
+            elif kind in ('loot_hud_move','main_hud_move','vitals_hud_move'):
+                try:write_preference({'loot_hud_move':'loot_hud_position','main_hud_move':'main_hud_position','vitals_hud_move':'vitals_hud_position'}[kind],list(data))
                 except OSError as e:self.status.set('HUD position not saved: '+str(e))
             elif kind=='done':
                 self.pending-=1

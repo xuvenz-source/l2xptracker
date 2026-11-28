@@ -22,16 +22,17 @@ def clean(raw=None):
     n=r.get('widgets_per_row')
     n=n if type(n) is int and 1<=n<=len(WIDGETS) else None
     overrides=r.get('panel_rows',{})
-    overrides={k:v for k,v in overrides.items() if k in ('progression','loot') and v in ROW_OPTIONS} if isinstance(overrides,dict) else {}
-    return dict(panel_rows=overrides,show_xp=r.get('show_xp') if type(r.get('show_xp')) is bool else True,show_loot=r.get('show_loot') if type(r.get('show_loot')) is bool else True,order=order,enabled=enabled,widgets_per_row=n,size=r.get('size') if r.get('size') in SIZES else 'compact',layout=r.get('layout') if r.get('layout') in ('single','double') else 'single',**{k:r[k] if type(r.get(k)) is bool else True for k in ('status','pause','reset','visible')})
+    overrides={k:v for k,v in overrides.items() if k in ('progression','loot','vitals') and v in ROW_OPTIONS} if isinstance(overrides,dict) else {}
+    return dict(panel_rows=overrides,show_vitals=r['show_vitals'] if type(r.get('show_vitals')) is bool else any(k in enabled for k in ('hp','mp')),show_xp=r.get('show_xp') if type(r.get('show_xp')) is bool else True,show_loot=r.get('show_loot') if type(r.get('show_loot')) is bool else True,order=order,enabled=enabled,widgets_per_row=n,size=r.get('size') if r.get('size') in SIZES else 'compact',layout=r.get('layout') if r.get('layout') in ('single','double') else 'single',**{k:r[k] if type(r.get(k)) is bool else True for k in ('status','pause','reset','visible')})
 def load(path=None):return clean(read_preferences(path).get('hud_layout'))
 def save(value,path=None):write_preference('hud_layout',clean(value),path)
 
-PROGRESSION=('xp','kills','eta','level','progress','sp','spnext','killsnext','hp','mp')
+PROGRESSION=('xp','kills','eta','level','progress','sp','spnext','killsnext')
+VITALS=('hp','mp')
 LOOT=('ad','loot','cost')
 
 def panel_config(config,kind):
-    c=clean(config);keys=PROGRESSION if kind=='progression' else LOOT
+    c=clean(config);keys={'progression':PROGRESSION,'loot':LOOT,'vitals':VITALS}[kind]
     c['enabled']=[k for k in c['enabled'] if k in keys]
     if kind in c['panel_rows']:c.update(row_settings(c['panel_rows'][kind]))
     c.update(status=False,pause=False,reset=False)
