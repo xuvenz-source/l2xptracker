@@ -26,10 +26,13 @@ class VitalMonitor:
                 self.sample=None;self.exact={};continue
             bars={k:crop_bar(rgb,r) for k,r in layout['bars'].items()}
             fractions={k:bar_fraction(b,k) for k,b in bars.items()}
+            # Keep the fill crop exact; the text reader needs one extra row
+            # on each side to preserve antialiased digit strokes.
+            numeric_bars={k:rgb[max(0,r['top']-1):r['top']+r['height']+1,r['left']:r['left']+r['width']] for k,r in layout['bars'].items()}
             self.sample=(stamp,fractions)
             if not self.ocr_busy and now>=self.next_ocr and any(v is not None for v in fractions.values()):
                 self.ocr_busy=True;self.next_ocr=now+2
-                def read(token=token,stamp=stamp,bars=bars,fractions=fractions):
+                def read(token=token,stamp=stamp,bars=numeric_bars,fractions=fractions):
                     result={}
                     try:
                         for k,b in bars.items():result[k]=read_vital_pair(b,fractions[k])
