@@ -27,6 +27,7 @@ from party_setup_ui import PartySetup
 from update_ui import UpdateUI
 from preferences import load_backup_retention,save_backup_retention,load_numeric_templates,save_numeric_templates
 from numeric_templates import recognise as recognise_numeric, strict_adena, strict_reward
+from chat_native import recognise as recognise_native_chat
 from ocr_evidence import OcrEvidence, png as evidence_png
 from scroll_ui import ScrollPage,table_scroll
 from player_ui import PlayerStatus
@@ -563,6 +564,20 @@ def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
                     if kind=='xp':yield report('template_line',f'You have acquired {result[0]} XP and {result[1]} SP.')
                     else:yield report('template_line',f'You have earned {result[0]} Adena.')
                     continue
+        # Separate native-size libraries for obtained-Adena, XP and No Grade
+        # Soulshots. Retain the older Large recogniser and all OCR fallbacks.
+        if use_templates:
+            native_kind=('xp' if group==('xp',) and colours['xp'].upper()=='#FF00FF' else
+                         'adena' if 'adena' in group and set(group)<={'adena','item'} and colours['adena'].upper()=='#FFFF00' else
+                         'shot' if group==('consumable',) and colours['consumable'].upper()=='#00AAFF' else None)
+            if native_kind:
+                try:native=recognise_native_chat(row,native_kind)
+                except Exception:
+                    diagnostic('Native chat recognition failed; using OCR',exc_info=True);native=None
+                if native is not None:
+                    line=(f'You have acquired {native[0]} XP and {native[1]} SP.' if native_kind=='xp' else
+                          f'You have obtained {native[0]} Adena.' if native_kind=='adena' else 'Use Soulshot: No Grade.')
+                    yield report('template_line',line);continue
         # Quest rewards share the cash hue in some clients. The words, not
         # the hue alone, distinguish an earned item from an Adena amount.
         allowed=set(group)
@@ -886,7 +901,7 @@ class App:
         ttk.Button(controls,text='Distinct colours',command=lambda:self.set_chat_palette(CUSTOM_COLOURS)).pack(side='left',padx=5)
         ttk.Button(controls,text='Apply chat settings',command=self.apply_chat_style).pack(side='left',padx=5)
         self.numeric_templates_var=tk.BooleanVar(value=load_numeric_templates())
-        ttk.Checkbutton(content,text='Large-text numeric recognition (experimental)',variable=self.numeric_templates_var,command=self.change_numeric_templates).pack(anchor='w',pady=(3,0))
+        ttk.Checkbutton(content,text='Native chat recognition — Large / Medium / Small (experimental)',variable=self.numeric_templates_var,command=self.change_numeric_templates).pack(anchor='w',pady=(3,0))
         ttk.Label(content,text='Experimental; off by default. Uses verified digit shapes for magenta XP/SP and yellow Adena. Uncertain rows fall back to OCR. Applies from the next session.',style='Muted.TLabel',wraplength=680).pack(anchor='w')
         ttk.Label(content,text='Match your game colours and text size; apply before starting a session.',style='Muted.TLabel').pack(anchor='w')
         ttk.Label(content,text='Tracking',style='Section.TLabel').pack(anchor='w',pady=(4,5))
