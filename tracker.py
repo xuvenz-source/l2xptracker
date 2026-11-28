@@ -21,7 +21,7 @@ from history_ui import HistoryWindow
 from runtime_ocr import configure_ocr
 from version import VERSION
 from diagnostics import setup_diagnostics, diagnostic
-from appearance import Appearance, Dashboard, RateTrend, save_mode
+from appearance import Appearance, Dashboard, RateTrend, ProgressRing, PrestigeMark, save_mode
 from preferences import load_focus_pause, save_focus_pause, load_auto_update, save_auto_update, load_hud_opacity, save_hud_opacity, HUD_OPACITY_MIN, HUD_OPACITY_MAX, HUD_OPACITY_DEFAULT, load_hud_net_adena, save_hud_net_adena
 from party_setup_ui import PartySetup
 from update_ui import UpdateUI
@@ -569,7 +569,7 @@ def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
 
 class App:
     def __init__(self,root):
-        self.root=root; root.title(f'L2 Legacy Farming Tracker — v{VERSION} Portable'); root.geometry('1240x800'); root.minsize(1000,650)
+        self.root=root; root.title(f'L2 Legacy Farming Tracker — v{VERSION} Portable'); root.geometry('1320x840'); root.minsize(1040,660)
         self.appearance=Appearance(root)
         self.pause_on_blur=load_focus_pause();self.auto_update=load_auto_update();self.settings_win=None
         self.hud_opacity=load_hud_opacity();self.hud_opacity_save_job=None
@@ -604,8 +604,8 @@ class App:
         try: self.archive=Archive()
         except Exception as e: messagebox.showerror("Session storage",f"Could not open session history: {e}")
         header=ttk.Frame(root,padding=(20,15,20,6));header.pack(fill='x')
-        ttk.Label(header,text='L2 LEGACY TRACKER',style='Brand.TLabel').pack(side='left')
-        ttk.Label(header,text=f'v{VERSION}  ·  Farming analytics',style='Muted.TLabel').pack(side='right')
+        ttk.Label(header,text='SESSION INTELLIGENCE',style='Eyebrow.TLabel').pack(side='left')
+        ttk.Label(header,text=f'PRESTIGE  /  v{VERSION}',style='Muted.TLabel').pack(side='right')
         self.dark_mode=tk.BooleanVar(value=self.appearance.mode=='dark')
         self.party_status=tk.StringVar(value=self.party_label('Next session',self.next_party_members))
         actions=ttk.Frame(root,padding=(20,3,20,8));actions.pack(fill='x')
@@ -617,6 +617,11 @@ class App:
         ttk.Label(actions,textvariable=self.party_status,style='Muted.TLabel').pack(side='right')
         self.workspace=ttk.Frame(root)
         self.sidebar=ttk.Frame(self.workspace,style='Sidebar.TFrame',padding=(8,12));self.sidebar.pack(side='left',fill='y',padx=(0,12))
+        brand=ttk.Frame(self.sidebar,style='Sidebar.TFrame');brand.pack(fill='x',pady=(3,18))
+        PrestigeMark(brand,self.appearance).pack(side='left',padx=(3,7))
+        identity=ttk.Frame(brand,style='Sidebar.TFrame');identity.pack(side='left')
+        ttk.Label(identity,text='LEGACY',style='SidebarBrand.TLabel').pack(anchor='w')
+        ttk.Label(identity,text='FARMING INTELLIGENCE',style='SidebarSub.TLabel').pack(anchor='w')
         ttk.Label(self.sidebar,text='WORKSPACE',style='SidebarCaption.TLabel',padding=(8,4)).pack(anchor='w',pady=(0,6))
         self.tabs=ttk.Notebook(self.workspace,style='Workspace.TNotebook')
         self.pages={};self.nav_buttons={};self.nav_labels={}
@@ -624,23 +629,47 @@ class App:
             page=ttk.Frame(self.tabs,padding=(8,5,12,8));self.pages[key]=page;self.tabs.add(page,text=label)
             if key!='kill_review':
                 self.nav_labels[key]=label
-                button=ttk.Button(self.sidebar,text=label,width=18,style='Nav.TButton',command=lambda k=key:self.navigate(k))
+                icons={'dashboard':'▦','progression':'↗','loot':'◇','monsters':'♧','party':'♙','history':'◷','review':'☷','activity':'≡','settings':'⚙'}
+                button=ttk.Button(self.sidebar,text=icons[key]+'   '+label,width=21,style='Nav.TButton',command=lambda k=key:self.navigate(k))
                 button.pack(fill='x',pady=1);self.nav_buttons[key]=button
         self.nav_buttons['dashboard'].state(['selected'])
-        self.session_state=tk.StringVar(value='Idle')
-        ttk.Label(self.sidebar,textvariable=self.session_state,style='SidebarCaption.TLabel',padding=(8,7),wraplength=150).pack(side='bottom',anchor='w')
+        self.session_state=tk.StringVar(value='Idle');self.session_clock=tk.StringVar(value='00:00:00')
+        ttk.Label(self.sidebar,text='LOCAL TRACKING',style='SidebarSub.TLabel',padding=(8,7)).pack(side='bottom',anchor='w')
+        ttk.Label(self.sidebar,textvariable=self.session_state,style='SidebarCaption.TLabel',padding=(8,7),wraplength=180).pack(side='bottom',anchor='w')
+        ttk.Button(self.sidebar,text='Search commands  Ctrl+K',style='Nav.TButton',command=self.open_command_search).pack(fill='x',pady=(12,0))
+        root.bind('<Control-k>',lambda e:self.open_command_search())
         self.dashboard_scroll=ScrollPage(self.pages['dashboard']);self.dashboard_scroll.pack(fill='both',expand=True)
         overview=self.dashboard_scroll.content
-        ttk.Label(overview,text='Overview',style='Title.TLabel').pack(anchor='w')
-        ttk.Label(overview,text='Live session performance',style='Muted.TLabel').pack(anchor='w',pady=(0,12))
-        self.dashboard=Dashboard(overview);self.dashboard.pack(fill='x',pady=(0,10))
-        self.player.build_dashboard(overview,include_sp=False)
-        self.trend=RateTrend(overview,self.appearance);self.trend.pack(fill='x',pady=(0,8))
-        farm=ttk.Frame(overview,style='Card.TFrame',padding=12);farm.pack(fill='x',pady=(0,8))
+        top=ttk.Frame(overview);top.pack(fill='x',pady=(0,14))
+        intro=ttk.Frame(top);intro.pack(side='left')
+        ttk.Label(intro,text='Overview',style='Title.TLabel').pack(anchor='w')
+        ttk.Label(intro,text='Your farming performance, in real time.',style='Muted.TLabel').pack(anchor='w')
+        ttk.Label(top,textvariable=self.session_clock,style='Clock.TLabel').pack(side='right')
+        self.dashboard=Dashboard(overview,with_eta=True);self.dashboard.pack(fill='x',pady=(0,10))
+        middle=ttk.Frame(overview);middle.pack(fill='x',pady=(0,10))
+        middle.columnconfigure(0,weight=3,uniform='middle');middle.columnconfigure(1,weight=2,uniform='middle')
+        self.trend=RateTrend(middle,self.appearance);self.trend.grid(row=0,column=0,sticky='nsew',padx=(0,5))
+        self.progress_ring=ProgressRing(middle,self.appearance);self.progress_ring.grid(row=0,column=1,sticky='nsew',padx=(5,0))
+        lower=ttk.Frame(overview);lower.pack(fill='x',pady=(0,10));lower.columnconfigure(0,weight=1,uniform='lower');lower.columnconfigure(1,weight=1,uniform='lower')
+        farm=ttk.Frame(lower,style='Card.TFrame',padding=12);farm.grid(row=0,column=0,sticky='nsew',padx=(0,5))
         ttk.Label(farm,text='CURRENT FARM',style='CardLabel.TLabel').pack(anchor='w')
         self.current_farm=tk.StringVar(value='No default monster selected')
-        ttk.Label(farm,textvariable=self.current_farm,style='CardTitle.TLabel',wraplength=600).pack(anchor='w',pady=5)
-        ttk.Button(farm,text='Monster library',style='Compact.TButton',command=self.open_monster_library).pack(anchor='w')
+        self.farm_kills=tk.StringVar(value='—')
+        farm_title=ttk.Label(farm,textvariable=self.current_farm,style='Gold.CardTitle.TLabel',wraplength=270);farm_title.pack(fill='x',pady=(7,1))
+        farm_title.bind('<Configure>',lambda e:farm_title.configure(wraplength=max(100,e.width-4)))
+        ttk.Label(farm,textvariable=self.farm_kills,style='CardBody.TLabel').pack(anchor='w',pady=(0,7))
+        ttk.Button(farm,text='Monster library →',style='Compact.TButton',command=self.open_monster_library).pack(anchor='w')
+        drops=ttk.Frame(lower,style='Card.TFrame',padding=12);drops.grid(row=0,column=1,sticky='nsew',padx=(5,0))
+        ttk.Label(drops,text='DESIRED DROPS · AVERAGE WAIT',style='CardLabel.TLabel').pack(anchor='w')
+        self.overview_drops=[]
+        for i in range(3):
+            line=ttk.Frame(drops,style='Card.TFrame',padding=(0,2));line.pack(fill='x')
+            name=tk.StringVar(value='No targets selected' if i==0 else '');wait=tk.StringVar()
+            ttk.Label(line,textvariable=wait,style='Gold.CardTitle.TLabel').pack(side='right')
+            label=ttk.Label(line,textvariable=name,style='CardBody.TLabel',wraplength=220);label.pack(side='left',fill='x',expand=True)
+            label.bind('<Configure>',lambda e,w=label:w.configure(wraplength=max(60,e.width-4)))
+            self.overview_drops.append((name,wait))
+        ttk.Button(drops,text='All loot & targets →',style='Compact.TButton',command=lambda:self.navigate('loot')).pack(anchor='w',pady=(5,0))
         summary=ttk.Label(overview,textvariable=self.stats,wraplength=720,padding=(0,3,0,12),style='Muted.TLabel');summary.pack(fill='x')
         summary.bind('<Configure>',lambda e:summary.configure(wraplength=max(100,e.width-8)))
         progression_scroll=ScrollPage(self.pages['progression']);progression_scroll.pack(fill='both',expand=True)
@@ -706,6 +735,29 @@ class App:
         self.tabs.bind('<<NotebookTabChanged>>',self.page_changed)
         self.appearance.restyle(root)
         root.after(100,self.tick);root.after(25,self.hud_tick);root.protocol('WM_DELETE_WINDOW',self.close)
+    def open_command_search(self):
+        if self.update_busy or self.selecting:return
+        old=getattr(self,'command_window',None)
+        if old and old.winfo_exists():old.lift();return
+        win=self.command_window=tk.Toplevel(self.root);win.title('Quick navigation');win.transient(self.root);win.geometry('430x360')
+        frame=ttk.Frame(win,padding=14);frame.pack(fill='both',expand=True)
+        query=tk.StringVar();entry=ttk.Entry(frame,textvariable=query);entry.pack(fill='x',pady=(0,8))
+        items=tk.Listbox(frame,exportselection=False,activestyle='none');items.pack(fill='both',expand=True)
+        matches=[]
+        commands=[(label,lambda k=key:self.navigate(k)) for key,label in self.nav_labels.items()]+[('HUD settings',lambda:self.open_settings_section('HUD')),('Game capture settings',lambda:self.open_settings_section('Tracking')),('Player status settings',lambda:self.open_settings_section('Player status')),('Update settings',lambda:self.open_settings_section('Updates'))]
+        def search(*_):
+            matches[:]=[(label,cmd) for label,cmd in commands if query.get().casefold() in label.casefold()];items.delete(0,'end')
+            for label,_ in matches:items.insert('end',label)
+            if matches:items.selection_set(0)
+        def choose(*_):
+            sel=items.curselection()
+            if sel:cmd=matches[sel[0]][1];win.destroy();cmd()
+        def move(delta):
+            if matches:
+                sel=items.curselection();i=max(0,min(len(matches)-1,(sel[0] if sel else 0)+delta));items.selection_clear(0,'end');items.selection_set(i);items.see(i)
+            return 'break'
+        query.trace_add('write',search);entry.bind('<Down>',lambda e:move(1));entry.bind('<Up>',lambda e:move(-1));win.bind('<Return>',choose);win.bind('<Escape>',lambda e:win.destroy());items.bind('<Double-1>',choose)
+        self.appearance.restyle(win);search();entry.focus_set()
     def navigate(self,key):
         if not self.update_busy:
             self.tabs.select(self.pages[key]);self.sync_navigation(key)
@@ -891,23 +943,23 @@ class App:
             def rect(l,t,r,b,fill):cv.create_rectangle((l+3)*scale,(t+y0)*scale,(r+3)*scale,(b+y0)*scale,fill=blend(fill),outline='')
             def text(x,y,value,colour='#FFFFFF',size=None,anchor='nw',bold=False):
                 cv.create_text((x+3)*scale,(y+y0)*scale,text=value,anchor=anchor,font=('Segoe UI',-max(7,round((size or g['small'])*scale)), 'bold' if bold else 'normal'),fill=blend(colour))
-            rect(0,0,g['width'],g['height'],'#141921')
-            if g['title']:text(8,4,g['title'],'#B4BECD')
-            if g.get('toolbar'):rect(4,g['toolbar']-1,g['width']-4,g['toolbar'],'#2E3D4E')
+            rect(0,0,g['width'],g['height'],'#111419')
+            if g['title']:text(8,4,g['title'],'#A0A5B0')
+            if g.get('toolbar'):rect(4,g['toolbar']-1,g['width']-4,g['toolbar'],'#30291F')
             text(g['width']-33,12,'▣',anchor='center');text(g['width']-11,12,'⚙',anchor='center')
             for k,x,y,w,rh in g['cells']:
-                text(x,y+3,'NET ADENA/H' if k=='ad' and self.hud_net_adena else WIDGETS[k][1],'#B4BECD')
+                text(x,y+3,'NET ADENA/H' if k=='ad' and self.hud_net_adena else WIDGETS[k][1],'#A0A5B0')
                 text(x,y+21,'9,300' if k=='ad' and self.hud_net_adena else sample[k],'#%02x%02x%02x'%WIDGETS[k][2],g['large'],bold=True)
             for k,(l,t,r,b) in g['toggles'].items():
-                rect(l,t,r,b,'#2E3D4E');enabled=c['show_xp' if k=='progression' else 'show_loot']
+                rect(l,t,r,b,'#30291F');enabled=c['show_xp' if k=='progression' else 'show_loot']
                 text(l+5,(t+b)//2,('[x] ' if enabled else '[ ] ')+('Show XP/SP' if k=='progression' else 'Show Adena/Loot'),anchor='w')
             if g['select_loot']:
-                l,t,r,b=g['select_loot'];rect(l,t,r,b,'#2E3D4E');text(l+5,(t+b)//2,'Select loot table…',anchor='w')
+                l,t,r,b=g['select_loot'];rect(l,t,r,b,'#30291F');text(l+5,(t+b)//2,'Select loot table…',anchor='w')
             if g['footer']:
                 if g['status']:text(8,g['height']-14,'SESSION ACTIVE','#86E0B7',anchor='w')
                 for k in ('pause','reset'):
                     if g[k]:
-                        l,t,r,b=g[k];rect(l,t,r,b,'#2E3D4E');text((l+r)//2,(t+b)//2,k.title(),anchor='center')
+                        l,t,r,b=g[k];rect(l,t,r,b,'#30291F');text((l+r)//2,(t+b)//2,k.title(),anchor='center')
             y0+=g['height']+6
     def select_text_size(self,*_):
         size=self.text_size.get()
@@ -1220,8 +1272,14 @@ class App:
         c,n,unknown=self.monster_counts_cache
         if hasattr(self,'current_farm'):
             default=self.monster_library.get('default');p=self.monster_library['profiles'].get(default)
-            self.current_farm.set(f"{p['drop']['monster']}  ·  {c[default]:,} identified kills" if p else 'No default monster selected')
+            self.current_farm.set(p['drop']['monster'] if p else 'No default monster selected')
+            self.farm_kills.set(f'{c[default]:,} identified kills · Default' if p else 'Choose a monster in your library')
         rows=monsters.forecasts(self.monster_library,c,self.active_seconds)
+        if hasattr(self,'overview_drops'):
+            for i,(name,wait) in enumerate(self.overview_drops):
+                n,v=rows[i] if i<len(rows) else ('No targets selected' if i==0 else '','')
+                if name.get()!=n:name.set(n)
+                if wait.get()!=v:wait.set(v)
         if isinstance(self.hud,HudPair):self.hud.set_targets('Monster targets',rows[:12])
         if hasattr(self,'drop_summary'):
             rates=' • '.join(f"{n[k]}: {v:,} killed ({v*3600/max(1,self.active_seconds):,.0f}/h)" for k,v in c.items())
@@ -1610,11 +1668,17 @@ class App:
         self.record_monster_context()
         self.update_drop_targets()
         if hasattr(self,'session_state'):
-            self.session_state.set(('Paused' if self.pause_gate.snapshot()[0] else 'Session active') if self.running else ('Finishing session' if self.pending else 'Idle'))
-        if hasattr(self,'trend'):self.trend.sample(self.session_id,self.active_seconds,self.totals['You','XP / SP'],self.running)
+            state=('Paused' if self.pause_gate.snapshot()[0] else getattr(self,'capture_state','SESSION ACTIVE').title()) if self.running else ('Finishing session' if self.pending else 'Idle')
+            if self.session_state.get()!=state:self.session_state.set(state)
+            d=int(self.active_seconds);clock=f'{d//3600:02}:{d//60%60:02}:{d%60:02}'
+            if self.session_clock.get()!=clock:self.session_clock.set(clock)
+        if hasattr(self,'trend'):self.trend.sample(self.session_id,self.active_seconds,self.totals['You','XP / SP'],self.running,self.totals['You','Adena'],self.kills)
         if self.started is not None:
             dur=self.active_seconds; h=max(1,dur)/3600; xp=self.totals[('You','XP / SP')]; sp=self.totals[('You','SP')]; ad=self.totals[('You','Adena')]
-            if hasattr(self,'dashboard'):self.dashboard.update_metrics(dur,ad,xp,self.kills,self.consumable_report['cost'],self.consumable_report['unpriced'])
+            widgets=getattr(getattr(self,'player',None),'widgets',{})
+            eta=widgets.get('eta',('', '—'))[1];left=widgets.get('killsnext',('', '—'))[1]
+            if hasattr(self,'dashboard'):self.dashboard.update_metrics(dur,ad,xp,self.kills,self.consumable_report['cost'],self.consumable_report['unpriced'],eta,left)
+            if hasattr(self,'progress_ring'):self.progress_ring.update_metrics(widgets.get('level',('', '—'))[1],widgets.get('progress',('', '—'))[1],f'{sp:,}',eta)
             if hasattr(self,'cost_status'):self.cost_status.set(cost_summary(self.consumable_report,ad,dur))
             if hasattr(self,'loot_status'):self.loot_status.set(loot_summary(self.loot_report,dur))
             self.stats.set(f'{"PAUSED  |  " if self.running and self.pause_gate.snapshot()[0] else ""}Active {int(dur)//3600:02}:{int(dur)%3600//60:02}:{int(dur)%60:02}  |  SP {sp:,}  |  Capture/OCR warnings {self.gaps}  |  Pending review {len(self.reviews.pending)}')
@@ -1735,7 +1799,7 @@ class App:
     def refresh_reviews(self):
         self.review_count.set(f'Review ({len(self.reviews.pending)})')
         if hasattr(self,'tabs'):self.tabs.tab(self.pages['review'],text=f'Reviews ({len(self.reviews.pending)})')
-        if hasattr(self,'nav_buttons'):self.nav_buttons['review'].configure(text=f'Reviews ({len(self.reviews.pending)})')
+        if hasattr(self,'nav_buttons'):self.nav_buttons['review'].configure(text=f'☷   Reviews ({len(self.reviews.pending)})')
         if not self.review_win or not self.review_win.winfo_exists(): return
         # Preserve current selection and any unsaved manual edit as new OCR arrives.
         ids=set(self.review_tree.get_children())
@@ -1962,6 +2026,7 @@ class App:
         self.log.config(state='normal');self.log.delete('1.0','end');self.log.config(state='disabled')
         self.refresh_totals();self.refresh_reviews()
         self.dashboard.update_metrics(0,0,0,0);self.stats.set('No session')
+        if hasattr(self,'progress_ring'):self.progress_ring.update_metrics('—','—','—','—')
         self.party_status.set(self.party_label('Next session',self.next_party_members))
         self.status.set('Session deleted. Start a new session when ready.')
     def open_history(self):

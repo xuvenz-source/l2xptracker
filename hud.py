@@ -111,11 +111,11 @@ class Hud:
         self.callback=self.proc_type(self.safe_wndproc)
         wc=WNDCLASS(0,self.callback,0,0,self.instance,None,None,None,None,self.name)
         if not self.u.RegisterClassW(c.byref(wc)): raise c.WinError(c.get_last_error())
-        self.brush=self.g.CreateSolidBrush(self.rgb(20,25,33))
-        self.divider=self.g.CreateSolidBrush(self.rgb(75,84,97))
+        self.brush=self.g.CreateSolidBrush(self.rgb(17,20,25))
+        self.divider=self.g.CreateSolidBrush(self.rgb(66,59,49))
         self.small=self.font(14,400); self.large=self.font(19,600)
-        self.control=self.g.CreateSolidBrush(self.rgb(46,61,78))
-        self.lock_brush=self.g.CreateSolidBrush(self.rgb(235,240,248))
+        self.control=self.g.CreateSolidBrush(self.rgb(48,41,31))
+        self.lock_brush=self.g.CreateSolidBrush(self.rgb(217,182,122))
         # layered + transparent + noactivate + toolwindow + topmost
         ex=0x80000|0x20|0x08000000|0x80|8
         self.hwnd=self.u.CreateWindowExW(ex,self.name,'L2 Farming HUD',0x80000000,0,0,WIDTH,HEIGHT,None,None,self.instance,None)
@@ -345,7 +345,9 @@ class Hud:
         g=self.layout;width,height=self.dimensions()
         fill=lambda rect,brush:self.u.FillRect(dc,c.byref(w.RECT(*rect)),brush)
         fill((0,0,width,height),self.brush);self.g.SetBkMode(dc,1)
-        if g.get('title'):self.text(dc,g['title'],(8,2,width-48,22),self.small,(180,190,205))
+        fill((0,0,width,1),self.divider);fill((0,height-1,width,height),self.divider)
+        fill((0,0,1,height),self.divider);fill((width-1,0,width,height),self.divider)
+        if g.get('title'):self.text(dc,g['title'],(8,2,width-48,22),self.small,(217,182,122))
         if g.get('toolbar'):fill((4,g['toolbar']-1,width-4,g['toolbar']),self.divider)
         values=getattr(self,'widget_values',{})
         for k,x,y,cw,rh in g['cells']:
@@ -353,6 +355,12 @@ class Hud:
             label,value=values.get(k,(label,'—'))
             self.text(dc,label,(x,y,x+cw-3,y+18),self.small,(180,190,205))
             self.text(dc,value,(x,y+18,x+cw-3,y+rh-2),self.large,colour)
+            if k=='progress':
+                try:f=max(0,min(1,float(value.rstrip('*').rstrip('%'))/100))
+                except (ValueError,AttributeError):f=None
+                if f is not None:
+                    fill((x,y+rh-4,x+cw-8,y+rh-2),self.divider)
+                    fill((x,y+rh-4,x+int((cw-8)*f),y+rh-2),self.lock_brush)
         x=(g['lock'][0]+g['lock'][2])//2-4
         parts=[(x,11,x+9,12),(x,18,x+9,19),(x,12,x+1,18),(x+8,12,x+9,18),(x+4,14,x+5,17)]
         parts += [(x+2,7,x+7,8),(x+2,8,x+3,11),(x+6,8,x+7,11 if self.locked else 9)]

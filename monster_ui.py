@@ -11,13 +11,19 @@ class MonsterLibraryWindow:
         if not self.embedded:self.win.title('Monster Library');self.win.geometry('850x570');self.win.minsize(650,420)
         self.full=tk.BooleanVar(value=app.monster_library['full_solo'])
         self.status=tk.StringVar()
-        ttk.Label(self.win,text='Monster Library',style='Title.TLabel',padding=10).pack(anchor='w')
+        ttk.Label(self.win,text='BESTIARY',style='Eyebrow.TLabel',padding=(8,0)).pack(anchor='w')
+        ttk.Label(self.win,text='Monster Library',style='Title.TLabel',padding=(8,3)).pack(anchor='w')
         ttk.Label(self.win,text='Select monsters you are farming (Ctrl / Shift for multiple). Apply selection to change the active roster. Import once; reuse later.',wraplength=780,padding=8).pack(anchor='w')
         panel=ttk.Frame(self.win,padding=8);panel.pack(fill='both',expand=True)
-        self.tree=ttk.Treeview(panel,columns=('name','base','expected','targets'),show='headings',selectmode='extended')
-        for k,title,w in [('name','Monster',220),('base','Base XP / SP',135),('expected','Predicted reward',145),('targets','Desired drops',120)]:
+        self.tree=ttk.Treeview(panel,columns=('name','base','expected','targets','state'),show='headings',selectmode='extended')
+        for k,title,w in [('name','Monster',220),('base','Base XP / SP',135),('expected','Predicted reward',145),('targets','Drops',75),('state','Status',105)]:
             self.tree.heading(k,text=title);self.tree.column(k,width=w)
         table_scroll(panel,self.tree)
+        card=ttk.Frame(self.win,style='Card.TFrame',padding=10);card.pack(fill='x',padx=8,pady=(0,6))
+        self.detail_name=tk.StringVar(value='Select a monster');self.detail_stats=tk.StringVar(value='Saved profile details')
+        ttk.Label(card,textvariable=self.detail_name,style='Gold.CardTitle.TLabel').pack(anchor='w')
+        ttk.Label(card,textvariable=self.detail_stats,style='CardBody.TLabel',wraplength=700).pack(anchor='w',pady=(3,0))
+        self.tree.bind('<<TreeviewSelect>>',self.show_profile)
         ttk.Checkbutton(self.win,text='Enable exact reward matching: solo, full stamina, normal rewards',variable=self.full).pack(anchor='w',padx=10)
         default_row=ttk.Frame(self.win,padding=8);default_row.pack(fill='x')
         ttk.Label(default_row,text='Default monster for kills:').pack(side='left')
@@ -35,12 +41,20 @@ class MonsterLibraryWindow:
         self.tree.delete(*self.tree.get_children())
         for k,p in lib['profiles'].items():
             pair=expected(p,level)
-            self.tree.insert('','end',iid=k,values=(p['drop']['monster'],f"{p['xp']} / {p['sp']}" if p['xp'] is not None else 'Not verified',f'{pair[0]} / {pair[1]}' if pair else '—',len(p['drop']['selected'])))
+            self.tree.insert('','end',iid=k,values=(p['drop']['monster'],f"{p['xp']} / {p['sp']}" if p['xp'] is not None else 'Not verified',f'{pair[0]} / {pair[1]}' if pair else '—',len(p['drop']['selected']),'Default' if k==lib.get('default') else 'Active' if k in lib['active'] else 'Saved'))
         self.tree.selection_set(lib['active']);self.full.set(lib['full_solo'])
         self.default_ids=[None,*lib['profiles']]
         self.default_choice['values']=['No default',*[lib['profiles'][k]['drop']['monster'] for k in self.default_ids[1:]]]
         self.default_choice.current(self.default_ids.index(lib.get('default')) if lib.get('default') in self.default_ids else 0)
         self.status.set(f'{len(lib["active"])} active monsters · player level {level or "unknown"}')
+        self.show_profile()
+    def show_profile(self,*_):
+        ids=self.tree.selection();lib=self.app.monster_library
+        if len(ids)!=1 or ids[0] not in lib['profiles']:
+            self.detail_name.set('Select a monster' if not ids else f'{len(ids)} monsters selected');self.detail_stats.set('Select one profile to see base rewards and desired drops.');return
+        p=lib['profiles'][ids[0]];d=p['drop'];self.detail_name.set(d['monster'])
+        targets=[d['rows'][i]['name'] for i in d['selected'] if 0<=i<len(d['rows'])]
+        self.detail_stats.set(f"Base XP: {p['xp'] if p['xp'] is not None else '—'}   ·   Base SP: {p['sp'] if p['sp'] is not None else '—'}   ·   Desired: "+(', '.join(targets) or 'None'))
     def apply(self):
         lib=deepcopy(self.app.monster_library);lib['active']=list(self.tree.selection());lib['full_solo']=bool(self.full.get())
         idx=self.default_choice.current();lib['default']=self.default_ids[idx] if idx>=0 else None
