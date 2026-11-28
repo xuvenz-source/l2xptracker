@@ -65,7 +65,7 @@ class DropEditor:
         rewards=ttk.Frame(header);rewards.pack(fill='x',pady=4)
         for label,var in [('Monster level',self.level),('Base XP',self.xp),('Base SP',self.sp)]:
             ttk.Label(rewards,text=label+':').pack(side='left',padx=(4,2));ttk.Entry(rewards,textvariable=var,width=10).pack(side='left',padx=(0,8))
-        ttk.Label(header,text='Verify or edit the table against the Drop tab. Each row: item name [Tab] group % [Tab] item %. Confirm, then select your targets.',wraplength=740).pack(anchor='w')
+        ttk.Label(header,text='Verify each row: item name [Tab] group % [Tab] item % [Tab] group number. All items under the same group header share a number; different headers must use different numbers. Old imports may need group numbers added. Confirm, then select targets.',wraplength=740).pack(anchor='w')
         self.table=tk.Text(self.win,height=9,wrap='none',undo=True);self.table.pack(fill='both',expand=True,padx=8);self.table.insert('1.0',format_table(config['rows']))
         ttk.Button(self.win,text='Confirm table / refresh choices',command=self.confirm).pack(anchor='w',padx=8,pady=4)
         ttk.Label(self.win,text='Select desired drops (Ctrl / Shift for multiple, up to 12)',padding=(8,3)).pack(anchor='w')
@@ -117,7 +117,7 @@ class DropEditor:
         try:self.rows=parse_table(text)
         except ValueError as e:self.status.set(str(e));return
         self.committed_text=text;self.list.delete(0,'end')
-        for r in self.rows:self.list.insert('end',f"{r['name']}  |  {chance(r)*100:.6f}% per kill")
+        for r in self.rows:self.list.insert('end',f"{r['name']}  |  {chance(r)*100:.6f}% per kill  |  Group {r.get('group_id','?')}")
         for i in selected:
             if i<len(self.rows):self.list.selection_set(i)
         self.status.set('Select desired drops, then Save targets.')

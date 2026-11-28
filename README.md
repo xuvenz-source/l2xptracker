@@ -164,7 +164,10 @@ Monster imports keep the name and level separate. Base EXP and SP are read from 
 ## Background tracking (v0.50.4)
 With Pause when Lineage 2 loses focus disabled, both chat and automatic level/XP OCR can read unobstructed game regions in the background. Covered or minimised game windows keep the active session clock running without taking screenshots of other applications. Short occlusions retain the last trusted chat frame; normal overlap matching can recover visible new messages on return, otherwise a capture warning and fresh baseline prevent ambiguous counting. Interruptions longer than 30 seconds discard the old baseline. Manual pause, enabled focus-only mode, invalid geometry or a closed/restarted game still stop the clock. Hidden chat cannot be read and rewards may be missed; the HUD itself still hides on focus loss. Status OCR rejects results if a pause or binding/policy revision changed during capture.
 
-## Current status: v0.50.4
+## Independent loot groups (v0.50.5)
+Each imported Item Group Chance header receives a unique group number, even if another header has the same chance. One successful group roll chooses one item; different groups can succeed on the same kill. The per-item chance remains group% × conditional item% / 10,000. A new per-monster Any selected forecast sums mutually exclusive conditional probabilities inside each group, then combines independent group rolls using 1 - product(1 - selected probability of group). It uses the monster-specific kill rate, not the overall kill rate. The editor includes group numbers and rejects inconsistent group chances or conditional sums over 100% beyond a 0.05 percentage-point rounding allowance; partial tables are allowed. Previously saved three-column rows retain individual forecasts but combined forecasts show Verify groups until group numbers are manually entered or the table is reimported. Adena remains a separately tracked reward; no automatic attribution of actual loot to particular kills. The model assumes independent rolls, displayed rates and one item type per successful group.
+
+## Current status: v0.50.5
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

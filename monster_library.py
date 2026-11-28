@@ -4,7 +4,7 @@ from collections import Counter
 from decimal import Decimal
 import re
 from preferences import read_preferences,write_preference
-from drop_targets import clean as clean_drop,display as display_drop
+from drop_targets import clean as clean_drop,display as display_drop,combined_wait
 
 from monster_header import split_name,labelled_rewards as header
 
@@ -158,4 +158,5 @@ def forecasts(lib,c,seconds):
     for k in lib['active']:
         p=lib['profiles'][k];rate,drops=display_drop(p['drop'],c[k],seconds)
         for name,value in drops:rows.append((p['drop']['monster']+' · '+name,value))
+        if len(drops)>1:rows.append((p['drop']['monster']+' · Any selected',combined_wait(p['drop'],rate)))
     return rows
