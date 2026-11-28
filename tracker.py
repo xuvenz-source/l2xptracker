@@ -33,13 +33,13 @@ from player_ui import PlayerStatus
 from region_editor import RegionEditor,OverlayRegionEditor,draft_regions,calibration_data
 from leveling import save_status,binding_for
 from sp_forecast import clean_anchor
-from hud_pair import HudPair,load_loot_position
+from hud_pair import HudPair,load_loot_position,load_main_position
 from drop_targets import load as load_drop_targets, display as display_drops
 from drop_ui import DropEditor,CropWindow,OverlayCropWindow
 import monster_library as monsters
 from monster_ui import MonsterLibraryWindow,KillReviewWindow
 from preferences import write_preference
-from hud_layout import WIDGETS, PRESETS, ROW_OPTIONS, row_choice, row_settings, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
+from hud_layout import WIDGETS, PRESETS, ROW_OPTIONS, PROGRESSION, LOOT, panel_config, main_config, row_choice, row_settings, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
 from hud import rate_text
 from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows, row_alignment, aligned_rows, bottom_clipped
 from party import roster, report as party_report, display_rows as party_rows, summary_text as party_summary, load_current_party, remember_party
@@ -590,12 +590,13 @@ class App:
                 self.status.set('Saved chat calibration loaded. Start when the matching game is open.')
         except Exception as e: self.status.set(f'Could not restore calibration: {e}. Bind game again.')
         self.chat_style=load_style(fallback_pitch=int(self.pitch.get()));self.pitch.set(str(self.chat_style['pitch']))
-        try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.queue_hud_move,on_pause=self.queue_hud_pause,opacity=self.hud_opacity,on_reset=self.queue_hud_reset,on_settings=self.queue_hud_settings)
+        try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.queue_hud_move,opacity=self.hud_opacity,on_settings=lambda:self.queue_panel_settings('progression'))
         except Exception as e: self.hud_enabled.set(False); self.status.set(self.status.get()+f' HUD unavailable: {e}')
         if self.hud:
             try:
-                loot=Hud(preferred=load_loot_position(),on_move=self.queue_loot_hud_move,on_pause=self.queue_hud_pause,opacity=self.hud_opacity,on_reset=self.queue_hud_reset,on_settings=self.queue_hud_settings,name_suffix='_loot',on_select_loot=self.queue_select_loot)
+                loot=Hud(preferred=load_loot_position(),on_move=self.queue_loot_hud_move,opacity=self.hud_opacity,on_settings=lambda:self.queue_panel_settings('loot'),name_suffix='_loot',on_select_loot=self.queue_select_loot)
                 self.hud=HudPair(self.hud,loot)
+                self.hud.main=Hud(preferred=load_main_position(),on_move=lambda pos:self.inbox.put(('main_hud_move',pos)),on_pause=self.queue_hud_pause,opacity=self.hud_opacity,on_reset=self.queue_hud_reset,on_settings=self.queue_hud_settings,name_suffix='_main',on_panel_toggle=self.queue_panel_toggle)
                 self.hud.configure_layout(self.hud_config)
             except Exception as e:
                 self.hud.close();self.hud=None;self.hud_enabled.set(False);self.status.set('HUD layout unavailable: '+str(e))
@@ -703,8 +704,8 @@ class App:
         ttk.Label(calibration,text='Line spacing (px):').pack(side='left',padx=(12,4))
         self.pitch_entry=ttk.Entry(calibration,textvariable=self.pitch,width=5,state='normal' if self.text_size.get()=='Manual' else 'readonly');self.pitch_entry.pack(side='left')
         hudtools=ttk.Frame(hudpage);hudtools.pack(fill='x',pady=(0,8))
-        ttk.Button(hudtools,text='Position HUD…',command=self.open_position).pack(side='left')
-        self.move_btn=ttk.Button(hudtools,text='Move HUD in game',command=self.arm_hud_move);self.move_btn.pack(side='left',padx=8)
+        ttk.Button(hudtools,text='Position XP/SP…',command=self.open_position).pack(side='left')
+        self.move_btn=ttk.Button(hudtools,text='Move XP/SP in game',command=self.arm_hud_move);self.move_btn.pack(side='left',padx=8)
         ttk.Label(hudtools,text='HUD: double-click lock to unlock; drag; click to lock.',style='Muted.TLabel').pack(side='left',padx=4)
         palette=ttk.LabelFrame(content,text='In-game system message colours',padding=6);palette.pack(fill='x',pady=(0,6))
         self.colour_vars={};self.colour_swatches={}
@@ -764,7 +765,11 @@ class App:
     def build_hud_widgets(self,parent):
         row=ttk.Frame(parent);row.pack(fill='x',pady=4)
         self.hud_size=tk.StringVar(value=self.hud_config['size']);self.hud_rows=tk.StringVar(value=row_choice(self.hud_config))
-        for label,var,options in [('Font',self.hud_size,('compact','standard','large')),('Widgets per row',self.hud_rows,ROW_OPTIONS)]:
+        self.hud_show={k:tk.BooleanVar(value=self.hud_config[k]) for k in ('show_xp','show_loot')}
+        self.hud_panel_rows={k:tk.StringVar(value=self.hud_config['panel_rows'].get(k,'Shared default')) for k in ('progression','loot')}
+        visibility=ttk.Frame(parent);visibility.pack(fill='x',pady=4)
+        for k,label in [('show_xp','Show XP/SP'),('show_loot','Show Adena/Loot')]:ttk.Checkbutton(visibility,text=label,variable=self.hud_show[k],command=self.apply_hud_config).pack(side='left',padx=4)
+        for label,var,options in [('Font',self.hud_size,('compact','standard','large')),('Default rows',self.hud_rows,ROW_OPTIONS)]:
             ttk.Label(row,text=label).pack(side='left',padx=4)
             cb=ttk.Combobox(row,textvariable=var,values=options,state='readonly',width=18 if var is self.hud_rows else 10);cb.pack(side='left');cb.bind('<<ComboboxSelected>>',self.apply_hud_config)
         presets=ttk.Frame(parent);presets.pack(fill='x',pady=3)
@@ -776,7 +781,7 @@ class App:
         self.hud_controls={k:tk.BooleanVar(value=self.hud_config[k]) for k in ('status','pause','reset')}
         for k,v in self.hud_controls.items():ttk.Checkbutton(row,text='Show '+k,variable=v,command=self.apply_hud_config).pack(side='left',padx=4)
         ttk.Button(row,text='Restore defaults',command=self.hud_defaults).pack(side='right')
-        ttk.Label(parent,text='HUD preview • drag the handles or use arrows to reorder',style='Muted.TLabel').pack(anchor='w')
+        ttk.Label(parent,text='Widget order • drag the handles or use arrows to reorder',style='Muted.TLabel').pack(anchor='w')
         self.hud_preview= tk.Canvas(parent,height=110,bg='#454f35',highlightthickness=0);self.hud_preview.pack(fill='x',pady=4)
         self.hud_preview.bind('<Configure>',lambda e:self.preview_hud())
         self.preview_hud()
@@ -811,39 +816,53 @@ class App:
     def hud_defaults(self):
         self.hud_order=list(WIDGETS);self.hud_size.set('compact');self.hud_rows.set(ROW_OPTIONS[0])
         self.hud_enabled.set(True)
+        for v in self.hud_show.values():v.set(True)
+        for v in self.hud_panel_rows.values():v.set('Shared default')
         for v in self.hud_controls.values():v.set(True)
         self.draw_hud_list();self.hud_preset('Classic');self.reset_hud_opacity()
         self.hud_net_adena_var.set(False);self.change_hud_net_adena()
     def apply_hud_config(self,*_):
-        self.hud_config=clean_hud(dict(order=self.hud_order,enabled=[k for k,v in self.hud_vars.items() if v.get()],size=self.hud_size.get(),visible=self.hud_enabled.get(),**row_settings(self.hud_rows.get()),**{k:v.get() for k,v in self.hud_controls.items()}))
+        self.hud_config=clean_hud(dict(panel_rows={k:v.get() for k,v in getattr(self,'hud_panel_rows',{}).items()},**{k:v.get() for k,v in getattr(self,'hud_show',{}).items()},order=self.hud_order,enabled=[k for k,v in self.hud_vars.items() if v.get()],size=self.hud_size.get(),visible=self.hud_enabled.get(),**row_settings(self.hud_rows.get()),**{k:v.get() for k,v in self.hud_controls.items()}))
         try:save_hud(self.hud_config)
         except OSError as e:self.status.set('HUD preferences not saved: '+str(e))
         if self.hud:self.hud.configure_layout(self.hud_config)
         self.preview_hud()
     def preview_hud(self):
         if not hasattr(self,'hud_preview'):return
-        g=hud_geometry(self.hud_config);cv=self.hud_preview;cv.delete('all')
-        scale=min(1,max(1,cv.winfo_width()-6)/g['width']) if cv.winfo_width()>10 else 1
-        height=round(g['height']*scale)+6
+        cv=self.hud_preview;cv.delete('all');c=self.hud_config
+        if not c['visible']:
+            cv.configure(height=32);cv.create_text(10,16,text='HUD hidden',anchor='w',fill='white');return
+        panels=[hud_geometry(main_config(c),'MAIN HUD',main_controls=True)]
+        if c['show_xp']:panels.append(hud_geometry(panel_config(c,'progression'),'XP / SP'))
+        if c['show_loot']:panels.append(hud_geometry(panel_config(c,'loot'),'ADENA / LOOT',select_loot=True))
+        scale=min(1,max(1,cv.winfo_width()-8)/max(g['width'] for g in panels)) if cv.winfo_width()>10 else 1
+        height=round(sum(g['height']+6 for g in panels)*scale)+6
         if int(cv.cget('height'))!=height:cv.configure(height=height)
-        if not self.hud_config['visible']:
-            cv.create_text(10,16,text='HUD hidden',anchor='w',fill='white');return
+        sample={'ad':'12,500','xp':'35,000','kills':'120','eta':'3h 48m','level':'19','progress':'16.91%','loot':'4,500','cost':'3,200','sp':'2,500','spnext':'8,400','killsnext':'~367'}
         def blend(colour):
             foreground=tuple(int(colour[i:i+2],16) for i in (1,3,5));background=(69,79,53);a=self.hud_opacity/100
             return '#%02x%02x%02x'%tuple(round(a*f+(1-a)*b) for f,b in zip(foreground,background))
-        cv.create_rectangle(2,2,g['width']+2,g['height']+2,fill=blend('#141921'),outline='')
-        sample={'ad':'12,500','xp':'35,000','kills':'120','eta':'3h 48m','level':'19','progress':'16.91%','loot':'4,500','cost':'3,200','sp':'2,500','spnext':'8,400','killsnext':'~367'}
-        for k,x,y,w,rh in g['cells']:
-            cv.create_text(x+2,y+3,text=('NET ADENA/H' if k=='ad' and self.hud_net_adena else WIDGETS[k][1]),anchor='nw',font=('Segoe UI',-max(7,round(g['small']*scale))),fill=blend('#B4BECD'))
-            cv.create_text(x+2,y+21,text=('9,300' if k=='ad' and self.hud_net_adena else sample[k]),anchor='nw',font=('Segoe UI',-max(9,round(g['large']*scale)),'bold'),fill=blend('#%02x%02x%02x'%WIDGETS[k][2]))
-        cv.create_text(g['width']-33,12,text='▣',fill=blend('#FFFFFF'))
-        cv.create_text(g['width']-11,12,text='⚙',fill=blend('#FFFFFF'))
-        if g['footer']:
-            if g['status']:cv.create_text(9,g['height']-14,text='SESSION ACTIVE',anchor='w',fill='#86E0B7')
-            for k in ('pause','reset'):
-                if g[k]:
-                    l,t,r,b=g[k];cv.create_rectangle(l,t,r,b,fill='#2E3D4E',outline='');cv.create_text((l+r)//2,(t+b)//2,text=k.title(),fill=blend('#FFFFFF'))
-        if scale<1:cv.scale('all',0,0,scale,scale)
+        y0=3
+        for g in panels:
+            def rect(l,t,r,b,fill):cv.create_rectangle((l+3)*scale,(t+y0)*scale,(r+3)*scale,(b+y0)*scale,fill=blend(fill),outline='')
+            def text(x,y,value,colour='#FFFFFF',size=None,anchor='nw',bold=False):
+                cv.create_text((x+3)*scale,(y+y0)*scale,text=value,anchor=anchor,font=('Segoe UI',-max(7,round((size or g['small'])*scale)), 'bold' if bold else 'normal'),fill=blend(colour))
+            rect(0,0,g['width'],g['height'],'#141921')
+            text(8,4,g['title'],'#B4BECD');text(g['width']-33,12,'▣',anchor='center');text(g['width']-11,12,'⚙',anchor='center')
+            for k,x,y,w,rh in g['cells']:
+                text(x,y+3,'NET ADENA/H' if k=='ad' and self.hud_net_adena else WIDGETS[k][1],'#B4BECD')
+                text(x,y+21,'9,300' if k=='ad' and self.hud_net_adena else sample[k],'#%02x%02x%02x'%WIDGETS[k][2],g['large'],bold=True)
+            for k,(l,t,r,b) in g['toggles'].items():
+                rect(l,t,r,b,'#2E3D4E');enabled=c['show_xp' if k=='progression' else 'show_loot']
+                text(l+5,(t+b)//2,('[x] ' if enabled else '[ ] ')+('Show XP/SP' if k=='progression' else 'Show Adena/Loot'),anchor='w')
+            if g['select_loot']:
+                l,t,r,b=g['select_loot'];rect(l,t,r,b,'#2E3D4E');text(l+5,(t+b)//2,'Select loot table…',anchor='w')
+            if g['footer']:
+                if g['status']:text(8,g['height']-14,'SESSION ACTIVE','#86E0B7',anchor='w')
+                for k in ('pause','reset'):
+                    if g[k]:
+                        l,t,r,b=g[k];rect(l,t,r,b,'#2E3D4E');text((l+r)//2,(t+b)//2,k.title(),anchor='center')
+            y0+=g['height']+6
     def select_text_size(self,*_):
         size=self.text_size.get()
         self.pitch_entry.configure(state='normal')
@@ -986,27 +1005,61 @@ class App:
     def queue_hud_settings(self):
         # Native HUD callbacks only enqueue. Tk menus are opened on the UI thread.
         self.inbox.put(('hud_settings',self.run_id))
-    def show_hud_settings(self):
+    def queue_panel_settings(self,panel):
+        self.inbox.put(('panel_settings',(self.run_id,panel)))
+    def queue_panel_toggle(self,panel):
+        self.inbox.put(('panel_toggle',(self.run_id,panel)))
+    def toggle_tracker_panel(self,panel):
+        key={'progression':'show_xp','loot':'show_loot'}.get(panel)
+        if key is None or not self.running:return
+        var=self.hud_show[key];var.set(not var.get());self.apply_hud_config()
+    def show_hud_settings(self,panel='main'):
         if not self.running or getattr(self,'selecting',False) or getattr(self,'closing',False) or getattr(self,'update_busy',False):return
-        menu=getattr(self,'hud_settings_menu',None)
+        if panel not in ('main','progression','loot'):return
+        menus=getattr(self,'hud_menus',None)
+        if menus is None:menus=self.hud_menus={}
+        menu=menus.get(panel)
         if menu is None:
-            menu=self.hud_settings_menu=tk.Menu(self.root,tearoff=False)
-            menu.add_command(label='View / edit bound areas…',command=lambda:self.select('chat',direct=True))
-            menu.add_command(label='Set level / XP %…',command=self.open_quick_player_progress)
-            menu.add_command(label='Use automatic level / XP OCR',command=self.enable_player_ocr)
-            menu.add_command(label='Monster Library…',command=self.open_monster_library)
-            menu.add_command(label='Review monster kills…',command=self.open_monster_reviews)
-            menu.add_separator()
-            widgets=tk.Menu(menu,tearoff=False)
-            for k in WIDGETS:
-                widgets.add_checkbutton(label=WIDGETS[k][0],variable=self.hud_vars[k],command=self.apply_hud_config)
-            menu.add_cascade(label='Visible widgets',menu=widgets)
-            rows=tk.Menu(menu,tearoff=False)
-            for choice in ROW_OPTIONS:
-                rows.add_radiobutton(label=choice,variable=self.hud_rows,value=choice,command=self.apply_hud_config)
-            menu.add_cascade(label='Widgets per row',menu=rows)
-            menu.add_separator()
-            menu.add_command(label='HUD settings…',command=self.open_hud_settings)
+            menu=menus[panel]=tk.Menu(self.root,tearoff=False)
+            if panel=='main':
+                menu.add_command(label='View / edit bound areas…',command=lambda:self.select('chat',direct=True))
+                menu.add_checkbutton(label='Show XP/SP',variable=self.hud_show['show_xp'],command=self.apply_hud_config)
+                menu.add_checkbutton(label='Show Adena/Loot',variable=self.hud_show['show_loot'],command=self.apply_hud_config)
+                menu.add_separator()
+                menu.add_checkbutton(label='Pause when Lineage 2 loses focus',variable=self.focus_pause_var,command=self.change_focus_policy)
+                font=tk.Menu(menu,tearoff=False)
+                for size in ('compact','standard','large'):font.add_radiobutton(label=size.title(),variable=self.hud_size,value=size,command=self.apply_hud_config)
+                menu.add_cascade(label='HUD font size',menu=font)
+                opacity=tk.Menu(menu,tearoff=False)
+                for value in (40,60,80,92,100):
+                    opacity.add_radiobutton(label=f'{value}%',variable=self.hud_opacity_var,value=value,command=lambda:self.change_hud_opacity(self.hud_opacity_var.get()))
+                menu.add_cascade(label='HUD opacity',menu=opacity)
+                for k,v in self.hud_controls.items():menu.add_checkbutton(label='Show '+k,variable=v,command=self.apply_hud_config)
+                menu.add_separator()
+                menu.add_command(label='Stop session',command=self.stop)
+                menu.add_command(label='HUD settings…',command=self.open_hud_settings)
+            else:
+                if panel=='progression':
+                    menu.add_command(label='Set level / XP %…',command=self.open_quick_player_progress)
+                    menu.add_command(label='Use automatic level / XP OCR',command=self.enable_player_ocr)
+                    menu.add_command(label='Bind level digits…',command=lambda:self.select('level',direct=True))
+                    menu.add_command(label='Bind XP percentage…',command=lambda:self.select('percent',direct=True))
+                else:
+                    menu.add_command(label='Monster Library…',command=self.open_monster_library)
+                    menu.add_command(label='Review monster kills…',command=self.open_monster_reviews)
+                    menu.add_command(label='Select loot table…',command=lambda:self.capture_drop_window(direct=True))
+                    menu.add_checkbutton(label='Net Adena/hr',variable=self.hud_net_adena_var,command=self.change_hud_net_adena)
+                menu.add_separator()
+                widgets=tk.Menu(menu,tearoff=False)
+                keys=PROGRESSION if panel=='progression' else LOOT
+                for k in keys:
+                    widgets.add_checkbutton(label=WIDGETS[k][0],variable=self.hud_vars[k],command=self.apply_hud_config)
+                menu.add_cascade(label='Visible widgets',menu=widgets)
+                rows=tk.Menu(menu,tearoff=False)
+                for choice in ('Shared default',*ROW_OPTIONS[:2],*tuple(str(i) for i in range(1,len(keys)+1))):
+                    rows.add_radiobutton(label=choice,variable=self.hud_panel_rows[panel],value=choice,command=self.apply_hud_config)
+                menu.add_cascade(label='Widgets per row',menu=rows)
+                menu.add_command(label='Hide this tracker',command=lambda:self.toggle_tracker_panel(panel))
         x,y=self.root.winfo_pointerxy()
         try:menu.tk_popup(x,y)
         finally:menu.grab_release()
@@ -1436,12 +1489,17 @@ class App:
                 if self.running and data==self.run_id:self.reset_session()
             elif kind=='hud_settings':
                 if self.running and data==self.run_id:self.show_hud_settings()
+            elif kind in ('panel_settings','panel_toggle'):
+                run,panel=data
+                if self.running and run==self.run_id:
+                    if kind=='panel_settings':self.show_hud_settings(panel)
+                    else:self.toggle_tracker_panel(panel)
             elif kind=='select_loot':
                 if self.running and data==self.run_id:self.capture_drop_window(direct=True)
             elif kind=='hud_move':self.save_hud_position(data)
-            elif kind=='loot_hud_move':
-                try:write_preference('loot_hud_position',list(data))
-                except OSError as e:self.status.set('Loot HUD position not saved: '+str(e))
+            elif kind in ('loot_hud_move','main_hud_move'):
+                try:write_preference('loot_hud_position' if kind=='loot_hud_move' else 'main_hud_position',list(data))
+                except OSError as e:self.status.set('HUD position not saved: '+str(e))
             elif kind=='done':
                 self.pending-=1
                 if data=='capture' and self.running:self.stop()

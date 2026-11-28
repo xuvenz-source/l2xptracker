@@ -32,12 +32,13 @@ class WidgetLayoutTests(unittest.TestCase):
             self.assertIsNone(clean(dict(widgets_per_row=bad))['widgets_per_row'])
     def test_menu_uses_same_widget_and_row_variables(self):
         a=App.__new__(App);a.running=True;a.root=Mock();a.root.winfo_pointerxy.return_value=(10,20)
-        a.hud_vars={k:Mock() for k in WIDGETS};a.hud_rows=Mock();a.apply_hud_config=Mock()
+        from hud_layout import PROGRESSION
+        a.hud_vars={k:Mock() for k in WIDGETS};a.hud_rows=Mock();a.hud_panel_rows={'progression':Mock()};a.apply_hud_config=Mock()
         menu,widgets,rows=Mock(),Mock(),Mock()
-        with patch('tracker.tk.Menu',side_effect=[menu,widgets,rows]):a.show_hud_settings()
-        self.assertEqual([c.kwargs['variable'] for c in widgets.add_checkbutton.call_args_list],list(a.hud_vars.values()))
-        self.assertEqual([c.kwargs['value'] for c in rows.add_radiobutton.call_args_list],list(ROW_OPTIONS))
-        self.assertTrue(all(c.kwargs['variable'] is a.hud_rows for c in rows.add_radiobutton.call_args_list))
+        with patch('tracker.tk.Menu',side_effect=[menu,widgets,rows]):a.show_hud_settings('progression')
+        self.assertEqual([c.kwargs['variable'] for c in widgets.add_checkbutton.call_args_list],[a.hud_vars[k] for k in PROGRESSION])
+        self.assertEqual([c.kwargs['value'] for c in rows.add_radiobutton.call_args_list],['Shared default',*ROW_OPTIONS[:2],*map(str,range(1,len(PROGRESSION)+1))])
+        self.assertTrue(all(c.kwargs['variable'] is a.hud_panel_rows['progression'] for c in rows.add_radiobutton.call_args_list))
         widgets.add_checkbutton.call_args_list[0].kwargs['command']()
         rows.add_radiobutton.call_args_list[-1].kwargs['command']()
         self.assertEqual(a.apply_hud_config.call_count,2)

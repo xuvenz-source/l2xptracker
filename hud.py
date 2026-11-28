@@ -56,13 +56,13 @@ def adena_metric(adena,seconds,consumable_cost=None,unpriced_uses=0):
 
 
 class Hud:
-    def __init__(self, preferred=None, on_move=None, on_pause=None, opacity=HUD_OPACITY_DEFAULT, on_reset=None, on_settings=None, name_suffix='', on_select_loot=None):
+    def __init__(self, preferred=None, on_move=None, on_pause=None, opacity=HUD_OPACITY_DEFAULT, on_reset=None, on_settings=None, name_suffix='', on_select_loot=None, on_panel_toggle=None):
         self.opacity=validate_hud_opacity(opacity)
         self.hwnd=None; self.shown=False; self.position=None; self.values=('—','—','—'); self.adena_label='ADENA / HR'
         self.preferred=preferred; self.on_move=on_move; self.drag=None; self.interactive=False
         self.locked=True; self.lock_first=None; self.press_handled=False; self.native_released=False
         self.native_drag=False; self.drag_poll_seen=False; self.drag_context=None; self.drag_rejected=False; self.native_activity=0.0; self.moving=False
-        self.last_mouse_down=None; self.placement=None; self.on_pause=on_pause; self.on_reset=on_reset; self.on_settings=on_settings; self.on_select_loot=on_select_loot; self.paused=False; self.pause_pressed=False
+        self.last_mouse_down=None; self.placement=None; self.on_pause=on_pause; self.on_reset=on_reset; self.on_settings=on_settings; self.on_select_loot=on_select_loot;self.on_panel_toggle=on_panel_toggle;self.panel_visibility={'progression':True,'loot':True}; self.paused=False; self.pause_pressed=False
         self.u=c.WinDLL('user32',use_last_error=True); self.g=c.WinDLL('gdi32',use_last_error=True); self.k=c.WinDLL('kernel32',use_last_error=True)
         H=w.HANDLE; L=c.c_ssize_t; U=c.c_size_t
         self.proc_type=c.WINFUNCTYPE(L,w.HWND,w.UINT,U,L)
@@ -130,7 +130,7 @@ class Hud:
         g=getattr(self,'layout',None)
         return g[name] if g else default
     def configure_layout(self,config,title=None,details=0):
-        g=layout_geometry(config,title,details,select_loot=bool(getattr(self,'on_select_loot',None)))
+        g=layout_geometry(config,title,details,select_loot=bool(getattr(self,'on_select_loot',None)),main_controls=bool(getattr(self,'on_panel_toggle',None)))
         if g==getattr(self,'layout',None):return
         self.finish_drag()
         # Do not briefly resize a visible overlay into a protected chat area.
@@ -169,10 +169,19 @@ class Hud:
         return bool(getattr(self,'on_settings',None)) and self.hit_rect(point,self.rect('settings',SETTINGS_RECT))
     def select_loot_hit(self,point):
         return bool(getattr(self,'on_select_loot',None)) and self.hit_rect(point,(getattr(self,'layout',None) or {}).get('select_loot'))
+    def panel_toggle_hit(self,point):
+        if not getattr(self,'on_panel_toggle',None):return None
+        for k,rect in getattr(self,'layout',{}).get('toggles',{}).items():
+            if self.hit_rect(point,rect):return k
+        return None
+    def set_panel_visibility(self,visibility):
+        if visibility==getattr(self,'panel_visibility',None):return
+        self.panel_visibility=dict(visibility)
+        if self.hwnd:self.u.InvalidateRect(self.hwnd,None,False)
     def body_hit(self,point):
-        return self.hit_rect(point,(0,0,*self.dimensions())) and not self.lock_hit(point) and not self.pause_hit(point) and not self.reset_hit(point) and not self.settings_hit(point) and not self.select_loot_hit(point)
+        return self.hit_rect(point,(0,0,*self.dimensions())) and not self.lock_hit(point) and not self.pause_hit(point) and not self.reset_hit(point) and not self.settings_hit(point) and not self.select_loot_hit(point) and not self.panel_toggle_hit(point)
     def wants_input(self,point):
-        return self.drag is not None or self.lock_hit(point) or self.pause_hit(point) or self.reset_hit(point) or self.settings_hit(point) or self.select_loot_hit(point) or (not self.locked and self.body_hit(point))
+        return self.drag is not None or self.lock_hit(point) or self.pause_hit(point) or self.reset_hit(point) or self.settings_hit(point) or self.select_loot_hit(point) or bool(self.panel_toggle_hit(point)) or (not self.locked and self.body_hit(point))
     def toggle_lock_press(self):
         # Unlock requires two distinct presses within Windows' double-click interval.
         # Lock immediately on the first click while unlocked.
@@ -195,7 +204,9 @@ class Hud:
         if self.lock_hit(point):
             self.toggle_lock_press();return
         self.lock_first=None
-        if self.select_loot_hit(point):self.on_select_loot()
+        panel=self.panel_toggle_hit(point)
+        if panel:self.on_panel_toggle(panel)
+        elif self.select_loot_hit(point):self.on_select_loot()
         elif self.settings_hit(point):self.on_settings()
         elif self.reset_hit(point):self.on_reset()
         elif self.pause_hit(point):self.pause_click()
@@ -350,6 +361,11 @@ class Hud:
             y=g['detail_y']+i*21
             self.text(dc,name,(8,y,width-90,y+20),self.small,(180,190,205))
             self.text(dc,value,(width-85,y,width-5,y+20),self.small,(247,202,102))
+        for k,rect in g.get('toggles',{}).items():
+            fill(rect,self.control)
+            enabled=self.panel_visibility.get(k,True)
+            label='Show XP/SP' if k=='progression' else 'Show Adena/Loot'
+            self.text(dc,('  [x] ' if enabled else '  [ ] ')+label,rect,self.small,(134,224,183) if enabled else (180,190,205))
         action=g.get('select_loot')
         if action:
             fill(action,self.control)
