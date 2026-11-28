@@ -4,6 +4,7 @@ from tkinter import ttk,messagebox
 from PIL import Image,ImageTk
 from leveling import binding_for,read_number
 from player_frame import verified_player_frame
+from vitals import clean_vitals,layout_from_regions
 import threading,queue
 from settings import validate
 from copy import deepcopy
@@ -24,6 +25,9 @@ def draft_regions(target,previous,chat,status):
     if binding and binding[:2]==binding_for(target)[:2]:
         for k,r in status.get('regions',{}).items():
             if k in ('level','percent') and inside(r,target.width,target.height):result[k]=dict(r)
+    if binding==binding_for(target):
+        vitals=clean_vitals(status.get('vitals'),target.width,target.height)
+        if vitals is not None:result['vitals']=vitals
     return result
 
 def rect_from_points(a,b,w,h):
@@ -41,6 +45,9 @@ def calibration_data(target,regions,pitch,old_status,hud_position=None):
     for key in ('level','percent'):
         if key in regions and not inside(regions[key],target.width,target.height):raise ValueError(f'{LABELS[key]} must be inside the game and at least 3 × 3 pixels.')
     status=dict(old_status,binding=binding_for(target),regions={k:dict(regions[k]) for k in ('level','percent') if k in regions})
+    status.pop('vitals',None)
+    vitals=clean_vitals(regions.get('vitals'),target.width,target.height)
+    if vitals is not None:status['vitals']=vitals
     return data,status
 
 class RegionEditor:
@@ -97,6 +104,7 @@ class RegionEditor:
     def draw(self):
         cv=self.canvas;cv.delete('area')
         for k,r in self.regions.items():
+            if k=='vitals':continue
             l,t,w,h=(r[x]*self.scale for x in ('left','top','width','height'))
             cv.create_rectangle(l,t,l+w,t+h,outline=COLOURS[k],width=3 if self.selected.get()==k else 1,tags='area')
             cv.create_text(l,max(0,t-2),text=LABELS[k],fill=COLOURS[k],anchor='sw' if t>15 else 'nw',tags='area')
@@ -165,11 +173,16 @@ class RegionEditor:
             regions,values=fit
             for k,z in regions.items():
                 self.regions[k]=dict(z,left=x+z['left'],top=y+z['top'])
+            layout=layout_from_regions(snapshot,regions)
+            if layout is not None:self.regions['vitals']=layout
+            else:self.regions.pop('vitals',None)
             self.regions.pop('frame',None);self.selected.set('level');self.draw()
-            self.info.set(f"Auto-fit verified level {values['level']} and {values['percent']}% XP. Check the two outlines and save.")
+            self.info.set(f"Auto-fit verified level {values['level']} and {values['percent']}% XP. "+('HP/MP frame also bound. ' if layout is not None else 'HP/MP frame unavailable. ' )+'Check outlines and save.')
         threading.Thread(target=work,daemon=True).start();self.win.after(75,poll)
     def clear(self):
-        self.regions.pop(self.selected.get(),None);self.draw()
+        key=self.selected.get();self.regions.pop(key,None)
+        if key=='frame':self.regions.pop('vitals',None)
+        self.draw()
     def cancel(self):
         self.win.destroy();self.on_close(False)
     def save(self,resume):

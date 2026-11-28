@@ -25,6 +25,9 @@ def clean_status(raw):
             for key in ('level','percent'):
                 r=regions.get(key)
                 if isinstance(r,dict) and all(type(r.get(k)) is int for k in ('left','top','width','height')) and min(r['left'],r['top'])>=0 and min(r['width'],r['height'])>=3 and r['left']+r['width']<=binding[2] and r['top']+r['height']<=binding[3]:out['regions'][key]=r
+        from vitals import clean_vitals
+        vitals=clean_vitals(raw.get('vitals'),binding[2],binding[3])
+        if vitals is not None:out['vitals']=vitals
     return out
 
 def load_status(path=None):return clean_status(read_preferences(path).get('player_status'))

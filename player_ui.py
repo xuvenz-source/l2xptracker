@@ -6,19 +6,21 @@ import threading,time,queue
 from datetime import datetime
 from sp_forecast import parse_balance,reward_stats,project,kills_label
 from PIL import Image,ImageTk
+from vital_monitor import VitalMonitor
 from leveling import Progress,load_status,save_status,binding_for,read_number,eta,XP,manual_values,xp_after
 from hud_layout import WIDGETS,PRESETS,SIZES,clean,load,save,geometry
 from hud import rate_text
 
 class PlayerStatus:
     def __init__(self,app):
-        self.app=app;self.config=load_status();self.progress=Progress()
+        self.app=app;self.config=load_status();self.progress=Progress();self.vital_monitor=VitalMonitor()
         self.results=queue.Queue();self.busy=False;self.generation=0;self.next_read=0
         self.source=tk.StringVar(value='Calibrate player status or enter manually.')
         self.summary=tk.StringVar(value='Player progress: not calibrated')
         self.last_run=None;self.last_xp=0;self.last_binding=None;self.manual_anchor=None;self.manual_xp_cache=None
         self.calibration_results=queue.Queue();self.calibration_preview={};self.last_status_attempt=None
         self.percent_var=tk.DoubleVar(value=0)
+        self.vital_summary=tk.StringVar(value='HP —  •  MP —')
         self.details=tk.StringVar(value='')
         self.sp_input=tk.StringVar(value='');self.sp_next=None;self.sp_cache=None
         self.sp_summary=tk.StringVar(value='Enter your current SP to estimate your balance at the next level.')
@@ -31,6 +33,7 @@ class PlayerStatus:
             label=ttk.Label(panel,textvariable=variable,style=style,wraplength=650);label.pack(fill='x',pady=(4,0))
             label.bind('<Configure>',lambda e,w=label:w.configure(wraplength=max(100,e.width-8)))
         ttk.Progressbar(panel,variable=self.percent_var,maximum=100).pack(fill='x',pady=(7,4))
+        ttk.Label(panel,textvariable=self.vital_summary,style='CardBody.TLabel').pack(anchor='w',pady=(0,3))
         label=ttk.Label(panel,textvariable=self.details,style='CardBody.TLabel',wraplength=650);label.pack(fill='x')
         label.bind('<Configure>',lambda e,w=label:w.configure(wraplength=max(100,e.width-8)))
         if include_sp:self.build_sp(parent)
@@ -114,6 +117,8 @@ class PlayerStatus:
         ttk.Button(row,text='Select level digits…',command=lambda:self.calibrate('level')).pack(side='left')
         ttk.Button(row,text='Select XP %…',command=lambda:self.calibrate('percent')).pack(side='left',padx=6)
         ttk.Label(parent,textvariable=self.regions,style='Muted.TLabel').pack(anchor='w',pady=6)
+        ttk.Label(parent,textvariable=self.vital_summary,style='Section.TLabel').pack(anchor='w')
+        ttk.Label(parent,text='HP/MP uses the saved whole frame during an active session. A ~ value is an estimated bar percentage. Enable HP/MP in HUD visible widgets.',wraplength=650,style='Muted.TLabel').pack(anchor='w',pady=(2,6))
         ttk.Separator(parent).pack(fill='x',pady=10)
         ttk.Label(parent,text='Manual calibration (switches to manual mode)',style='Section.TLabel').pack(anchor='w')
         row=ttk.Frame(parent);row.pack(fill='x',pady=6)
@@ -206,6 +211,11 @@ class PlayerStatus:
     def protected(self):
         if self.app.target and self.config['binding']==binding_for(self.app.target):return tuple(self.config['regions'].values())
         return ()
+    def protected_all(self):
+        regions=self.protected()
+        if self.app.target and self.config['binding']==binding_for(self.app.target) and self.config.get('vitals'):
+            return (*regions,self.config['vitals']['frame'])
+        return regions
     def tick(self,finished=False):
         a=self.app;p=self.progress;now=time.monotonic();xp=a.totals['You','XP / SP'] if a.running or a.pending or finished else self.last_xp
         binding=binding_for(a.target) if a.target else None
@@ -271,5 +281,10 @@ class PlayerStatus:
         if self.source.get()!=source:self.source.set(source)
         self.summary.set(f'Level {p.level}{flag}  •  {p.percent:.2f}%  •  Next level: {label}{flag}  •  Remaining XP: {remaining:,}' if p.level is not None else 'Player progress: not calibrated')
         self.update_sp(remaining,stale)
+        if hasattr(self,'vital_monitor'):
+            values=self.vital_monitor.tick(a,self.config,self.generation,now)
+            self.widgets.update(values)
+            summary='  •  '.join(label+' '+value for label,value in values.values())
+            if self.vital_summary.get()!=summary:self.vital_summary.set(summary)
         self.percent_var.set(float(p.percent) if p.percent is not None else 0)
         self.details.set(f'XP in level: {round(XP[p.level-1]*p.percent/100):,} / {XP[p.level-1]:,}  |  XP/hr: {rate_text(a.totals["You","XP / SP"],a.active_seconds)}  |  {self.source.get()}' if p.level is not None else 'Configure level and XP regions in Settings → Player status.')

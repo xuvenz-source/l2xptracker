@@ -1255,6 +1255,7 @@ class App:
                 if panel=='progression':
                     menu.add_command(label='Set level / XP %…',command=self.open_quick_player_progress)
                     menu.add_command(label='Use automatic level / XP OCR',command=self.enable_player_ocr)
+                    menu.add_command(label='Bind player frame…',command=lambda:self.select('frame',direct=True))
                     menu.add_command(label='Bind level digits…',command=lambda:self.select('level',direct=True))
                     menu.add_command(label='Bind XP percentage…',command=lambda:self.select('percent',direct=True))
                 else:
@@ -2059,7 +2060,7 @@ class App:
         if self.position_win and self.position_win.winfo_exists():self.position_win.lift();return
         if not self.hud or not self.region or not (self.target or self.saved):
             messagebox.showinfo('Position HUD','Bind the game and chat area first.');return
-        WIDTH,HEIGHT=self.hud.dimensions();extra=self.player.protected()
+        WIDTH,HEIGHT=self.hud.dimensions();extra=self.player.protected_all()
         width,height=(self.target.width,self.target.height) if self.target else (self.saved['width'],self.saved['height'])
         geo=(0,0,width,height); region=dict(self.region)
         if not hud_position(geo,region,size=(WIDTH,HEIGHT),extra=extra):
@@ -2102,7 +2103,7 @@ class App:
                 net=getattr(self,'hud_net_adena',False)
                 player=getattr(self,'player',None)
                 widgets=dict(getattr(player,'widgets',{}),loot=('LOOT/H',rate_text(getattr(self,'loot_report',{}).get('value',0),self.active_seconds)),cost=('COST/H',rate_text(report.get('cost',0),self.active_seconds)))
-                self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get() and not getattr(self,'selecting',False),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills,paused=self.pause_gate.snapshot()[0],consumable_cost=report.get('cost',0) if net else None,unpriced_uses=report.get('unpriced',0) if net else 0,widgets=widgets,protected=player.protected() if player else (),capture_state=getattr(self,'capture_state','SESSION ACTIVE'))
+                self.hud.update(self.api,self.target,self.region,self.running and self.hud_enabled.get() and not getattr(self,'selecting',False),self.active_seconds,self.totals[('You','Adena')],self.totals[('You','XP / SP')],self.kills,paused=self.pause_gate.snapshot()[0],consumable_cost=report.get('cost',0) if net else None,unpriced_uses=report.get('unpriced',0) if net else 0,widgets=widgets,protected=player.protected_all() if player else (),capture_state=getattr(self,'capture_state','SESSION ACTIVE'))
             except Exception as e:
                 diagnostic('HUD update exception',exc_info=True)
                 hud,self.hud=self.hud,None
