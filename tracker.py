@@ -33,6 +33,10 @@ from player_ui import PlayerStatus
 from region_editor import RegionEditor,draft_regions,calibration_data
 from leveling import save_status,binding_for
 from sp_forecast import clean_anchor
+from hud_pair import HudPair,load_loot_position
+from drop_targets import load as load_drop_targets, display as display_drops
+from drop_ui import DropEditor,CropWindow
+from preferences import write_preference
 from hud_layout import WIDGETS, PRESETS, ROW_OPTIONS, row_choice, row_settings, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
 from hud import rate_text
 from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows, row_alignment, aligned_rows, bottom_clipped
@@ -567,7 +571,7 @@ class App:
         self.appearance=Appearance(root)
         self.pause_on_blur=load_focus_pause();self.auto_update=load_auto_update();self.settings_win=None
         self.hud_opacity=load_hud_opacity();self.hud_opacity_save_job=None
-        self.hud_net_adena=load_hud_net_adena();self.hud_config=load_hud()
+        self.hud_net_adena=load_hud_net_adena();self.hud_config=load_hud();self.drop_config=load_drop_targets()
         self.default_prices=load_prices();self.session_prices=dict(self.default_prices);self.consumable_report=cost_report([])
         self.default_loot_prices=load_loot_prices();self.session_loot_prices=dict(self.default_loot_prices);self.loot_report=loot_report([]);self.loot_rows={}
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
@@ -587,7 +591,10 @@ class App:
         try: self.hud=Hud(preferred=tuple(self.saved["hud_position"]) if self.saved and self.saved.get("hud_position") is not None else None,on_move=self.queue_hud_move,on_pause=self.queue_hud_pause,opacity=self.hud_opacity,on_reset=self.queue_hud_reset,on_settings=self.queue_hud_settings)
         except Exception as e: self.hud_enabled.set(False); self.status.set(self.status.get()+f' HUD unavailable: {e}')
         if self.hud:
-            try:self.hud.configure_layout(self.hud_config)
+            try:
+                loot=Hud(preferred=load_loot_position(),on_move=self.queue_loot_hud_move,on_pause=self.queue_hud_pause,opacity=self.hud_opacity,on_reset=self.queue_hud_reset,on_settings=self.queue_hud_settings,name_suffix='_loot')
+                self.hud=HudPair(self.hud,loot)
+                self.hud.configure_layout(self.hud_config)
             except Exception as e:
                 self.hud.close();self.hud=None;self.hud_enabled.set(False);self.status.set('HUD layout unavailable: '+str(e))
         self.player=PlayerStatus(self)
@@ -616,6 +623,9 @@ class App:
         ttk.Label(dash,textvariable=self.stats,wraplength=880,padding=(0,3,0,12),style='Muted.TLabel').pack(fill='x')
         loot_header=ttk.Frame(dash);loot_header.pack(fill='x',pady=(2,8))
         ttk.Label(loot_header,text='Session loot',style='Section.TLabel').pack(side='left')
+        ttk.Button(loot_header,text='Desired drops…',command=self.open_drop_editor).pack(side='left',padx=6)
+        self.drop_summary=tk.StringVar(value='No desired drops selected.')
+        ttk.Label(dash,textvariable=self.drop_summary,wraplength=850,style='Muted.TLabel').pack(anchor='w',pady=(0,4))
         ttk.Button(loot_header,text='Export CSV',command=self.export).pack(side='right')
         ttk.Button(loot_header,text='Set default value…',command=self.edit_default_loot_value).pack(side='right',padx=5)
         ttk.Button(loot_header,text='Edit item value…',command=self.edit_loot_value).pack(side='right',padx=5)
@@ -819,7 +829,7 @@ class App:
             foreground=tuple(int(colour[i:i+2],16) for i in (1,3,5));background=(69,79,53);a=self.hud_opacity/100
             return '#%02x%02x%02x'%tuple(round(a*f+(1-a)*b) for f,b in zip(foreground,background))
         cv.create_rectangle(2,2,g['width']+2,g['height']+2,fill=blend('#141921'),outline='')
-        sample={'ad':'12,500','xp':'35,000','kills':'120','eta':'3h 48m','level':'19','progress':'16.91%','loot':'4,500','cost':'3,200'}
+        sample={'ad':'12,500','xp':'35,000','kills':'120','eta':'3h 48m','level':'19','progress':'16.91%','loot':'4,500','cost':'3,200','sp':'2,500','spnext':'8,400'}
         for k,x,y,w,rh in g['cells']:
             cv.create_text(x+2,y+3,text=('NET ADENA/H' if k=='ad' and self.hud_net_adena else WIDGETS[k][1]),anchor='nw',font=('Segoe UI',-max(7,round(g['small']*scale))),fill=blend('#B4BECD'))
             cv.create_text(x+2,y+21,text=('9,300' if k=='ad' and self.hud_net_adena else sample[k]),anchor='nw',font=('Segoe UI',-max(9,round(g['large']*scale)),'bold'),fill=blend('#%02x%02x%02x'%WIDGETS[k][2]))
@@ -978,6 +988,7 @@ class App:
         if menu is None:
             menu=self.hud_settings_menu=tk.Menu(self.root,tearoff=False)
             menu.add_command(label='View / edit bound areas…',command=lambda:self.select('chat'))
+            menu.add_command(label='Desired drops…',command=self.open_drop_editor)
             menu.add_separator()
             widgets=tk.Menu(menu,tearoff=False)
             for k in WIDGETS:
@@ -996,6 +1007,42 @@ class App:
         if getattr(self,'selecting',False) or getattr(self,'update_busy',False):return
         self.root.deiconify();self.root.lift();self.navigate('settings')
         self.settings_tabs.select(self.settings_scroll['HUD'])
+    def queue_loot_hud_move(self,position):
+        self.inbox.put(('loot_hud_move',position))
+    def open_drop_editor(self,image=None):
+        if getattr(self,'selecting',False) or getattr(self,'update_busy',False):return
+        existing=getattr(self,'drop_editor',None)
+        if existing and existing.win.winfo_exists():existing.win.lift();return
+        self.drop_editor=DropEditor(self,image)
+    def capture_drop_window(self):
+        if getattr(self,'selecting',False) or getattr(self,'closing',False):return
+        if not messagebox.askokcancel('Monster drop window','Open the monster Drop tab and focus the game within five seconds. Tracking pauses for capture; resume after importing.',parent=self.root):return
+        if self.running and not self.pause_gate.snapshot()[0]:self.toggle_pause()
+        self.selecting=True
+        if self.hud:self.hud.hide()
+        self.root.withdraw();self.root.after(5000,self.take_drop_screenshot)
+    def take_drop_screenshot(self):
+        def finish(image=None):
+            self.selecting=False;self.root.deiconify();self.open_drop_editor(image)
+        try:
+            api=Windows();target=api.bind_foreground()
+            if self.target and (target.title,target.window_class)!=(self.target.title,self.target.window_class):raise RuntimeError('Focus the calibrated Lineage 2 client.')
+            if not self.target and not messagebox.askyesno('Confirm game window',f'Capture {target.title!r}? Confirm only for Lineage 2.',parent=self.root):finish();return
+            with mss.mss() as screen:
+                full=dict(left=0,top=0,width=target.width,height=target.height)
+                rect,reason=capture_region(api,target,full,screen.monitors[0])
+                if not rect:raise RuntimeError(reason)
+                shot=Image.frombytes('RGB',(rect['width'],rect['height']),screen.grab(rect).rgb)
+                if capture_region(api,target,full,screen.monitors[0])[0]!=rect:raise RuntimeError('Game moved during capture.')
+            CropWindow(self.root,shot,finish,finish)
+        except Exception as e:
+            self.selecting=False;self.root.deiconify();messagebox.showerror('Monster window',str(e),parent=self.root);self.open_drop_editor()
+    def update_drop_targets(self):
+        if not hasattr(self,'drop_config'):return
+        rate,rows=display_drops(self.drop_config,self.kills,self.active_seconds)
+        if isinstance(self.hud,HudPair):self.hud.set_targets(self.drop_config['monster'],rows)
+        if hasattr(self,'drop_summary'):
+            self.drop_summary.set(('Desired drops — '+self.drop_config['monster']+f' | {rate:,.0f} kills/h | '+' • '.join(name+': '+value for name,value in rows)) if rows else 'No desired drops selected.')
     def queue_hud_move(self,position):
         self.inbox.put(('hud_move',position))
     def save_hud_position(self,position):
@@ -1279,6 +1326,9 @@ class App:
             elif kind=='hud_settings':
                 if self.running and data==self.run_id:self.show_hud_settings()
             elif kind=='hud_move':self.save_hud_position(data)
+            elif kind=='loot_hud_move':
+                try:write_preference('loot_hud_position',list(data))
+                except OSError as e:self.status.set('Loot HUD position not saved: '+str(e))
             elif kind=='done':
                 self.pending-=1
                 if data=='capture' and self.running:self.stop()
@@ -1327,6 +1377,7 @@ class App:
             self.closing=False
             if self.close():return
         if hasattr(self,'player'):self.player.tick()
+        self.update_drop_targets()
         if self.started is not None:
             dur=self.active_seconds; h=max(1,dur)/3600; xp=self.totals[('You','XP / SP')]; sp=self.totals[('You','SP')]; ad=self.totals[('You','Adena')]
             if hasattr(self,'dashboard'):self.dashboard.update_metrics(dur,ad,xp,self.kills)

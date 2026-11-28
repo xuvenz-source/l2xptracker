@@ -28,7 +28,7 @@ class WidgetLayoutTests(unittest.TestCase):
             p=Path(d)/'prefs.json'
             save(dict(enabled=['ad','xp','eta'],**row_settings('2')),p)
             c=load(p);self.assertEqual(row_choice(c),'2');self.assertEqual(c['widgets_per_row'],2)
-        for bad in (True,0,9,'2'):
+        for bad in (True,0,len(WIDGETS)+1,'2'):
             self.assertIsNone(clean(dict(widgets_per_row=bad))['widgets_per_row'])
     def test_menu_uses_same_widget_and_row_variables(self):
         a=App.__new__(App);a.running=True;a.root=Mock();a.root.winfo_pointerxy.return_value=(10,20)

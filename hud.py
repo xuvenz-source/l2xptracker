@@ -56,7 +56,7 @@ def adena_metric(adena,seconds,consumable_cost=None,unpriced_uses=0):
 
 
 class Hud:
-    def __init__(self, preferred=None, on_move=None, on_pause=None, opacity=HUD_OPACITY_DEFAULT, on_reset=None, on_settings=None):
+    def __init__(self, preferred=None, on_move=None, on_pause=None, opacity=HUD_OPACITY_DEFAULT, on_reset=None, on_settings=None, name_suffix=''):
         self.opacity=validate_hud_opacity(opacity)
         self.hwnd=None; self.shown=False; self.position=None; self.values=('—','—','—'); self.adena_label='ADENA / HR'
         self.preferred=preferred; self.on_move=on_move; self.drag=None; self.interactive=False
@@ -103,7 +103,7 @@ class Hud:
         sig(self.g,'SetTextColor',[H,w.DWORD],w.DWORD)
         sig(self.g,'CreateFontW',[c.c_int]*5+[w.DWORD]*8+[w.LPCWSTR],H)
         self.instance=self.k.GetModuleHandleW(None)
-        self.name=f'L2LegacyTrackerHud_{os.getpid()}'
+        self.name=f'L2LegacyTrackerHud_{os.getpid()}{name_suffix}'
         self.callback=self.proc_type(self.safe_wndproc)
         wc=WNDCLASS(0,self.callback,0,0,self.instance,None,None,None,None,self.name)
         if not self.u.RegisterClassW(c.byref(wc)): raise c.WinError(c.get_last_error())
@@ -125,8 +125,8 @@ class Hud:
     def rect(self,name,default):
         g=getattr(self,'layout',None)
         return g[name] if g else default
-    def configure_layout(self,config):
-        g=layout_geometry(config)
+    def configure_layout(self,config,title=None,details=0):
+        g=layout_geometry(config,title,details)
         if g==getattr(self,'layout',None):return
         self.finish_drag()
         # Do not briefly resize a visible overlay into a protected chat area.
@@ -309,6 +309,7 @@ class Hud:
         g=self.layout;width,height=self.dimensions()
         fill=lambda rect,brush:self.u.FillRect(dc,c.byref(w.RECT(*rect)),brush)
         fill((0,0,width,height),self.brush);self.g.SetBkMode(dc,1)
+        if g.get('title'):self.text(dc,g['title'],(8,2,width-48,22),self.small,(180,190,205))
         values=getattr(self,'widget_values',{})
         for k,x,y,cw,rh in g['cells']:
             _,label,colour=WIDGETS[k]
@@ -320,6 +321,10 @@ class Hud:
         parts += [(x+2,7,x+7,8),(x+2,8,x+3,11),(x+6,8,x+7,11 if self.locked else 9)]
         for part in parts:fill(part,self.lock_brush)
         self.paint_gear(dc,g['settings'])
+        for i,(name,value) in enumerate(getattr(self,'detail_rows',())[:g.get('details',0)]):
+            y=g['detail_y']+i*21
+            self.text(dc,name,(8,y,width-90,y+20),self.small,(180,190,205))
+            self.text(dc,value,(width-85,y,width-5,y+20),self.small,(247,202,102))
         if g['footer']:
             fill((8,height-31,width-8,height-30),self.divider)
             if g['status']:self.text(dc,'PAUSED' if self.paused else getattr(self,'capture_state','SESSION ACTIVE'),(8,height-28,122,height-4),self.small,(247,202,102) if self.paused or getattr(self,'capture_state','SESSION ACTIVE')!='SESSION ACTIVE' else (134,224,183))

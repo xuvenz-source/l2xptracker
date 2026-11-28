@@ -89,6 +89,8 @@ class PlayerStatus:
         elif not a.running:note+=" Enter your actual SP for the next session."
         else:note+=" Update the balance after spending SP."
         self.sp_context.set(note)
+        self.widgets['sp']=('SP GAINED',f"{r['earned']:,}")
+        self.widgets['spnext']=('SP NEXT',f"{f['total']:,}"+('*' if stale else '') if f and f['total'] is not None else '—')
     def save(self):
         try:save_status(self.config)
         except OSError as e:self.source.set('Could not save: '+str(e))
