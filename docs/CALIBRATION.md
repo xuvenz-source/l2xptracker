@@ -26,3 +26,5 @@ Apply chat settings before tracking. Shared colours are distinguished by text; u
 ## Troubleshooting
 
 If the game is covered, minimised or resized, visible-pixel capture cannot read it safely. Check bound areas, text spacing and colours, then compare short-session totals against the game. Reviews correct uncertainty; no method can reconstruct messages that scrolled past unseen. Settings → Advanced provides optional OCR evidence and local diagnostics. Remove sensitive player names before sharing.
+
+Large-text slash recovery: for exact magenta personal XP/SP and yellow personal Adena, a failed OCR amount containing a slash can be checked against verified full-line glyphs at two thresholds and isolated digits-only OCR. The XP/SP fallback never overrides a conflicting valid number. A standalone slash in the Adena amount is also eligible for verification. This is not global slash replacement and does not expand support to Medium glyphs. Unverified fields remain in review.

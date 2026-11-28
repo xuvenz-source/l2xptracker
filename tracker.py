@@ -26,7 +26,7 @@ from preferences import load_focus_pause, save_focus_pause, load_auto_update, sa
 from party_setup_ui import PartySetup
 from update_ui import UpdateUI
 from preferences import load_backup_retention,save_backup_retention,load_numeric_templates,save_numeric_templates
-from numeric_templates import recognise as recognise_numeric, strict_adena
+from numeric_templates import recognise as recognise_numeric, strict_adena, strict_reward
 from ocr_evidence import OcrEvidence, png as evidence_png
 from scroll_ui import ScrollPage,table_scroll
 from player_ui import PlayerStatus
@@ -473,13 +473,46 @@ def recover_adena_digits(row,reads,read_number):
         a,b=str(value),str(other)
         return len(a)==len(b) and all(x==y or {x,y}=={'6','8'} for x,y in zip(a,b))
     if any(not close(v) for v in valid):return None
-    if not valid and not any(re.search(r'\d[/]|[/]\d',text) for text in reads):return None
+    if not valid and not any(re.search(r'\d[/]|[/]\d|\b(?:earned|obtained|eamed)\s+/\s*Adena\b',text,re.I) for text in reads):return None
     # Numeric-only OCR provides an independent check before settling a
     # valid 6/8 conflict or accepting a field containing a damaged slash.
     try:
         results=[read_number(crop,nearest) for nearest in (True,False)]
     except Exception:return None
     return value if all(x==str(value) for x in results) else None
+
+def slash_reward_tokens(text):
+    """Damaged numeric fields, not slash characters elsewhere in the line."""
+    xp=re.search(r'(?<!\S)([0-9/]+)\s*XP\s*and\b',text.strip(),re.I)
+    sp=re.search(r'\band\s*([0-9/]+)\s*S[PF]\b',text.strip(),re.I)
+    return tuple(m[1] if m and '/' in m[1] else None for m in (xp,sp))
+
+def recover_xp_slash(row,reads,read_number):
+    # A slash is a trigger, not a digit vote. Only the complete verified Large
+    # word/glyph shapes at both thresholds can propose an amount.
+    damaged=[slash_reward_tokens(text) for text in reads]
+    if not any(any(fields) for fields in damaged):return None
+    try:result=strict_reward(row,'xp')
+    except Exception:
+        diagnostic('XP slash digit verification failed',exc_info=True);return None
+    if result is None:return None
+    values,crops=result
+    # Do not override any valid conflicting number, even if it occurs once.
+    for text in reads:
+        event=parse(text)
+        if event and event[0]!='xp':return None
+    for index,candidate in enumerate((xp_field_candidate,sp_numeric_candidate)):
+        value=values[index];votes=[v for text in reads if (v:=candidate(text)) is not None]
+        if any(v!=value for v in votes):return None
+        hints=[fields[index] for fields in damaged if fields[index] is not None]
+        if len(votes)>=2:continue
+        # Only accept the specific 7/slash ambiguity, with the remaining digits
+        # unchanged. This comparison never supplies the output amount.
+        if not hints or not any(t.replace('/','7')==str(value) for t in hints):return None
+        try:
+            if not all(read_number(crops[index],nearest)==str(value) for nearest in (True,False)):return None
+        except Exception:return None
+    return values
 
 def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
     """Respect shared colours: classify by text where a hue is not unique."""
@@ -530,25 +563,30 @@ def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
                 yield report('line',next(text for text in reads if parse(text)==valid[0]))
                 break
         else:
+            def read_number(crop,nearest):
+                # Use the same isolated digits and sixfold scaling as
+                # the screenshot benchmark; no replacement of / with 7.
+                im=np.where(crop,0,255).astype(np.uint8)
+                # Match the verified benchmark's compact white margin.
+                im=np.pad(im,((6,6),(8,8)),constant_values=255)
+                image=Image.fromarray(im).resize((im.shape[1]*6,im.shape[0]*6),Image.Resampling.NEAREST if nearest else Image.Resampling.LANCZOS)
+                text=pytesseract.image_to_string(image,config='--psm 8 -c tessedit_char_whitelist=0123456789',timeout=5).strip()
+                if evidence is not None:
+                    try:passes.append((evidence_png(image),text,nearest))
+                    except Exception:pass
+                return text
             if 'adena' in group and set(group)<={'adena','item'} and colours['adena'].upper()=='#FFFF00':
-                def read_number(crop,nearest):
-                    # Use the same isolated digits and sixfold scaling as
-                    # the screenshot benchmark; no replacement of / with 7.
-                    im=np.where(crop,0,255).astype(np.uint8)
-                    # Match the verified benchmark's compact white margin.
-                    im=np.pad(im,((6,6),(8,8)),constant_values=255)
-                    image=Image.fromarray(im).resize((im.shape[1]*6,im.shape[0]*6),Image.Resampling.NEAREST if nearest else Image.Resampling.LANCZOS)
-                    text=pytesseract.image_to_string(image,config='--psm 8 -c tessedit_char_whitelist=0123456789',timeout=5).strip()
-                    if evidence is not None:
-                        try:passes.append((evidence_png(image),text,nearest))
-                        except Exception:pass
-                    return text
                 recovered=recover_adena_digits(row,reads,read_number)
                 if recovered is not None:
                     yield report('template_line',f'You have earned {recovered} Adena.')
                     continue
             if 'xp' in group and (len(group)==1 or any(xp_like(x) for x in reads)):
                 resolved=configured_xp_resolution(row,reads,read=read if evidence is not None else None)
+                if (not resolved or resolved[0]!='line') and group==('xp',) and colours['xp'].upper()=='#FF00FF':
+                    recovered=recover_xp_slash(row,reads,read_number)
+                    if recovered is not None:
+                        yield report('template_line',f'You have acquired {recovered[0]} XP and {recovered[1]} SP.')
+                        continue
                 if resolved:yield report(*resolved);continue
             targets=[k for k in group if k!='other']
             if 'adena' in targets and 'item' not in targets:

@@ -95,15 +95,23 @@ def recognise(row,kind):
     return results[0] if results[0]==results[1] else None
 
 
-def strict_adena(row):
-    """Return the value and isolated field only for a complete verified line."""
-    if row.ndim!=3 or row.shape[2]!=3 or row.shape[0] not in (20,21,22,23):return None
+def strict_reward(row,kind):
+    """Verified full-line Large glyphs plus isolated numeric field masks."""
+    if kind not in ('xp','adena') or row.ndim!=3 or row.shape[2]!=3 or row.shape[0] not in (20,21,22,23):return None
     r,g,b=row.transpose(2,0,1)
     results=[];crops=[]
     for threshold in (175,180):
         fields=[]
-        v=match_mask((r>threshold)&(g>threshold)&(b<100),'adena',strict=True,fields=fields)
-        if v is None or len(fields)!=1:return None
-        results.append(v[0]);crops.append(fields[0])
+        mask=(r>threshold)&((b>threshold)&(g<100) if kind=='xp' else (g>threshold)&(b<100))
+        v=match_mask(mask,kind,strict=True,fields=fields)
+        if v is None or len(fields)!=(2 if kind=='xp' else 1):return None
+        results.append(v);crops.append(fields)
     if results[0]!=results[1]:return None
     return results[0],crops[0]
+
+def strict_adena(row):
+    """Return the value and isolated field only for a complete verified line."""
+    result=strict_reward(row,'adena')
+    if result is None:return None
+    values,fields=result
+    return values[0],fields[0]
