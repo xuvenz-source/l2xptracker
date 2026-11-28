@@ -16,7 +16,7 @@ class TabbedUITests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 archive=Archive(Path(d)/'sessions.sqlite3')
                 archive.save('a','First',data(100,20,30))
-                with patch('tracker.Windows',side_effect=RuntimeError('test no game')),patch('tracker.Hud',side_effect=RuntimeError('test no HUD')),patch('tracker.Archive',return_value=archive),patch('tracker.load_focus_pause',return_value=False),patch('tracker.load_auto_update',return_value=False),patch('appearance.load_mode',return_value='dark'),patch('party_setup_ui.load_presets',return_value={}):
+                with patch('tracker.Windows',side_effect=RuntimeError('test no game')),patch('tracker.Hud',side_effect=RuntimeError('test no HUD')),patch('tracker.Archive',return_value=archive),patch('tracker.load_focus_pause',return_value=False),patch('tracker.load_auto_update',return_value=False),patch('appearance.load_mode',return_value='dark'),patch('party_setup_ui.load_party_choices',return_value=[]),patch('tracker.load_current_party',return_value=[]),patch('tracker.remember_party',return_value=['Alpha']):
                     a=App(root)
                     self.assertEqual(len(a.tabs.tabs()),6)
                     self.assertIsInstance(a.tabs,ttk.Notebook)
@@ -32,9 +32,10 @@ class TabbedUITests(unittest.TestCase):
                     self.assertEqual(len(a.review_tree.get_children()),0)
                     self.assertTrue(a.pages['review'].winfo_exists())
                     a.navigate('party');a.page_changed()
-                    a.party_setup_window.members.set('Alpha');a.party_setup_window.apply()
+                    self.assertEqual(len(a.party_setup_window.combos),11)
+                    a.party_setup_window.slots[0].set('Alpha');a.party_setup_window.apply()
                     self.assertEqual(a.next_party_members,['Alpha'])
-                    self.assertEqual(a.tabs.select(),str(a.pages['dashboard']))
+                    self.assertEqual(a.tabs.select(),str(a.pages['party']))
                     self.assertFalse(any(isinstance(w,tk.Toplevel) for w in root.winfo_children()))
                     # Main button and queued HUD click share one pause gate.
                     a.running=True;a.session_id=None;a.started=None;a.pause_btn.configure(state='normal')

@@ -125,7 +125,10 @@ Live diagnostic evidence established the exact failure: a 187-pixel chat crop, m
 ## Targeted Adena digit recovery (v0.44.4)
 Five live failed rows contained 67, 84, 81, 84 and 76 Adena. The existing digit templates matched all five at both thresholds, but the previous experimental engine did not support 23-pixel rows. The experimental engine now accepts that geometry. Independently of the experimental fast-path setting, uncertain yellow personal earned-Adena messages can use a stricter complete-word and digit match at both thresholds. A lone matching valid full-line reading is sufficient with strict template agreement; competing valid 6/8 readings or damaged slash fields additionally require two isolated numeric OCR readings to agree. Other conflicts remain reviewable. No global digit substitutions, no capture geometry changes. Verified binary masks from the evidence are regression fixtures; no names or backgrounds included.
 
-## Current status: v0.44.4
+## Live party roster (v0.45)
+The Party tab has eleven editable dropdown slots (you plus up to eleven other characters). Type or choose individual remembered names, clear unused slots, and Apply party changes without stopping a session. The last applied roster is remembered; names from old presets migrate into the contact choices without deleting historical records. Live roster periods store capture-time boundaries and active seconds, so equal-share estimates apply only to the membership at the time of each reward. Buffered OCR and subsequent review corrections retain the capture timestamp. Existing sessions without periods retain their original fixed-roster accounting. Party size is user-configured, not automatically read from the game.
+
+## Current status: v0.45
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

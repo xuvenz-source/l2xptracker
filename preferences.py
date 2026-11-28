@@ -17,8 +17,11 @@ def read_bool(key,default,path=None):
     return value if type(value) is bool else default
 
 def write_preference(key,value,path=None):
+    write_preferences({key:value},path)
+
+def write_preferences(values,path=None):
     p=Path(path or preference_path());p.parent.mkdir(parents=True,exist_ok=True)
-    data=read_preferences(p);data[key]=value
+    data=read_preferences(p);data.update(values)
     fd,tmp=tempfile.mkstemp(prefix='.preferences-',dir=p.parent)
     try:
         with os.fdopen(fd,'w',encoding='utf-8') as out:json.dump(data,out)

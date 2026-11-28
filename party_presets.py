@@ -4,6 +4,11 @@ from party import roster
 
 KEY='party_presets'
 
+def legacy_roster(text):
+    names=roster(text)
+    if len(names)>8:raise ValueError('Legacy presets support at most eight members.')
+    return names
+
 def preset_name(name):
     name=name.strip()
     if not name or len(name)>60 or any(ord(c)<32 for c in name):
@@ -18,14 +23,14 @@ def load_presets(path=None):
         try:
             name=preset_name(name)
             if not isinstance(members,list) or not all(isinstance(x,str) for x in members):continue
-            members=roster(','.join(members))
+            members=legacy_roster(','.join(members))
             if not members or name.casefold() in seen:continue
             result[name]=members;seen.add(name.casefold())
         except (ValueError,TypeError):continue
     return dict(sorted(result.items(),key=lambda kv:kv[0].casefold()))
 
 def save_preset(name,members,path=None,replace=False):
-    name=preset_name(name);members=roster(','.join(members))
+    name=preset_name(name);members=legacy_roster(','.join(members))
     if not members:raise ValueError('Enter at least one other party member to save a preset.')
     current=load_presets(path)
     existing=next((n for n in current if n.casefold()==name.casefold()),None)

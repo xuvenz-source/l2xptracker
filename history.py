@@ -41,6 +41,7 @@ def count_kills(events):
 def snapshot(app):
     return dict(start=app.session_date, end=app.session_end or now(), seconds=app.active_seconds,
                 events=app.events, raw=app.raw, gaps=app.gaps, party_members=list(getattr(app,'party_members',[])),
+                party_periods=[dict(at=p['at'],seconds=p['seconds'],members=list(p['members'])) for p in getattr(app,'party_periods',[])],
                 consumable_prices=clean_prices(getattr(app,'session_prices',{})),
                 loot_prices=clean_prices(getattr(app,'session_loot_prices',{})),
                 reviews=[asdict(r) for r in app.reviews.pending.values()],

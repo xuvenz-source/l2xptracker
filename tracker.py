@@ -33,7 +33,7 @@ from player_ui import PlayerStatus
 from hud_layout import WIDGETS, PRESETS, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
 from hud import rate_text
 from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows, row_alignment, aligned_rows, bottom_clipped
-from party import roster, live_report as live_party_report, display_rows as party_rows, summary_text as party_summary
+from party import roster, report as party_report, display_rows as party_rows, summary_text as party_summary, load_current_party, remember_party
 
 
 def parse(line):
@@ -564,7 +564,7 @@ class App:
         self.default_prices=load_prices();self.session_prices=dict(self.default_prices);self.consumable_report=cost_report([])
         self.default_loot_prices=load_loot_prices();self.session_loot_prices=dict(self.default_loot_prices);self.loot_report=loot_report([]);self.loot_rows={}
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
-        self.party_members=[]; self.next_party_members=[]; self.kills=0; self.update_busy=False
+        self.party_members=[]; self.next_party_members=load_current_party(); self.party_periods=[];self.party_cache=None; self.kills=0; self.update_busy=False
         self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False;self.reset_request=None
         self.pause_gate=PauseGate(self.pause_on_blur); self.position_win=None; self.reviews=ReviewQueue(); self.review_win=None; self.review_count=tk.StringVar(value="Review (0)"); self.saved=None; self.hud=None; self.api=None; self.hud_enabled=tk.BooleanVar(value=self.hud_config['visible'])
         try:
@@ -589,7 +589,7 @@ class App:
         ttk.Label(header,text='L2 Legacy Tracker',style='Title.TLabel').pack(side='left')
         ttk.Label(header,text=f'v{VERSION}  ·  Farming analytics',style='Muted.TLabel').pack(side='left',padx=14)
         self.dark_mode=tk.BooleanVar(value=self.appearance.mode=='dark')
-        self.party_status=tk.StringVar(value='Next session: solo / no estimates')
+        self.party_status=tk.StringVar(value=self.party_label('Next session',self.next_party_members))
         actions=ttk.Frame(root,padding=(20,3,20,8));actions.pack(fill='x')
         self.start_btn=ttk.Button(actions,text='Start session',command=self.start,style='Primary.TButton');self.start_btn.pack(side='left')
         self.pause_btn=ttk.Button(actions,text='Pause',command=self.toggle_pause,state='disabled');self.pause_btn.pack(side='left',padx=7)
@@ -916,12 +916,37 @@ class App:
         self.appearance.apply(mode)
         try:save_mode(mode)
         except OSError as e:messagebox.showwarning('Appearance',f'Theme changed, but preference could not be saved: {e}',parent=self.root)
+    @staticmethod
+    def party_label(prefix,members):
+        return f'{prefix}: {len(members)+1}/12 members' if members else f'{prefix}: solo / no estimates'
     def setup_party(self):
         if getattr(self,'update_busy',False):return
-        if self.running or self.pending:
-            messagebox.showinfo('Party setup','Stop the current session before changing party composition. Start a new session with the new roster; merge them later.')
-            return
         self.navigate('party')
+    def apply_party_members(self,members):
+        if self.update_busy or (self.pending and not self.running):
+            raise RuntimeError('Wait for the update or finishing OCR to complete.')
+        members=roster(','.join(members))
+        remember_party(members)
+        self.next_party_members=list(members)
+        if self.running:
+            # Serialize the boundary with capture's queue timestamp.
+            with self.pause_gate.lock:
+                if members!=self.party_members:
+                    self.party_periods.append(dict(at=datetime.now().isoformat(timespec='microseconds'),seconds=self.active_seconds,members=list(members)))
+                    self.party_members=list(members)
+            self.party_cache=None
+            self.party_status.set(self.party_label('Session party',members))
+            self.refresh_totals();self.save_session(quiet=True)
+        else:self.party_status.set(self.party_label('Next session',members))
+    def current_party_report(self):
+        periods=getattr(self,'party_periods',[])
+        key=(int(self.active_seconds),len(self.events),len(periods),tuple(getattr(self,'party_members',[])))
+        cached=getattr(self,'party_cache',None)
+        if cached is None or cached[0]!=key:
+            data=party_report([dict(party_members=getattr(self,'party_members',[]),party_periods=periods,seconds=self.active_seconds,events=self.events)])
+            self.party_cache=(key,data)
+        return self.party_cache[1]
+
     def persist(self):
         if not self.target or not self.region: return
         data=dict(schema=1,title=self.target.title,window_class=self.target.window_class,width=self.target.width,height=self.target.height,pitch=int(self.pitch.get()),region=dict(self.region))
@@ -1008,7 +1033,8 @@ class App:
         self.session_prices=dict(rollover['prices'] if rollover is not None else self.default_prices);self.consumable_report=cost_report([])
         self.session_loot_prices=dict(rollover.get('loot_prices',self.default_loot_prices) if rollover is not None else self.default_loot_prices);self.loot_report=loot_report([]);self.loot_rows={}
         self.party_members=list(rollover['party'] if rollover is not None else self.next_party_members)
-        self.party_status.set('Session party: '+(', '.join(self.party_members) or 'solo / no estimates'))
+        self.party_periods=[dict(at='',seconds=0,members=list(self.party_members))];self.party_cache=None
+        self.party_status.set(self.party_label('Session party',self.party_members))
         self.session_id=new_id(); self.session_date=now(); self.session_end=None; self.session_complete=None; self.last_archive_save=0
         if self.review_win and self.review_win.winfo_exists():
             self.review_tree.delete(*self.review_tree.get_children());self.review_selected=None
@@ -1117,7 +1143,7 @@ class App:
                                 failures=0;capture_state('SESSION ACTIVE' if batches else 'CHAT READY')
                                 if shift:
                                     try:
-                                        jobs.put_nowait((datetime.now().isoformat(timespec='seconds'),row_rgb[-shift:].copy()));batches+=1;capture_state('SESSION ACTIVE')
+                                        jobs.put_nowait((datetime.now().isoformat(timespec='microseconds'),row_rgb[-shift:].copy()));batches+=1;capture_state('SESSION ACTIVE')
                                         if getattr(self,'ocr_evidence',None) is not None:self.ocr_evidence.frame(rgb,alignment,pitch)
                                     except queue.Full: self.inbox.put(('gap','OCR backlog full; some lines dropped.'))
                                 old=new;old_rgb=rgb.copy() if colours else None
@@ -1142,7 +1168,7 @@ class App:
                 try: nxt=jobs.get_nowait()
                 except queue.Empty:break
                 if nxt is None: end=True; break
-                if nxt[1].shape[1:]!=rows.shape[1:]:
+                if nxt[0]!=ts or nxt[1].shape[1:]!=rows.shape[1:]:
                     deferred=nxt;break
                 group.append(nxt[1])
             try:
@@ -1252,11 +1278,10 @@ class App:
             if hasattr(self,'cost_status'):self.cost_status.set(cost_summary(self.consumable_report,ad,dur))
             if hasattr(self,'loot_status'):self.loot_status.set(loot_summary(self.loot_report,dur))
             self.stats.set(f'{"PAUSED  |  " if self.running and self.pause_gate.snapshot()[0] else ""}Active {int(dur)//3600:02}:{int(dur)%3600//60:02}:{int(dur)%60:02}  |  SP {sp:,}  |  Capture/OCR warnings {self.gaps}  |  Pending review {len(self.reviews.pending)}')
-            if getattr(self,'party_members',[]):
-                extra=party_summary(live_party_report(self.party_members,dur,self.totals))
-                extra+=f' Each listed member: {ad:,} estimated ({ad/h:,.0f}/h).'
-                self.stats.set(self.stats.get()+'\n'+extra)
+            extra=party_summary(self.current_party_report())
+            if extra:self.stats.set(self.stats.get()+'\n'+extra)
     def refresh_totals(self):
+        self.party_cache=None
         self.kills=count_kills(self.events)
         selected_loot=None
         if hasattr(self,'loot_status'):
@@ -1284,7 +1309,7 @@ class App:
             self.loot_rows[iid]=(who,item)
             if selected_loot==(who,item):self.tree.selection_set(iid)
         if hasattr(self,'loot_status'):self.loot_status.set(loot_summary(self.loot_report,self.active_seconds))
-        for row in party_rows(live_party_report(getattr(self,'party_members',[]),self.active_seconds,self.totals)):
+        for row in party_rows(self.current_party_report()):
             # Rates use the live timer in the summary; row amounts refresh on events.
             if row[1]!='Adena/hr (estimated)':self.tree.insert('','end',values=row)
     def edit_loot_value(self,event=None):
@@ -1584,11 +1609,11 @@ class App:
         # The stopped session can no longer be checkpointed or resurrected.
         self.session_id=None;self.session_date=None;self.session_end=None;self.session_complete=None
         self.started=None;self.ended=None;self.active_seconds=0;self.events=[];self.raw=[];self.totals.clear()
-        self.kills=0;self.gaps=0;self.party_members=[];self.reviews=ReviewQueue()
+        self.kills=0;self.gaps=0;self.party_members=[];self.party_periods=[];self.party_cache=None;self.reviews=ReviewQueue()
         self.log.config(state='normal');self.log.delete('1.0','end');self.log.config(state='disabled')
         self.refresh_totals();self.refresh_reviews()
         self.dashboard.update_metrics(0,0,0,0);self.stats.set('No session')
-        self.party_status.set('Next session: '+(', '.join(self.next_party_members) or 'solo / no estimates'))
+        self.party_status.set(self.party_label('Next session',self.next_party_members))
         self.status.set('Session deleted. Start a new session when ready.')
     def open_history(self):
         self.navigate('history')
@@ -1604,8 +1629,8 @@ class App:
         except Exception as e:messagebox.showerror('History',str(e));return False
         self.session_prices=clean_prices(d.get('consumable_prices',{}))
         self.session_loot_prices=clean_prices(d.get('loot_prices',{}))
-        self.party_members=list(d.get('party_members',[]))
-        self.party_status.set('Saved session party: '+(', '.join(self.party_members) or 'not configured'))
+        self.party_members=list(d.get('party_members',[]));self.party_periods=list(d.get('party_periods',[]));self.party_cache=None
+        self.party_status.set(self.party_label('Saved session party',self.party_members))
         self.session_id=id;self.session_date=d['start'];self.session_end=d['end'];self.session_complete=d['complete'];self.active_seconds=d['seconds'];self.events=events;self.raw=raw;self.reviews=reviews;self.totals=totals;self.gaps=d['gaps'];self.started=time.monotonic();self.ended=self.started
         self.log.config(state='normal');self.log.delete('1.0','end');self.log.config(state='disabled')
         for ts,status,line in self.raw[-100:]:self.append(f'{status}: {line}')
