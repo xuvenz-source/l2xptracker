@@ -5,7 +5,7 @@ from history import count_kills, rate, Archive, totals_for
 from tracker import parse
 from review import ReviewQueue
 from test_v016 import data
-from test_v08 import DragTests
+import test_v08
 
 class KillTests(unittest.TestCase):
     def test_repeat_and_non_xp(self):
@@ -37,7 +37,7 @@ class KillTests(unittest.TestCase):
             self.assertEqual(s['kills'],3)
             self.assertEqual(rate(s['kills'],s['seconds']),'2')
     def test_hud(self):
-        h,api,tick=DragTests().make_hud()
+        h,api,tick=test_v08.DragTests().make_hud()
         from test_v08 import TARGET, REG
         h.update(api,TARGET,REG,True,1800,1000,5000,90)
         self.assertEqual(h.values,('2,000','10,000','180'))

@@ -4,7 +4,7 @@ from tracker import App
 from session_pause import PauseGate
 from window_focus import capture_region
 from test_v06 import TARGET,REG,DESK
-from test_v08 import DragTests
+import test_v08
 from hud import PAUSE_RECT
 
 class CaptureHotfixTests(unittest.TestCase):
@@ -22,7 +22,7 @@ class CaptureHotfixTests(unittest.TestCase):
     def test_hud_callback_does_not_touch_tk_or_gate(self):
         a=App.__new__(App);a.inbox=queue.Queue();a.run_id=7;a.running=True
         a.pause_gate=PauseGate();a.pause_btn=Mock();a.status=Mock();a.append=Mock()
-        h,api,tick=DragTests().make_hud();h.on_pause=a.queue_hud_pause
+        h,api,tick=test_v08.DragTests().make_hud();h.on_pause=a.queue_hud_pause
         tick();l,t,_,_=PAUSE_RECT;h.cursor.return_value=(h.position[0]+l+2,h.position[1]+t+2);tick()
         # Native callback must return even while the capture lock is held.
         with a.pause_gate.lock:
@@ -33,13 +33,13 @@ class CaptureHotfixTests(unittest.TestCase):
         a.queue_hud_move((100,200))
         self.assertEqual(a.inbox.get_nowait(),('hud_move',(100,200)))
     def test_native_release_does_not_duplicate_polling_click(self):
-        h,api,tick=DragTests().make_hud();h.on_pause=Mock();tick()
+        h,api,tick=test_v08.DragTests().make_hud();h.on_pause=Mock();tick()
         l,t,_,_=PAUSE_RECT;h.cursor.return_value=(h.position[0]+l+2,h.position[1]+t+2);tick()
         h.keys={1};h.wndproc(33,0x201,0,0);h.wndproc(33,0x202,0,0);tick()
         h.on_pause.assert_called_once()
         h.keys=set();tick()
         h.keys={1};tick();self.assertEqual(h.on_pause.call_count,2)
     def test_native_callback_exception_is_contained(self):
-        h,api,tick=DragTests().make_hud()
+        h,api,tick=test_v08.DragTests().make_hud()
         h.wndproc=Mock(side_effect=RuntimeError('test'));h.u.DefWindowProcW.return_value=0
         self.assertEqual(h.safe_wndproc(33,0x201,0,0),0)

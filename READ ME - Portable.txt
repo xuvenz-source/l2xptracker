@@ -2,7 +2,8 @@ L2 LEGACY FARMING TRACKER — WINDOWS x64 PORTABLE
 
 1. Extract the ENTIRE ZIP into a dedicated writable folder.
 2. Run L2 Legacy Tracker.exe. Keep _internal and ocr beside the executable.
-3. Bind visible in-game system chat and start a session.
+3. Select the visible system-chat panel, use Auto-fit chat, check the outline,
+   save and start a session. Manual binding remains available.
 
 No separate Python or Tesseract install is needed. Settings and session history
 are stored in %LOCALAPPDATA%\L2LegacyTracker, outside the installation folder.
@@ -21,9 +22,13 @@ Settings: Tracking, HUD, Player status, Appearance, Updates and Advanced.
 
 HUD
 Main controls include Pause/Resume, Reset, lock and settings. Tracker visibility
-is in the main gear menu. XP/SP and Adena/Loot have their own toolbar and gear.
+is in the main gear menu. XP/SP, Adena/Loot and optional HP/MP have their own
+toolbar and gear.
 Double-click a padlock to unlock, drag the panel, click to lock. Keep overlays
 away from bound chat and status areas. Hiding a tracker does not pause capture.
+For live HP/MP, bind the compact player frame using Settings > Player status >
+Select player frame and Auto-fit player. Enable Show HP/MP in the main HUD gear.
+A ~ percentage is estimated; a dash indicates unavailable data.
 
 TRACKING
 Use windowed/borderless mode and visible, unobstructed chat. The timer continues
