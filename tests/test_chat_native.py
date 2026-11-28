@@ -13,7 +13,10 @@ def samples():
         row=np.zeros((*shape,3),np.uint8)
         for threshold,bits in zip(THRESHOLDS[kind],(lo,hi)):
             mask=np.unpackbits(np.frombuffer(bytes.fromhex(bits),dtype=np.uint8),count=shape[0]*shape[1]).reshape(shape).astype(bool)
-            row[mask]=(threshold,0,threshold) if kind=='xp' else (threshold,threshold,0) if kind=='adena' else (0,170,threshold)
+            # Bright core pixels must also pass the configured colour gate.
+            # 255 is a valid representative for the upper-threshold mask.
+            intensity=255 if threshold==THRESHOLDS[kind][-1] else threshold
+            row[mask]=(intensity,0,intensity) if kind=='xp' else (intensity,intensity,0) if kind=='adena' else (0,170,intensity)
         yield size,kind,text,None if expected is None else tuple(expected),row
 
 class ChatNativeTests(unittest.TestCase):
