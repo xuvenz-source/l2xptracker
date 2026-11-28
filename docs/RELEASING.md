@@ -1,9 +1,9 @@
 # Maintainer release checklist
 
-The owner has authorized automatic publication of future versioned updates. The Windows workflow runs on trusted main pushes (and manual dispatches), not untrusted pull requests. Pull requests run tests only. Version v0.31.2 is handled by its already queued separate release workflow; all subsequent versioned updates use the automatic pipeline.
+The owner has authorized automatic publication of future versioned updates. The Windows workflow runs on trusted main pushes (and manual dispatches), not untrusted pull requests. Pull requests run tests only.
 
-1. Bump VERSION in version.py for each distributable update, and keep README.md and READ ME - Portable.txt consistent. Never commit generated ZIPs, personal settings, logs, or databases.
-2. The main-branch workflow runs the full test suite, builds the portable Windows x64 program using the pinned Tesseract package, runs the frozen-app self-test, and produces a ZIP and SHA-256.
+1. Bump VERSION in version.py for each distributable update. Update README.md or the current user documentation if behaviour changes; keep the packaged READ ME - Portable.txt accurate. Repository-only cleanup does not require a version bump. Never commit generated ZIPs, personal settings, logs, or databases.
+2. The main-branch workflow runs the full test suite in tests/, builds the portable Windows x64 program using the pinned Tesseract package, runs the frozen-app self-test, and produces a ZIP and SHA-256.
 3. The release job validates the full ZIP and checksum. Direct cumulative file deltas are generated against up to eight recent public stable base versions. Each compares original and final inventories and includes only changed/new final files. Each is reconstructed and compared by delta.py; individual delta failures do not prevent publishing the full package.
 4. The job uploads a draft tied to the exact tested commit, downloads its archive(s) and checksum(s), checks SHA-256 against the release asset digest, verifies archive integrity, and publishes as latest only after all required checks succeed. Older or already-published versions are skipped. A same-commit draft can be retried; a mismatched or incomplete draft is not silently overwritten. No separate owner approval is needed for each successful version.
 5. If a required check fails, no automatic publication occurs. Inspect Actions, fix the problem and rerun or bump the version. Superseded historical drafts remain unpublished.

@@ -1,81 +1,49 @@
-L2 LEGACY FARMING TRACKER v0.53 — WINDOWS x64 PORTABLE
+L2 LEGACY FARMING TRACKER — WINDOWS x64 PORTABLE
 
-1. Extract the ENTIRE ZIP to a normal folder (not directly inside the ZIP viewer).
-2. Double-click L2 Legacy Tracker.exe.
-3. Bind your game/chat area once and start tracking.
+1. Extract the ENTIRE ZIP into a dedicated writable folder.
+2. Run L2 Legacy Tracker.exe. Keep _internal and ocr beside the executable.
+3. Bind visible in-game system chat and start a session.
 
-No Python, pip or separate Tesseract installation is required on the recipient's PC.
-Keep the _internal and ocr directories beside the EXE. Do not send the EXE alone.
-The tracker runs locally and requires no account or network connection for OCR.
-Settings and session history are kept in %LOCALAPPDATA%\L2LegacyTracker, not inside
-this folder. The package does not contain the builder's personal data.
+No separate Python or Tesseract install is needed. Settings and session history
+are stored in %LOCALAPPDATA%\L2LegacyTracker, outside the installation folder.
+The application is unsigned. Verify its origin and obtain server staff approval.
+It reads visible pixels using local OCR; no injection, game memory reading,
+network interception, client changes or automated inputs.
 
-Includes v0.29 session history and merging, review queue, pause/resume, HUD,
-window-focus checks and the existing OCR logic. The external HUD works best in
-windowed or borderless mode. It does not inject, read game memory, intercept
-packets or send automated input. Obtain server staff approval before use.
+WORKSPACE (v0.53)
+Overview: live farming metrics and level progress.
+Progression: XP/SP and next-level estimates.
+Loot & Adena: item prices, expenses and desired drops.
+Monster Library: active monsters and default kill assignment; Apply selection.
+Party: members and presets. History: folders, merging, corrections and exports.
+Reviews: correct OCR or monster identification. Activity Log: capture messages.
+Settings: Tracking, HUD, Player status, Appearance, Updates and Advanced.
 
-This is an unsigned community tool. Verify its origin before running it. If a
-security product blocks it, do not disable protection; investigate first.
-The build self-test validates bundled OCR, Tcl/Tk, SQLite and MSS initialization,
-not actual gameplay. Test on another clean Windows PC before distribution.
+HUD
+Main controls include Pause/Resume, Reset, lock and settings. Tracker visibility
+is in the main gear menu. XP/SP and Adena/Loot have their own toolbar and gear.
+Double-click a padlock to unlock, drag the panel, click to lock. Keep overlays
+away from bound chat and status areas. Hiding a tracker does not pause capture.
 
-Party setup: enter other character names before Start. Visible drops are recorded;
-party Adena estimates assume equal shares and are not actual loot. Stop and
-start a new session if party membership changes.
+TRACKING
+Use windowed/borderless mode and visible, unobstructed chat. The timer continues
+on focus loss by default; capture still needs visible pixels. Enable pause on
+focus loss if desired. Stop waits for queued OCR; Reset saves the previous session.
+Personal reward messages are a kill proxy; missed/non-kill messages affect rates.
+Default monster assignments and party estimates are assumptions, not proof.
+Unpriced consumable uses are marked; drop waits are statistical averages.
 
-Kills/hour uses personal XP acquisition messages, one kill per recorded event.
-Non-kill XP and missed messages can affect this estimate.
+UPDATES
+Automatic installation is enabled by default and waits until idle. The updater
+checks published releases on startup and every 30 minutes, verifies downloads
+and restarts the tracker. Launch only the main executable. Use Settings > Updates
+for preferences and backups. Compatible installs use direct incremental patches.
 
-Updates: checks published releases on launch or via Check for updates. Approve
-installation when not tracking. Use a dedicated app folder with no extra files.
-The previous installation is kept as a backup; settings/history are separate.
+SUPPORT
+Settings > Advanced provides diagnostics and optional OCR evidence collection.
+Do not share private chat or personal session data without reviewing it first.
+Automated build checks do not verify live gameplay or clean-PC compatibility.
 
-Reviews: select XP / SP or Adena and enter numbers. Already-counted values are
-locked; use Item / other for item loot. Confirm the recipient for Adena.
-
-Appearance: dark mode is enabled by default. Use Settings to enable Light mode.
-The choice is remembered independently of your calibration and sessions.
-
-HUD Pause/Resume controls manual tracking. Settings includes pause on focus loss
-(off by default). Background capture requires visible, unobstructed game chat.
-
-Automatic installation is on by default; change it in Settings. Checks run on
-startup and every 30 minutes. Installs wait until idle and restart the app.
-Launch only L2 Legacy Tracker.exe; the bundled helper is invoked internally.
-
-Session history: merged sessions are collapsed parent groups. Expand to see
-original sessions and nested merged reports. Corrections update every parent.
-
-Party setup: save named presets, load recurring teammates and choose Use party.
-Preset edits never change recorded session rosters.
-
-The main window uses tabs. Starting with v0.29, compatible smaller incremental
-patches reuse verified local files; full packages remain the fallback.
-
-Capture/pause hotfix: keep focused game chat unobstructed. If issues remain,
-Settings > Open diagnostic folder opens tracker-diagnostics.log and tracker-crash.log.
-
-History supports drag-and-drop grouping; existing memberships are preserved.
-
-HUD movement (v0.32): double-click the top-right padlock to unlock; left-click and drag the HUD body; single-click the open padlock to lock. Pause/Resume works in either state. The HUD starts locked each launch.
-
-HUD opacity (v0.33): Settings → Tracking → HUD opacity. Choose 20–100%; Reset returns to 92%. Saved automatically; return to the foreground game to see the new opacity.
-
-Consumable costs (v0.34): double-click a Dashboard consumable to enter Adena per observed activation. Set default cost preconfigures future sessions. History retains each original session's prices. Unpriced uses are marked, not assumed free. Separate consumable CSV is included in exports.
-
-HUD net Adena (v0.35): Settings → Tracking → Subtract consumable costs from HUD Adena/hr (net). Replaces gross HUD rate with net of known costs; * marks unpriced uses. Default off; saves automatically.
-
-HUD drag hotfix (v0.35.1): native mouse movement and capture support unlocked dragging even when asynchronous button polling is unreliable. Drag outside the selected chat area; local diagnostics record drag lifecycle.
-
-Reset (v0.36): main window or HUD Reset saves the old session after queued OCR, then creates a fresh session with the same party and prices. Manual pause is preserved. No old chat is replayed; avoid fighting during the short transition.
-
-History (v0.37): create character sections and nested folders, drag or Move to organise, New logs here sets future session destination, Delete removes selected entries after confirmation. Folder deletion keeps contents; report deletion keeps original sessions.
-
-Visual updater (v0.38): startup update check, measured download percentage and installation stages. Automatic updates respect existing preferences; offline users can continue without checking.
-
-Loot values (v0.39): edit item value in Dashboard Session loot. Estimated sale values and hourly rates are separate from observed Adena. Default values apply to future sessions; history preserves its own values.
-
-Modular HUD and leveling (v0.40): Settings → HUD or Player status. Configure widgets/order/font/layout, select numeric level and XP regions or manually enter progress. ETA uses active session XP/hr. Stale automatic readings are marked *.
-
-Backup retention (v0.42): Settings → Tracking → Updates. Keep two previous installation backups (default), one, or all. Old recognised backups are removed after successful updates and on normal startup. Session history is not affected.
+Current user guide and downloads:
+https://github.com/xuvenz-source/l2xptracker
+See THIRD PARTY.txt and bundled notices for dependency information.

@@ -21,3 +21,9 @@ appearance.json
 
 tracker_preferences.json
 .preferences-*
+
+# Local build and tooling environments
+.build-venv/
+.coverage
+htmlcov/
+*.zip.tmp
