@@ -67,3 +67,25 @@ def recognise(row,kind):
         reads=[recognise_mask(m,size,kind,t) for m,t in zip(masks,THRESHOLDS[kind])]
         if reads[0] is not None and reads[0]==reads[1]:results.append(reads[0])
     return results[0] if len(results)==1 else None
+
+
+# Full Small No Grade Soulshot masks, from four rows in one supplied native
+# screenshot. The second brightness threshold has two observed variants.
+SMALL_SHOT_MASKS={
+    230: frozenset(bytes.fromhex(s) for s in ("8400001c000201000400620001c000080108000080000402000800c400080000100211c30100c448e5833c8108602014e1e18424010200489208812102902040202040884820018851241121400424208e404890108e7c0050a2472242800948410484913e21028000a144814485001090820911224040040000048902881210230202122244013070e03830d23910c320421803c4346872",)),
+    250: frozenset(bytes.fromhex(s) for s in ("8400001c000201000400420001c000080108000080000402000800c400080000100211c30100c448e5833c8108600014e0a18424010200089208802102900040202040884820018851241121400424208e404890108c7c0010a2462242800948410484913e21028000a144814485001090820911224000040000008902880210230002122244013060c03830d23110c32042180184346862","8400001c000201000400420001c000080108000080000402000800c400080000100211c30100c448e5833c8108600014e0e18424010200089208802102900040202040884820018851241121400424208e404890108c7c0010a2462242800948410484913e21028000a144814485001090820911224000040000008902880210230002122244013060c03830d23110c32042180184346862",)),
+}
+
+def recognise_small_shot(row):
+    """Exact complete-line match; no fuzzy word or grade substitution."""
+    if row.ndim!=3 or row.shape[2]!=3 or not 12<=row.shape[0]<=26:return False
+    for threshold,known in SMALL_SHOT_MASKS.items():
+        mask=colour_mask(row,'shot',threshold)
+        if mask[0].any() or mask[-1].any() or mask[:,0].any() or mask[:,-1].any():return False
+        ys,xs=np.where(mask)
+        if not len(ys) or ys[-1]-ys[0]<0:return False
+        top,bottom=int(ys.min()),int(ys.max())+1
+        left,right=int(xs.min()),int(xs.max())+1
+        if (bottom-top,right-left)!=(9,135):return False
+        if np.packbits(mask[top:bottom,left:right]).tobytes() not in known:return False
+    return True

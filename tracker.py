@@ -27,7 +27,7 @@ from party_setup_ui import PartySetup
 from update_ui import UpdateUI
 from preferences import load_backup_retention,save_backup_retention,load_numeric_templates,save_numeric_templates
 from numeric_templates import recognise as recognise_numeric, strict_adena, strict_reward
-from chat_native import recognise as recognise_native_chat
+from chat_native import recognise as recognise_native_chat, recognise_small_shot
 from ocr_evidence import OcrEvidence, png as evidence_png
 from scroll_ui import ScrollPage,table_scroll
 from player_ui import PlayerStatus
@@ -619,6 +619,16 @@ def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
             # This rule is limited to an unshared, configured consumable hue.
             # Shared beige chat and ordinary messages must never trigger it.
             if group==('consumable',) and colours['consumable'].upper()=='#00AAFF':
+                # Even when experimental templates are disabled, a failed
+                # OCR row may use the exact Small full-line verifier. Never
+                # override an independently parsed different consumable.
+                conflicting=any(e!=('consumable','You','Soulshot: No Grade',1,0) for text in reads if (e:=parse(text)) is not None)
+                if not conflicting:
+                    try:small_match=recognise_small_shot(row)
+                    except Exception:
+                        diagnostic('Small Soulshot verification failed; using OCR',exc_info=True);small_match=False
+                    if small_match:
+                        yield report('template_line','Use Soulshot: No Grade.');continue
                 recovered=recover_no_grade_soulshot(reads)
                 if recovered is not None:
                     yield report('line',recovered)

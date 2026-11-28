@@ -54,3 +54,7 @@ Draw a rough rectangle enclosing the entire **system-message panel**, including 
 ### Additional OCR recovery (v0.55.2)
 
 The dedicated blue No Grade Soulshot fallback also recognizes observed `Ni Grade`, `Ho Grade`, `Wo Grade`, and `Heo Grade` aliases. `Ao Grade` may contribute a vote only when another reading supports No Grade; Ao alone is ambiguous with A Grade. Conflicting valid grades and shot types remain rejected. The item-colour fallback resolves exactly two complete `Recipe: Blue Diamond Necklace` readings with one `Recipe: Blue Ciamond Necklace` reading, personal acquisition only, no conflicting quantity or other name. This is not general fuzzy item matching. Saved reviews are not automatically rewritten; the native chat templates remain unchanged.
+
+### Small Soulshot full-line recovery (v0.55.3)
+
+A dedicated exact 9 × 135 pixel No Grade Soulshot signature at blue thresholds 230 and 250 is used after ordinary OCR cannot agree, only for the distinct #00AAFF consumable colour. Both complete masks must match; any parsed conflicting event blocks this recovery. It works even if experimental native recognition is disabled. Large/Medium OCR paths are unchanged. Four rows in one screenshot supplied the masks; 10 of 13 rows from the other four supplied Small screenshots matched both thresholds, with three abstentions. This is a development check, not a live accuracy estimate. No actual other-grade samples were available for negative validation.
