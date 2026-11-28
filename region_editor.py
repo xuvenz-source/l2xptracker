@@ -2,14 +2,16 @@
 import tkinter as tk
 from tkinter import ttk,messagebox
 from PIL import Image,ImageTk
-from leveling import binding_for
+from leveling import binding_for,read_number
+from player_frame import verified_player_frame
+import threading,queue
 from settings import validate
 from copy import deepcopy
 import numpy as np
 from chat_style import fit_chat_panel
 
-LABELS={'chat':'Chat','level':'Level','percent':'Experience %'}
-COLOURS={'chat':'#42e8ed','level':'#ffd35b','percent':'#b9a0ff'}
+LABELS={'chat':'Chat','level':'Level','percent':'Experience %','frame':'Player frame'}
+COLOURS={'chat':'#42e8ed','level':'#ffd35b','percent':'#b9a0ff','frame':'#83dcb0'}
 
 def inside(r,w,h):
     return isinstance(r,dict) and all(type(r.get(k)) is int for k in ('left','top','width','height')) and min(r['left'],r['top'])>=0 and min(r['width'],r['height'])>=3 and r['left']+r['width']<=w and r['top']+r['height']<=h
@@ -50,7 +52,7 @@ class RegionEditor:
         self.info=tk.StringVar(master=win)
         header=ttk.Frame(win,padding=(10,6));header.pack(fill='x')
         ttk.Label(header,text='Edit bound areas',style='Title.TLabel').pack(anchor='w')
-        ttk.Label(header,text='For chat, draw around the whole system-message panel (including its border), then click Auto-fit chat. Verify the fitted outline before saving. For level and XP, select the digits. Arrow keys nudge.',wraplength=760).pack(anchor='w',pady=(3,5))
+        ttk.Label(header,text='For chat, draw around the whole system-message panel (including its border), then click Auto-fit chat. Verify the fitted outline before saving. For player status, select Player frame, draw around the compact frame and click Auto-fit player; or select individual digits. Arrow keys nudge.',wraplength=760).pack(anchor='w',pady=(3,5))
         bar=ttk.Frame(header);bar.pack(fill='x')
         for k,label in LABELS.items():
             ttk.Radiobutton(bar,text=label,value=k,variable=self.selected,command=self.draw).pack(side='left',padx=(0,8))
@@ -63,6 +65,7 @@ class RegionEditor:
         row=ttk.Frame(footer);row.pack(fill='x')
         ttk.Button(row,text='Clear selected',command=self.clear).pack(side='left')
         ttk.Button(row,text='Auto-fit chat',command=self.auto_fit_chat).pack(side='left',padx=5)
+        ttk.Button(row,text='Auto-fit player',command=self.auto_fit_player).pack(side='left',padx=5)
         ttk.Button(row,text='Cancel',command=self.cancel).pack(side='right')
         ttk.Button(row,text='Save areas',style='Primary.TButton',command=lambda:self.save(False)).pack(side='right',padx=5)
         if app.running:ttk.Button(row,text='Save & resume',style='Primary.TButton',command=lambda:self.save(True)).pack(side='right',padx=5)
@@ -136,11 +139,44 @@ class RegionEditor:
         local,actual,count=fit
         self.regions['chat']=dict(left=x+local['left'],top=y+local['top'],width=local['width'],height=local['height'])
         self.draw();self.info.set(f'Auto-fit: {count} message bands, {actual}px spacing. Removed {h-local["height"]}px bottom margin. Check the outline includes the last message, then save.')
+    def auto_fit_player(self):
+        if getattr(self,'player_fit_busy',False):return
+        r=self.regions.get('frame')
+        if not r:
+            self.selected.set('frame');self.mode.set('draw');self.draw()
+            self.info.set('Draw around the compact player frame including the level, HP, MP and XP bars. Then click Auto-fit player.');return
+        snapshot=dict(r);x,y,w,h=(snapshot[k] for k in ('left','top','width','height'))
+        shot=self.shot.crop((x,y,x+w,y+h))
+        previous={k:deepcopy(self.regions.get(k)) for k in ('level','percent')}
+        self.player_fit_busy=True;self.info.set('Finding the level badge and verifying both status readings…')
+        result=queue.Queue()
+        def work():
+            try:result.put(verified_player_frame(shot,read_number))
+            except Exception:result.put(None)
+        def poll():
+            try:fit=result.get_nowait()
+            except queue.Empty:
+                self.win.after(75,poll);return
+            self.player_fit_busy=False
+            if self.regions.get('frame')!=snapshot or any(self.regions.get(k)!=v for k,v in previous.items()):
+                self.info.set('Selection changed. Run Auto-fit player again.');return
+            if fit is None:
+                self.info.set('Could not verify both player readings. Include the complete compact frame with visible HP/MP bars, or clear the frame and bind level and XP separately.');return
+            regions,values=fit
+            for k,z in regions.items():
+                self.regions[k]=dict(z,left=x+z['left'],top=y+z['top'])
+            self.regions.pop('frame',None);self.selected.set('level');self.draw()
+            self.info.set(f"Auto-fit verified level {values['level']} and {values['percent']}% XP. Check the two outlines and save.")
+        threading.Thread(target=work,daemon=True).start();self.win.after(75,poll)
     def clear(self):
         self.regions.pop(self.selected.get(),None);self.draw()
     def cancel(self):
         self.win.destroy();self.on_close(False)
     def save(self,resume):
+        if getattr(self,'player_fit_busy',False):
+            self.info.set('Player verification is still running. Save when both readings have been checked.');return
+        if 'frame' in self.regions:
+            self.info.set('Auto-fit the drawn player frame or clear it before saving. Existing digit bindings are unchanged.');return
         try:self.commit(self.target,self.regions)
         except Exception as e:messagebox.showerror('Bound areas',str(e),parent=self.win);return
         self.win.destroy();self.on_close(resume)
@@ -163,9 +199,10 @@ class OverlayRegionEditor(RegionEditor):
             for mode,label in [('move','Move'),('draw','Redraw / resize')]:ttk.Radiobutton(row,text=label,value=mode,variable=self.mode,command=self.draw).pack(side='left',padx=3)
             ttk.Button(row,text='Clear',command=self.clear).pack(side='right')
             ttk.Button(row,text='Auto-fit chat',command=self.auto_fit_chat).pack(side='right',padx=3)
+            ttk.Button(row,text='Auto-fit player',command=self.auto_fit_player).pack(side='right',padx=3)
             ttk.Label(bar,textvariable=self.info,wraplength=440).pack(anchor='w',pady=3)
-            ttk.Label(bar,text='Draw around the system-message panel, then Auto-fit chat.',wraplength=440).pack(anchor='w')
-            ttk.Label(bar,text='1/2/3 select · M/R move/redraw · arrows nudge · Tab hides toolbar').pack(anchor='w')
+            ttk.Label(bar,text='Draw around the system-message panel or compact player frame, then use its Auto-fit button.',wraplength=440).pack(anchor='w')
+            ttk.Label(bar,text='1/2/3/4 select · M/R move/redraw · arrows nudge · Tab hides toolbar').pack(anchor='w')
             row=ttk.Frame(bar);row.pack(fill='x')
             ttk.Button(row,text='Cancel',command=self.cancel).pack(side='left')
             ttk.Button(row,text='Save areas',command=lambda:self.save(False)).pack(side='right',padx=3)
@@ -175,7 +212,7 @@ class OverlayRegionEditor(RegionEditor):
                 win.bind('<'+key+'>',lambda e,x=dx,y=dy:self.nudge(x,y))
             def choose(k):self.selected.set(k);self.draw()
             def mode(k):self.mode.set(k);self.draw()
-            for key,k in zip('123',LABELS):win.bind(key,lambda e,k=k:choose(k))
+            for key,k in zip('1234',LABELS):win.bind(key,lambda e,k=k:choose(k))
             win.bind('m',lambda e:mode('move'));win.bind('r',lambda e:mode('draw'))
             win.bind('<Escape>',lambda e:self.cancel());win.bind('<Return>',lambda e:self.save(bool(app.running)))
             win.protocol('WM_DELETE_WINDOW',self.cancel)

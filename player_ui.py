@@ -107,9 +107,10 @@ class PlayerStatus:
         for label,var,values in [('Mode',self.mode,('auto','manual')),('Level cap',self.cap,tuple(str(i) for i in range(2,76))),('Read interval (s)',self.interval,('1','2','5','10'))]:
             ttk.Label(row,text=label).pack(side='left',padx=(0,5))
             cb=ttk.Combobox(row,textvariable=var,values=values,width=8,state='readonly');cb.pack(side='left',padx=(0,16));cb.bind('<<ComboboxSelected>>',self.change)
-        ttk.Label(parent,text='Automatic capture uses the fixed character-status font, independently of chat size. Select the level badge and the XP percentage (including decimal and %). Exclude HP, MP and the character name.',wraplength=650).pack(anchor='w',pady=(16,6))
+        ttk.Label(parent,text='Automatic capture uses the fixed character-status font, independently of chat size. Select the complete compact player frame and use Auto-fit player, or select the level badge and XP percentage separately.',wraplength=650).pack(anchor='w',pady=(16,6))
         self.regions=tk.StringVar();self.region_labels()
         row=ttk.Frame(parent);row.pack(fill='x')
+        ttk.Button(row,text='Select player frame…',command=lambda:self.calibrate('frame'),style='Primary.TButton').pack(side='left',padx=(0,6))
         ttk.Button(row,text='Select level digits…',command=lambda:self.calibrate('level')).pack(side='left')
         ttk.Button(row,text='Select XP %…',command=lambda:self.calibrate('percent')).pack(side='left',padx=6)
         ttk.Label(parent,textvariable=self.regions,style='Muted.TLabel').pack(anchor='w',pady=6)
