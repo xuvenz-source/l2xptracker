@@ -30,7 +30,7 @@ def profile(drop,level,xp,sp,legacy=False):
     d['monster']=label
     return dict(id=name.casefold()+'|'+str(level or 0),name=name,level=level,xp=xp,sp=sp,drop=d)
 
-def empty():return dict(profiles={},active=[],full_solo=False,learned=[])
+def empty():return dict(profiles={},active=[],full_solo=False,learned=[],default=None)
 
 def load(path=None):
     prefs=read_preferences(path);raw=prefs.get('monster_library')
@@ -42,12 +42,16 @@ def load(path=None):
                 result['profiles'][q['id']]=q
             except (ValueError,KeyError,TypeError):continue
         result['active']=[k for k in dict.fromkeys(raw.get('active',[])) if k in result['profiles']]
+        default=raw.get('default')
+        # Migrate a previously selected single farming monster when exact matching was off.
+        if 'default' not in raw and len(result['active'])==1 and not raw.get('full_solo'):default=result['active'][0]
+        result['default']=default if isinstance(default,str) and default in result['active'] else None
         result['full_solo']=raw.get('full_solo') is True
         result['learned']=[x for x in raw.get('learned',[]) if isinstance(x,dict) and x.get('id') in result['profiles'] and type(x.get('level')) is int and type(x.get('xp')) is int and type(x.get('sp')) is int]
         return result
     result=empty();old=clean_drop(prefs.get('drop_targets'))
     if old['monster']:
-        p=profile(old,'','','',True);result['profiles'][p['id']]=p;result['active']=[p['id']]
+        p=profile(old,'','','',True);result['profiles'][p['id']]=p;result['active']=[p['id']];result['default']=p['id']
     return result
 
 def save(lib,path=None):write_preference('monster_library',lib,path)
@@ -67,7 +71,8 @@ def context(lib,level,solo):
         if enabled:
             pairs.extend([x['xp'],x['sp']] for x in lib['learned'] if x['id']==k and x['level']==level)
         candidates.append(dict(id=k,name=p['drop']['monster'],pairs=pairs))
-    return dict(level=level,normal=enabled,candidates=candidates)
+    default=next((dict(id=p['id'],name=p['name']) for p in candidates if p['id']==lib.get('default')),None)
+    return dict(level=level,normal=enabled,candidates=candidates,default=default)
 
 def at_context(timeline,ts):
     i=bisect_right([c['at'] for c in timeline],ts)-1
@@ -100,12 +105,16 @@ def suggestions(e,ctx):
 def classify(e,ctx):
     xp,sp=e[4:6]
     result=dict(id=None,name=None,method='unknown',xp=xp,sp=sp,context=ctx)
-    if type(xp) is not int or type(sp) is not int or not ctx['normal']:return result
-    matches=[p for p in ctx['candidates'] if [xp,sp] in p['pairs']]
-    # An enabled profile without a verified signature prevents a unique claim.
-    if len(matches)==1 and all(p['pairs'] for p in ctx['candidates']):
-        result.update(id=matches[0]['id'],name=matches[0]['name'],method='signature')
-    elif len(matches)>1:result['method']='ambiguous'
+    if type(xp) is int and type(sp) is int and ctx.get('normal'):
+        matches=[p for p in ctx['candidates'] if [xp,sp] in p['pairs']]
+        # A verified unique signature takes priority over an assumed default.
+        if len(matches)==1 and all(p['pairs'] for p in ctx['candidates']):
+            result.update(id=matches[0]['id'],name=matches[0]['name'],method='signature')
+            return result
+        if len(matches)>1:result['method']='ambiguous'
+    default=ctx.get('default')
+    if default and reward(e) and (type(xp) is int and xp>0 or type(sp) is int and sp>0):
+        result.update(id=default['id'],name=default['name'],method='default')
     return result
 
 def sync(events,records,timeline):
@@ -113,7 +122,7 @@ def sync(events,records,timeline):
     for i,e in enumerate(events):
         if not reward(e):continue
         key=str(i);old=records.get(key)
-        if old and old['method']=='manual':continue
+        if old and old['method'] in ('manual','manual_unknown'):continue
         if old and (old['xp'],old['sp'])==tuple(e[4:6]):continue
         ctx=old['context'] if old else at_context(timeline,e[0])
         records[key]=classify(e,ctx)
@@ -123,7 +132,7 @@ def assign(records,events,indices,p):
         if i<0 or i>=len(events) or not reward(events[i]):raise ValueError('Kill no longer exists.')
     for i in indices:
         e=events[i];key=str(i);old=records.get(key,{})
-        records[key]=dict(id=p['id'] if p else None,name=p['drop']['monster'] if p else None,method='manual' if p else 'unknown',xp=e[4],sp=e[5],context=old.get('context',dict(level=None,normal=False,candidates=[])))
+        records[key]=dict(id=p['id'] if p else None,name=p['drop']['monster'] if p else None,method='manual' if p else 'manual_unknown',xp=e[4],sp=e[5],context=old.get('context',dict(level=None,normal=False,candidates=[])))
 
 def learn(lib,records,indices,p):
     # Explicit normal reward only, scoped to verified solo/full-stamina level.

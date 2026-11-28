@@ -1098,8 +1098,10 @@ class App:
     def save_monster_profile(self,p):
         from copy import deepcopy
         lib=deepcopy(self.monster_library);key=p['id']
+        first=not lib['profiles']
         lib['profiles'][key]=p
         if key not in lib['active']:lib['active'].append(key)
+        if first:lib['default']=key
         self.set_monster_library(lib)
     def open_monster_library(self):
         if getattr(self,'selecting',False) or getattr(self,'update_busy',False):return

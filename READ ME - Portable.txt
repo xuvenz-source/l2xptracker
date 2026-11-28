@@ -1,4 +1,4 @@
-L2 LEGACY FARMING TRACKER v0.52.1 — WINDOWS x64 PORTABLE
+L2 LEGACY FARMING TRACKER v0.52.2 — WINDOWS x64 PORTABLE
 
 1. Extract the ENTIRE ZIP to a normal folder (not directly inside the ZIP viewer).
 2. Double-click L2 Legacy Tracker.exe.

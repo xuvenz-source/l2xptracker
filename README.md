@@ -182,7 +182,10 @@ The main floating HUD contains shared pause/reset/status, general capture settin
 ## Compact HUD refinements (v0.52.1)
 The main HUD is now a single control strip with Pause/Resume, Reset, lock and settings. Tracker visibility remains in the main gear menu and the app settings. XP/SP and Adena/Loot have a dedicated header above the widgets, eliminating the extra horizontal space previously reserved for their lock and gear. Loot detail rows retain enough width for their labels and values. Existing preferences and positions are preserved; live in-game testing is still required.
 
-## Current status: v0.52.1
+## Default monster kill assignment (v0.52.2)
+Choose Default monster for kills in Monster Library and Apply selection. Personal positive XP/SP rewards without a unique exact signature are assigned to the default even in parties, with shared damage, or when player level is unavailable. These are assumptions, not verified monster identities, and are labelled as default in kill review. Select No default to disable. Changes apply from the capture-time context onward, not retroactively. Existing unidentified kills can be assigned in bulk after confirmation using the kill review window. Explicit manual corrections and manually marked unknown kills are preserved. A previously saved single active monster with exact matching disabled migrates to the default; the first new imported monster becomes the default. No change to XP/SP or overall kill totals.
+
+## Current status: v0.52.2
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

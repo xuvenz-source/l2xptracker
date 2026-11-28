@@ -6,7 +6,7 @@ from monster_library import expected,counts,assign,learn,save,reward,suggestions
 
 class MonsterLibraryWindow:
     def __init__(self,app):
-        self.app=app;self.win=tk.Toplevel(app.root);self.win.title('Monster Library');self.win.geometry('850x520');self.win.minsize(650,420)
+        self.app=app;self.win=tk.Toplevel(app.root);self.win.title('Monster Library');self.win.geometry('850x570');self.win.minsize(650,420)
         self.full=tk.BooleanVar(value=app.monster_library['full_solo'])
         self.status=tk.StringVar()
         ttk.Label(self.win,text='Monster Library',style='Title.TLabel',padding=10).pack(anchor='w')
@@ -17,7 +17,10 @@ class MonsterLibraryWindow:
             self.tree.heading(k,text=title);self.tree.column(k,width=w)
         self.tree.pack(side='left',fill='both',expand=True);sb=ttk.Scrollbar(panel,command=self.tree.yview);sb.pack(side='right',fill='y');self.tree.configure(yscrollcommand=sb.set)
         ttk.Checkbutton(self.win,text='Enable exact reward matching: solo, full stamina, normal rewards',variable=self.full).pack(anchor='w',padx=10)
-        ttk.Label(self.win,text='Disable when stamina or reward conditions change. Identical signatures and unknown rewards need review.',wraplength=780,padding=8).pack(anchor='w')
+        default_row=ttk.Frame(self.win,padding=8);default_row.pack(fill='x')
+        ttk.Label(default_row,text='Default monster for kills:').pack(side='left')
+        self.default_choice=ttk.Combobox(default_row,state='readonly',width=36);self.default_choice.pack(side='left',padx=6)
+        ttk.Label(self.win,text='Unmatched personal rewards use the default, including in parties. A unique exact match takes priority. The default is added to the active roster when applied. Choose No default for review-only identification.',wraplength=780,padding=8).pack(anchor='w')
         row=ttk.Frame(self.win,padding=8);row.pack(fill='x')
         ttk.Button(row,text='Import monster…',command=self.import_new).pack(side='left')
         ttk.Button(row,text='Edit selected…',command=self.edit).pack(side='left',padx=5)
@@ -32,9 +35,14 @@ class MonsterLibraryWindow:
             pair=expected(p,level)
             self.tree.insert('','end',iid=k,values=(p['drop']['monster'],f"{p['xp']} / {p['sp']}" if p['xp'] is not None else 'Not verified',f'{pair[0]} / {pair[1]}' if pair else '—',len(p['drop']['selected'])))
         self.tree.selection_set(lib['active']);self.full.set(lib['full_solo'])
+        self.default_ids=[None,*lib['profiles']]
+        self.default_choice['values']=['No default',*[lib['profiles'][k]['drop']['monster'] for k in self.default_ids[1:]]]
+        self.default_choice.current(self.default_ids.index(lib.get('default')) if lib.get('default') in self.default_ids else 0)
         self.status.set(f'{len(lib["active"])} active monsters · player level {level or "unknown"}')
     def apply(self):
         lib=deepcopy(self.app.monster_library);lib['active']=list(self.tree.selection());lib['full_solo']=bool(self.full.get())
+        idx=self.default_choice.current();lib['default']=self.default_ids[idx] if idx>=0 else None
+        if lib['default'] and lib['default'] not in lib['active']:lib['active'].append(lib['default'])
         try:self.app.set_monster_library(lib)
         except OSError as e:messagebox.showerror('Monster Library',str(e),parent=self.win);return
         self.refresh()
@@ -63,6 +71,7 @@ class KillReviewWindow:
         ttk.Label(row,text='Assign to:').pack(side='left');self.choice=ttk.Combobox(row,state='readonly',width=32);self.choice.pack(side='left',padx=5)
         ttk.Button(row,text='Assign selected',style='Primary.TButton',command=self.apply).pack(side='left')
         ttk.Button(row,text='Mark unknown',command=lambda:self.apply(True)).pack(side='left',padx=5)
+        ttk.Button(self.win,text='Assign all unassigned to current default…',command=self.apply_default).pack(anchor='w',padx=8)
         ttk.Checkbutton(self.win,text='Remember as normal reward signature (not shared damage)',variable=self.learn).pack(anchor='w',padx=8)
         ttk.Label(self.win,textvariable=self.status,padding=8).pack(anchor='w')
         app.appearance.restyle(self.win);self.refresh()
@@ -79,8 +88,17 @@ class KillReviewWindow:
             r=a.monster_kills.get(str(i),{})
             if r.get('id') and not self.all.get():continue
             ctx=r.get('context',{});matches=suggestions(e,ctx)
-            self.tree.insert('','end',iid=str(i),values=(e[0],e[4] if e[4] is not None else '?',e[5] if e[5] is not None else '?',ctx.get('level') or '?',r.get('name') or r.get('method','unknown'),', '.join(matches)))
+            self.tree.insert('','end',iid=str(i),values=(e[0],e[4] if e[4] is not None else '?',e[5] if e[5] is not None else '?',ctx.get('level') or '?',(r['name']+' (default)' if r.get('method')=='default' else r.get('name')) or r.get('method','unknown'),', '.join(matches)))
         self.status.set(f'{len(self.tree.get_children())} displayed kills. Reduced-share suggestions are approximate. XP/SP totals are unchanged.')
+    def apply_default(self):
+        if not self.valid():return
+        a=self.app;lib=a.monster_library;p=lib['profiles'].get(lib.get('default'))
+        if not p:self.status.set('Set a default in Monster Library first.');return
+        ids=[i for i,e in enumerate(a.events) if reward(e) and not a.monster_kills.get(str(i),{}).get('id') and a.monster_kills.get(str(i),{}).get('method')!='manual_unknown']
+        if not ids:self.status.set('No unassigned kills.');return
+        if not messagebox.askyesno('Assign unassigned kills',f"Assign {len(ids)} unassigned kills in this session to {p['drop']['monster']}? Only do this if these kills were of that monster.",parent=self.win):return
+        records=deepcopy(a.monster_kills);assign(records,a.events,ids,p)
+        a.monster_kills=records;a.monster_counts_cache=None;a.update_drop_targets();a.save_session(quiet=True);self.refresh()
     def matching(self):
         ids=self.tree.selection()
         if not ids:return
