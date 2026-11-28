@@ -29,7 +29,7 @@ class MainHudTests(unittest.TestCase):
             cell=SIZES[size][0]
             for kind,title,enabled in [('progression','XP / SP',['xp','eta','killsnext']),('loot','ADENA / LOOT',['ad','loot','cost'])]:
                 g=geometry(panel_config(dict(size=size,enabled=enabled),kind),title,select_loot=kind=='loot')
-                self.assertEqual(g['width'],3*cell+16)
+                self.assertEqual(g['width'],2*cell+min(cell,round(54*max(SIZES[size][2]/11,SIZES[size][3]/17)))+8 if kind=='progression' else 3*cell+16)
                 self.assertEqual(g['toolbar'],24)
                 self.assertTrue(all(y>=g['lock'][3] and y>=g['settings'][3] and x+w<=g['width'] for _,x,y,w,_ in g['cells']))
                 self.assertEqual(g['toggles'],{})

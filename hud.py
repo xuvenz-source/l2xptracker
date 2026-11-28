@@ -158,6 +158,31 @@ class Hud:
         self.g.SetTextColor(dc,self.rgb(*colour)); r=w.RECT(*rect)
         self.u.DrawTextW(dc,string,-1,c.byref(r),0x00000020|0x00000004|0x00000800|(1 if center else 0)) # single line, vertical centre, no prefix
         self.g.SelectObject(dc,prev)
+    def fitted_text(self,dc,string,rect,font,colour,size,weight):
+        """Keep long values legible inside compact cells without resizing the HUD."""
+        available=rect[2]-rect[0]
+        if available<=0:return
+        def measure(handle):
+            prev=self.g.SelectObject(dc,handle)
+            try:
+                r=w.RECT(0,0,0,0)
+                self.u.DrawTextW(dc,string,-1,c.byref(r),0x20|0x400|0x800)
+                return r.right-r.left
+            finally:self.g.SelectObject(dc,prev)
+        measured=measure(font)
+        if measured<=available:
+            self.text(dc,string,rect,font,colour);return
+        # Measure the smaller font again: font hinting is not exactly linear.
+        reduced=max(8,min(size-1,int(size*available/measured)))
+        while reduced>=8:
+            candidate=self.font(reduced,weight)
+            if not candidate:break
+            try:
+                if measure(candidate)<=available or reduced==8:
+                    self.text(dc,string,rect,candidate,colour);return
+            finally:self.g.DeleteObject(candidate)
+            reduced-=1
+        self.text(dc,string,rect,font,colour)
     def hit_rect(self,point,rect):
         if rect is None or not self.shown or not self.position or point is None or getattr(self,'placement',None) is not None:return False
         x,y=self.position;l,t,r,b=rect
@@ -367,8 +392,12 @@ class Hud:
                 self.text(dc,label,(x,top+d+3,x+cw,top+d+18),self.small,(180,190,205),center=True)
                 self.text(dc,value,(x,top+d+19,x+cw,top+d+41),self.small,colour,center=True)
                 continue
-            self.text(dc,label,(x,y,x+cw-3,y+18),self.small,(180,190,205))
-            self.text(dc,value,(x,y+18,x+cw-3,y+rh-2),self.large,colour)
+            if g.get('tight_tail'):
+                self.fitted_text(dc,label,(x,y,x+cw-3,y+18),self.small,(180,190,205),g['small'],400)
+                self.fitted_text(dc,value,(x,y+18,x+cw-3,y+rh-2),self.large,colour,g['large'],600)
+            else:
+                self.text(dc,label,(x,y,x+cw-3,y+18),self.small,(180,190,205))
+                self.text(dc,value,(x,y+18,x+cw-3,y+rh-2),self.large,colour)
             if k=='progress':
                 try:f=max(0,min(1,float(value.rstrip('*').rstrip('%'))/100))
                 except (ValueError,AttributeError):f=None
