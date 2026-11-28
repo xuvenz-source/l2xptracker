@@ -1269,21 +1269,24 @@ class App:
         if not hasattr(self,'drop_config'):return
         if not hasattr(self,'monster_library'):return
         if self.monster_counts_cache is None:self.monster_counts_cache=monsters.counts(self.events,self.monster_kills)
-        c,n,unknown=self.monster_counts_cache
+        counts_by_monster,monster_names,unknown=self.monster_counts_cache
         if hasattr(self,'current_farm'):
             default=self.monster_library.get('default');p=self.monster_library['profiles'].get(default)
-            self.current_farm.set(p['drop']['monster'] if p else 'No default monster selected')
-            self.farm_kills.set(f'{c[default]:,} identified kills · Default' if p else 'Choose a monster in your library')
-        rows=monsters.forecasts(self.monster_library,c,self.active_seconds)
+            farm_name=p['drop']['monster'] if p else 'No default monster selected'
+            if self.current_farm.get()!=farm_name:self.current_farm.set(farm_name)
+            farm_text=f'{counts_by_monster[default]:,} identified kills · Default' if p else 'Choose a monster in your library'
+            if self.farm_kills.get()!=farm_text:self.farm_kills.set(farm_text)
+        rows=monsters.forecasts(self.monster_library,counts_by_monster,self.active_seconds)
         if hasattr(self,'overview_drops'):
             for i,(name,wait) in enumerate(self.overview_drops):
-                n,v=rows[i] if i<len(rows) else ('No targets selected' if i==0 else '','')
-                if name.get()!=n:name.set(n)
-                if wait.get()!=v:wait.set(v)
+                drop_name,drop_wait=rows[i] if i<len(rows) else ('No targets selected' if i==0 else '','')
+                if name.get()!=drop_name:name.set(drop_name)
+                if wait.get()!=drop_wait:wait.set(drop_wait)
         if isinstance(self.hud,HudPair):self.hud.set_targets('Monster targets',rows[:12])
         if hasattr(self,'drop_summary'):
-            rates=' • '.join(f"{n[k]}: {v:,} killed ({v*3600/max(1,self.active_seconds):,.0f}/h)" for k,v in c.items())
-            self.drop_summary.set(f'Monster kills: {rates or "none identified"} | Unidentified: {unknown:,}' + ('\nDesired drops (average waits): '+' • '.join(name+': '+value for name,value in rows) if rows else '')+('\nHUD shows first 12 targets; all listed here.' if len(rows)>12 else ''))
+            rates=' • '.join(f"{monster_names[k]}: {v:,} killed ({v*3600/max(1,self.active_seconds):,.0f}/h)" for k,v in counts_by_monster.items())
+            summary=f'Monster kills: {rates or "none identified"} | Unidentified: {unknown:,}' + ('\nDesired drops (average waits): '+' • '.join(name+': '+value for name,value in rows) if rows else '')+('\nHUD shows first 12 targets; all listed here.' if len(rows)>12 else '')
+            if self.drop_summary.get()!=summary:self.drop_summary.set(summary)
     def queue_hud_move(self,position):
         self.inbox.put(('hud_move',position))
     def save_hud_position(self,position):
