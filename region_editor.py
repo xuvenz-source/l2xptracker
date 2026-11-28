@@ -124,3 +124,42 @@ class RegionEditor:
         try:self.commit(self.target,self.regions)
         except Exception as e:messagebox.showerror('Bound areas',str(e),parent=self.win);return
         self.win.destroy();self.on_close(resume)
+
+class OverlayRegionEditor(RegionEditor):
+    """Same draft/save logic as the preview editor, at native game pixels."""
+    def __init__(self,app,target,shot,regions,kind,commit,close,rect):
+        from selection_overlay import SelectionSurface
+        self.app=app;self.target=target;self.shot=shot;self.regions=deepcopy(regions)
+        self.commit=commit;self.on_close=close;self.drag=None;self.scale=1
+        surface=self.surface=SelectionSurface(app.root,shot,rect)
+        win=self.win=surface.win;self.canvas=surface.canvas
+        try:
+            self.selected=tk.StringVar(master=win,value=kind);self.mode=tk.StringVar(master=win,value='move')
+            self.info=tk.StringVar(master=win)
+            bar=surface.toolbar()
+            row=ttk.Frame(bar);row.pack(fill='x')
+            for k,label in LABELS.items():ttk.Radiobutton(row,text=label,value=k,variable=self.selected,command=self.draw).pack(side='left',padx=3)
+            row=ttk.Frame(bar);row.pack(fill='x')
+            for mode,label in [('move','Move'),('draw','Redraw / resize')]:ttk.Radiobutton(row,text=label,value=mode,variable=self.mode,command=self.draw).pack(side='left',padx=3)
+            ttk.Button(row,text='Clear',command=self.clear).pack(side='right')
+            ttk.Label(bar,textvariable=self.info,wraplength=440).pack(anchor='w',pady=3)
+            ttk.Label(bar,text='1/2/3 select · M/R move/redraw · arrows nudge · Tab hides toolbar').pack(anchor='w')
+            row=ttk.Frame(bar);row.pack(fill='x')
+            ttk.Button(row,text='Cancel',command=self.cancel).pack(side='left')
+            ttk.Button(row,text='Save areas',command=lambda:self.save(False)).pack(side='right',padx=3)
+            if app.running:ttk.Button(row,text='Save & resume',style='Primary.TButton',command=lambda:self.save(True)).pack(side='right',padx=3)
+            self.canvas.bind('<Button-1>',self.down);self.canvas.bind('<B1-Motion>',self.motion);self.canvas.bind('<ButtonRelease-1>',self.up)
+            for key,dx,dy in [('Left',-1,0),('Right',1,0),('Up',0,-1),('Down',0,1)]:
+                win.bind('<'+key+'>',lambda e,x=dx,y=dy:self.nudge(x,y))
+            def choose(k):self.selected.set(k);self.draw()
+            def mode(k):self.mode.set(k);self.draw()
+            for key,k in zip('123',LABELS):win.bind(key,lambda e,k=k:choose(k))
+            win.bind('m',lambda e:mode('move'));win.bind('r',lambda e:mode('draw'))
+            win.bind('<Escape>',lambda e:self.cancel());win.bind('<Return>',lambda e:self.save(bool(app.running)))
+            win.protocol('WM_DELETE_WINDOW',self.cancel)
+            app.appearance.restyle(win);surface.finish_toolbar();self.draw()
+        except Exception:
+            surface.destroy();raise
+    def draw(self):
+        super().draw()
+        if hasattr(self.surface,'bar_id'):self.canvas.tag_raise(self.surface.bar_id)

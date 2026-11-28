@@ -143,3 +143,26 @@ class DropEditor:
         try:save(config)
         except OSError as e:self.status.set(str(e));return
         self.app.drop_config=config;self.app.update_drop_targets();self.win.destroy()
+
+class OverlayCropWindow(CropWindow):
+    """One-shot loot table rectangle directly over the captured client."""
+    def __init__(self,root,shot,done,cancel,rect):
+        from selection_overlay import SelectionSurface
+        self.shot=shot;self.done=done;self.cancel=cancel;self.start=None;self.rect=None;self.box=None;self.scale=1
+        surface=self.surface=SelectionSurface(root,shot,rect)
+        self.win=surface.win;self.canvas=surface.canvas
+        try:
+            bar=surface.toolbar()
+            ttk.Label(bar,text='Drag around the entire monster Drop window.').pack(anchor='w')
+            ttk.Label(bar,text='Enter = read selected area · Esc = cancel · Tab = hide toolbar').pack(anchor='w')
+            row=ttk.Frame(bar);row.pack(fill='x',pady=3)
+            ttk.Button(row,text='Cancel',command=self.close).pack(side='left')
+            ttk.Button(row,text='Read selected table',command=self.apply).pack(side='right')
+            self.canvas.bind('<Button-1>',self.down);self.canvas.bind('<B1-Motion>',self.move);self.canvas.bind('<ButtonRelease-1>',self.move)
+            self.win.bind('<Escape>',lambda e:self.close());self.win.bind('<Return>',lambda e:self.apply())
+            self.win.protocol('WM_DELETE_WINDOW',self.close);surface.finish_toolbar()
+        except Exception:
+            surface.destroy();raise
+    def move(self,e):
+        super().move(e)
+        if hasattr(self.surface,'bar_id'):self.canvas.tag_raise(self.surface.bar_id)

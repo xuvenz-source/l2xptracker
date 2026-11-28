@@ -30,12 +30,12 @@ from numeric_templates import recognise as recognise_numeric, strict_adena
 from ocr_evidence import OcrEvidence, png as evidence_png
 from scroll_ui import ScrollPage,table_scroll
 from player_ui import PlayerStatus
-from region_editor import RegionEditor,draft_regions,calibration_data
+from region_editor import RegionEditor,OverlayRegionEditor,draft_regions,calibration_data
 from leveling import save_status,binding_for
 from sp_forecast import clean_anchor
 from hud_pair import HudPair,load_loot_position
 from drop_targets import load as load_drop_targets, display as display_drops
-from drop_ui import DropEditor,CropWindow
+from drop_ui import DropEditor,CropWindow,OverlayCropWindow
 import monster_library as monsters
 from monster_ui import MonsterLibraryWindow,KillReviewWindow
 from preferences import write_preference
@@ -991,7 +991,7 @@ class App:
         menu=getattr(self,'hud_settings_menu',None)
         if menu is None:
             menu=self.hud_settings_menu=tk.Menu(self.root,tearoff=False)
-            menu.add_command(label='View / edit bound areas…',command=lambda:self.select('chat'))
+            menu.add_command(label='View / edit bound areas…',command=lambda:self.select('chat',direct=True))
             menu.add_command(label='Monster Library…',command=self.open_monster_library)
             menu.add_command(label='Review monster kills…',command=self.open_monster_reviews)
             menu.add_separator()
@@ -1062,33 +1062,38 @@ class App:
     def queue_select_loot(self):
         # Native HUD click only queues an action; Tk handles the screenshot flow.
         self.inbox.put(('select_loot',self.run_id))
-    def capture_drop_window(self):
+    def capture_drop_window(self,direct=False):
         if getattr(self,'selecting',False) or getattr(self,'closing',False) or getattr(self,'update_busy',False) or (self.pending and not self.running):return
-        if not messagebox.askokcancel('Select loot table','Open the monster Drop tab and focus the game within five seconds. Select the whole table in the screenshot. Tracking pauses for capture; resume after importing. Existing monsters stay saved; importing another monster adds it to the library.',parent=self.root):return
+        if not direct and not messagebox.askokcancel('Select loot table','Open the monster Drop tab and focus the game within five seconds. Select the whole table in the screenshot. Tracking pauses for capture; resume after importing. Existing monsters stay saved; importing another monster adds it to the library.',parent=self.root):return
         existing=getattr(self,'drop_editor',None)
         if existing and existing.win.winfo_exists():existing.win.destroy()
         if self.running and not self.pause_gate.snapshot()[0]:self.toggle_pause()
         self.selecting=True
         if self.hud:self.hud.cancel_placement();self.hud.hide()
-        self.root.withdraw();self.root.after(5000,self.take_drop_screenshot)
-    def take_drop_screenshot(self):
+        self.root.withdraw();self.root.after(150 if direct else 5000,lambda:self.take_drop_screenshot(direct))
+    def take_drop_screenshot(self,direct=False):
         def finish(image=None):
             self.selecting=False;self.root.deiconify()
             if image is not None:
                 self.drop_edit_profile=None;self.open_drop_editor(image)
         try:
-            api=Windows();target=api.bind_foreground()
+            api=Windows();target=self.selection_target(api,direct)
             if self.target and (target.title,target.window_class)!=(self.target.title,self.target.window_class):raise RuntimeError('Focus the calibrated Lineage 2 client.')
             if not self.target and not messagebox.askyesno('Confirm game window',f'Capture {target.title!r}? Confirm only for Lineage 2.',parent=self.root):finish();return
             with mss.mss() as screen:
                 full=dict(left=0,top=0,width=target.width,height=target.height)
-                rect,reason=capture_region(api,target,full,screen.monitors[0])
+                rect,reason=capture_region(api,target,full,screen.monitors[0],pause_on_blur=not direct)
                 if not rect:raise RuntimeError(reason)
                 shot=Image.frombytes('RGB',(rect['width'],rect['height']),screen.grab(rect).rgb)
-                if capture_region(api,target,full,screen.monitors[0])[0]!=rect:raise RuntimeError('Game moved during capture.')
-            CropWindow(self.root,shot,finish,finish)
+                if capture_region(api,target,full,screen.monitors[0],pause_on_blur=not direct)[0]!=rect:raise RuntimeError('Game moved during capture.')
+            try:OverlayCropWindow(self.root,shot,finish,finish,rect)
+            except Exception as e:
+                diagnostic('Loot selection overlay fallback: %s',e)
+                CropWindow(self.root,shot,finish,finish)
         except Exception as e:
-            self.selecting=False;self.root.deiconify();messagebox.showerror('Monster window',str(e),parent=self.root);self.open_drop_editor()
+            self.selecting=False;self.root.deiconify()
+            if direct:self.capture_drop_window()
+            else:messagebox.showerror('Monster window',str(e),parent=self.root);self.open_drop_editor()
     def update_drop_targets(self):
         if not hasattr(self,'drop_config'):return
         if not hasattr(self,'monster_library'):return
@@ -1111,37 +1116,48 @@ class App:
         try:
             data=dict(self.saved,pitch=int(self.pitch.get())); settings.save(data); self.saved=data
         except (ValueError, OSError): pass
-    def select(self,kind='chat'):
+    def select(self,kind='chat',direct=False):
         if getattr(self,'update_busy',False) or self.selecting or self.closing:return
         if self.pending and not self.running:
             messagebox.showinfo('Bound areas','Wait for the current session to finish processing.');return
-        if self.running and not self.pause_gate.snapshot()[0]:
-            if not messagebox.askyesno('Bound areas','Pause the current session to edit its bound areas? Your log and totals will be kept.'):return
-            self.toggle_pause()
-        if not messagebox.askokcancel('Bound areas','Focus the Lineage 2 game window within five seconds. A screenshot will open with the existing areas marked. Tracking stays paused until you resume.'):return
+        if not direct and not messagebox.askokcancel('Bound areas','Focus Lineage 2 within five seconds. A selection overlay will appear over the game. Tracking stays paused until you resume.'):return
+        if self.running and not self.pause_gate.snapshot()[0]:self.toggle_pause()
+        self.selection_direct=direct
         self.selecting=True
         if self.hud:self.hud.cancel_placement();self.hud.hide()
         self.player.generation+=1
-        self.root.withdraw();self.root.after(5000,lambda:self.selector(kind))
-    def selector(self,kind='chat'):
+        self.root.withdraw();self.root.after(150 if direct else 5000,lambda:self.selector(kind,direct))
+    def selection_target(self,api,direct=False):
+        # The HUD menu may briefly take focus. Only reuse the exact saved
+        # client identity, and only capture if its entire client is unobscured.
+        if direct and self.target and api.usable(self.target.hwnd) and api.pid(self.target.hwnd)==self.target.pid:
+            if api.foreground()==self.target.hwnd:return api.bind_foreground()
+            return self.target
+        return api.bind_foreground()
+    def selector(self,kind='chat',direct=False):
         try:
-            api=Windows();target=api.bind_foreground()
+            api=Windows();target=self.selection_target(api,direct)
             previous=self.target
             if self.running and previous and (target.title,target.window_class)!=(previous.title,previous.window_class):
                 raise RuntimeError('Focus the same Lineage 2 client type used by this session.')
             with mss.mss() as screen:
                 full=dict(left=0,top=0,width=target.width,height=target.height)
-                rect,reason=capture_region(api,target,full,screen.monitors[0])
+                rect,reason=capture_region(api,target,full,screen.monitors[0],pause_on_blur=not direct)
                 if not rect:raise RuntimeError(reason)
                 shot=Image.frombytes('RGB',(rect['width'],rect['height']),screen.grab(rect).rgb)
-                if capture_region(api,target,full,screen.monitors[0])[0]!=rect:raise RuntimeError('Game moved during capture. Try again.')
+                if capture_region(api,target,full,screen.monitors[0],pause_on_blur=not direct)[0]!=rect:raise RuntimeError('Game moved during capture. Try again.')
             if not previous or (target.hwnd,target.pid)!=(previous.hwnd,previous.pid):
                 if not messagebox.askyesno('Confirm game window',f'Use {target.title!r}? Confirm only if this is your Lineage 2 game.',parent=self.root):
                     self.finish_region_editor(False);return
             regions=draft_regions(target,previous,self.region,self.player.config)
-            RegionEditor(self,target,shot,regions,kind,self.apply_bound_regions,self.finish_region_editor)
+            try:OverlayRegionEditor(self,target,shot,regions,kind,self.apply_bound_regions,self.finish_region_editor,rect)
+            except Exception as e:
+                diagnostic('Selection overlay fallback: %s',e)
+                RegionEditor(self,target,shot,regions,kind,self.apply_bound_regions,self.finish_region_editor)
         except Exception as e:
-            self.finish_region_editor(False);messagebox.showerror('Capture',str(e),parent=self.root)
+            self.finish_region_editor(False)
+            if direct:self.select(kind)
+            else:messagebox.showerror('Capture',str(e),parent=self.root)
     def apply_bound_regions(self,target,regions):
         if self.running and not self.pause_gate.snapshot()[0]:raise RuntimeError('Pause the session first.')
         if self.pending and not self.running:raise RuntimeError('Wait for the finishing session.')
@@ -1165,7 +1181,10 @@ class App:
         if self.running:self.append('SESSION: Bound areas updated while paused; chat will establish a fresh baseline.')
         self.status.set('Bound areas saved. Resume when ready.' if self.running else 'Bound areas saved. Ready to start.')
     def finish_region_editor(self,resume):
-        self.selecting=False;self.root.deiconify()
+        self.selecting=False
+        if getattr(self,'selection_direct',False):self.root.iconify()
+        else:self.root.deiconify()
+        self.selection_direct=False
         if resume and self.running and self.pause_gate.snapshot()[0]:self.toggle_pause()
     def start(self,rollover=None):
         if getattr(self,'update_busy',False):return
@@ -1408,7 +1427,7 @@ class App:
             elif kind=='hud_settings':
                 if self.running and data==self.run_id:self.show_hud_settings()
             elif kind=='select_loot':
-                if self.running and data==self.run_id:self.capture_drop_window()
+                if self.running and data==self.run_id:self.capture_drop_window(direct=True)
             elif kind=='hud_move':self.save_hud_position(data)
             elif kind=='loot_hud_move':
                 try:write_preference('loot_hud_position',list(data))

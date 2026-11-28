@@ -33,7 +33,7 @@ class LootButtonTests(unittest.TestCase):
         a=ResetTests().app();a.last_archive_save=float('inf');a.capture_drop_window=Mock()
         a.inbox.put(('select_loot',a.run_id-1));a.process_inbox();a.capture_drop_window.assert_not_called()
         a.queue_select_loot();a.capture_drop_window.assert_not_called()
-        a.process_inbox();a.capture_drop_window.assert_called_once_with()
+        a.process_inbox();a.capture_drop_window.assert_called_once_with(direct=True)
     def test_replacement_cancel_preserves_old_table(self):
         e=DropEditor.__new__(DropEditor);e.busy=False;e.win=Mock();e.app=Mock()
         e.app.drop_config=dict(monster='Old',rows=[dict(name='Old item',group='1',chance='1')],selected=[0],rate='100')

@@ -44,4 +44,4 @@ class HudSettingsTests(unittest.TestCase):
             menu.tk_popup.assert_called_once_with(300,400);menu.grab_release.assert_called_once()
             commands=[c.kwargs['command'] for c in menu.add_command.call_args_list]
             commands[0]();commands[-1]()
-            a.select.assert_called_once_with('chat');a.open_hud_settings.assert_called_once_with()
+            a.select.assert_called_once_with('chat',direct=True);a.open_hud_settings.assert_called_once_with()
