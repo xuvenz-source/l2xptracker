@@ -11,7 +11,7 @@ The application is unsigned. Verify its origin and obtain server staff approval.
 It reads visible pixels using local OCR; no injection, game memory reading,
 network interception, client changes or automated inputs.
 
-WORKSPACE (v0.56.3 — Prestige)
+WORKSPACE (v0.57 — Prestige)
 Overview: live farming metrics and level progress.
 Progression: XP/SP and next-level estimates.
 Loot & Adena: item prices, expenses and desired drops.
@@ -28,6 +28,7 @@ Double-click a padlock to unlock, drag the panel, click to lock. Keep overlays
 away from bound chat and status areas. Hiding a tracker does not pause capture.
 For live HP/MP, bind the compact player frame using Settings > Player status >
 Select player frame and Auto-fit player. Enable Show HP/MP in the main HUD gear.
+Choose Numbers or Globes and independent HP/MP text modes in the HP/MP gear.
 A ~ percentage is estimated; a dash indicates unavailable data.
 
 TRACKING

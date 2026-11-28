@@ -1,5 +1,6 @@
 """Persisted, pure HUD layout geometry."""
 from preferences import read_preferences,write_preference
+from vitals import DISPLAY_MODES
 WIDGETS={'ad':('Adena/hr','ADENA/H',(228,193,139)),'xp':('Experience/hr','EXP/H',(155,223,192)),'kills':('Kills/hr','KILLS/H',(214,224,245)),'eta':('Time to next level','NEXT LVL',(177,193,239)),'level':('Current level','LEVEL',(177,193,239)),'progress':('Experience percentage','EXP %',(177,193,239)),'loot':('Estimated loot value/hr','LOOT/H',(194,169,228)),'cost':('Consumable costs/hr','COST/H',(255,165,165)),'sp':('Session SP gained','SP GAINED',(177,193,239)),'spnext':('Estimated SP at next level','SP NEXT',(177,193,239)),'killsnext':('Kills until next level','KILLS LEFT',(177,193,239)),'hp':('Health (HP)','HP',(241,134,134)),'mp':('Mana (MP)','MP',(135,175,241))}
 PRESETS={'Classic':['ad','xp','kills'],'Minimal':['ad','eta'],'Leveling':['xp','eta','level','progress','killsnext'],'Farming':['ad','loot','cost','kills']}
 SIZES={'compact':(91,48,11,17),'standard':(103,54,14,19),'large':(120,63,16,22)}
@@ -23,7 +24,10 @@ def clean(raw=None):
     n=n if type(n) is int and 1<=n<=len(WIDGETS) else None
     overrides=r.get('panel_rows',{})
     overrides={k:v for k,v in overrides.items() if k in ('progression','loot','vitals') and v in ROW_OPTIONS} if isinstance(overrides,dict) else {}
-    return dict(panel_rows=overrides,show_vitals=r['show_vitals'] if type(r.get('show_vitals')) is bool else any(k in enabled for k in ('hp','mp')),show_xp=r.get('show_xp') if type(r.get('show_xp')) is bool else True,show_loot=r.get('show_loot') if type(r.get('show_loot')) is bool else True,order=order,enabled=enabled,widgets_per_row=n,size=r.get('size') if r.get('size') in SIZES else 'compact',layout=r.get('layout') if r.get('layout') in ('single','double') else 'single',**{k:r[k] if type(r.get(k)) is bool else True for k in ('status','pause','reset','visible')})
+    modes=r.get('vital_modes',{})
+    modes=modes if isinstance(modes,dict) else {}
+    modes={k:modes.get(k) if modes.get(k) in DISPLAY_MODES else 'Both' for k in ('hp','mp')}
+    return dict(vital_modes=modes,vital_style=r.get('vital_style') if r.get('vital_style') in ('Numbers','Globes') else 'Numbers',panel_rows=overrides,show_vitals=r['show_vitals'] if type(r.get('show_vitals')) is bool else any(k in enabled for k in ('hp','mp')),show_xp=r.get('show_xp') if type(r.get('show_xp')) is bool else True,show_loot=r.get('show_loot') if type(r.get('show_loot')) is bool else True,order=order,enabled=enabled,widgets_per_row=n,size=r.get('size') if r.get('size') in SIZES else 'compact',layout=r.get('layout') if r.get('layout') in ('single','double') else 'single',**{k:r[k] if type(r.get(k)) is bool else True for k in ('status','pause','reset','visible')})
 def load(path=None):return clean(read_preferences(path).get('hud_layout'))
 def save(value,path=None):write_preference('hud_layout',clean(value),path)
 
@@ -53,6 +57,14 @@ def geometry(config,title=None,details=0,select_loot=False,main_controls=False):
         if reset:x+=60
         width=max(64,x+48)
         return dict(toggles={},width=width,height=28,small=small,large=large,cells=[],title=None,detail_y=28,details=0,select_loot=None,lock=(width-44,0,width-22,28),settings=(width-22,0,width,28),reset=reset,pause=pause,status=False,footer=bool(pause or reset),toolbar=0)
+    vitals=title=='HP / MP'
+    globes=vitals and c['vital_style']=='Globes'
+    if vitals:
+        # Reserve a fixed width for the selected format; OCR availability
+        # cannot resize or shift the HUD. Globe text stays below its circle.
+        cell=max(cell,{'compact':120,'standard':142,'large':162}[c['size']])
+        if any(c['vital_modes'][k]=='Both' for k in ids if k in ('hp','mp')):cell=max(cell,{'compact':185,'standard':210,'large':242}[c['size']])
+        if globes:rh=({'compact':84,'standard':108,'large':132}[c['size']])+47
     limit=c['widgets_per_row']
     cols=max(1,min(len(ids),limit) if limit is not None else (len(ids)+1)//2 if c['layout']=='double' else len(ids));rows=max(1,(len(ids)+cols-1)//cols)
     # Titled tracker panels have a dedicated toolbar above the widget grid.
@@ -71,7 +83,7 @@ def geometry(config,title=None,details=0,select_loot=False,main_controls=False):
     reset=(right-54,height-26,right,height-4) if c['reset'] else None
     if reset:right-=60
     pause=(right-68,height-26,right,height-4) if c['pause'] else None
-    return dict(toggles=toggles,width=width,height=height,small=small,large=large,cells=cells,title=title,detail_y=content_height,details=details,select_loot=action,lock=(width-44,0,width-22,24),settings=(width-22,0,width,24),reset=reset,pause=pause,status=c['status'],footer=footer,toolbar=header)
+    return dict(vital_style=c['vital_style'] if vitals else None,vital_modes=c['vital_modes'] if vitals else None,orb_diameter=({'compact':84,'standard':108,'large':132}[c['size']] if globes else 0),toggles=toggles,width=width,height=height,small=small,large=large,cells=cells,title=title,detail_y=content_height,details=details,select_loot=action,lock=(width-44,0,width-22,24),settings=(width-22,0,width,24),reset=reset,pause=pause,status=c['status'],footer=footer,toolbar=header)
 
 def overlaps(a,b,w,h,r):
     return a<r['left']+r['width'] and a+w>r['left'] and b<r['top']+r['height'] and b+h>r['top']

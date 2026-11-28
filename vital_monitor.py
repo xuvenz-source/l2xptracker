@@ -8,7 +8,7 @@ class VitalMonitor:
     def __init__(self):
         self.frames=queue.Queue();self.numbers=queue.Queue()
         self.capture_busy=False;self.ocr_busy=False;self.key=None
-        self.next_capture=0;self.next_ocr=0;self.sample=None;self.exact={}
+        self.next_capture=0;self.next_ocr=0;self.sample=None;self.exact={};self.readings={}
     def tick(self,a,config,generation,now):
         layout=config.get('vitals');target=a.target
         gate=a.pause_gate
@@ -64,10 +64,11 @@ class VitalMonitor:
                 except Exception:rgb=None
                 finally:self.frames.put((token,stamp,rgb))
             threading.Thread(target=capture,daemon=True).start()
-        values={}
+        values={};self.readings={}
         for k in ('hp','mp'):
             fraction=self.sample[1].get(k) if active and self.sample and now-self.sample[0]<=1.5 else None
             stamp,pair=self.exact.get(k,(0,None))
             if fraction is None or pair is None or now-stamp>4 or abs(pair[0]/pair[1]-fraction)>.015:pair=None
+            self.readings[k]=(fraction,pair)
             values[k]=(k.upper(),display_value(fraction,pair))
         return values

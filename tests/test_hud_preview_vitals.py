@@ -33,5 +33,5 @@ class HudVitalsPreviewTests(unittest.TestCase):
                 save.assert_called_once_with(a.hud_config)
                 a.hud.configure_layout.assert_called_once_with(a.hud_config)
                 texts=[c.kwargs.get('text') for c in a.hud_preview.create_text.call_args_list]
-                for k,v in (('hp','449/505'),('mp','58/187')):
+                for k,v in (('hp','449/505 - 89%'),('mp','58/187 - 31%')):
                     if k in enabled:self.assertIn(v,texts)

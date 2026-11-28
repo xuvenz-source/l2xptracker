@@ -6,6 +6,7 @@ from decimal import Decimal
 from diagnostics import diagnostic
 from preferences import HUD_OPACITY_DEFAULT, validate_hud_opacity
 from hud_layout import geometry as layout_geometry, WIDGETS, overlaps
+from vital_globes import globe_rectangles
 
 WIDTH, HEIGHT = 310, 86
 PAUSE_RECT = (174, 60, 244, 82)
@@ -152,10 +153,10 @@ class Hud:
     def rgb(r,g,b):return r|(g<<8)|(b<<16)
     def font(self,size,weight):
         return self.g.CreateFontW(-size,0,0,0,weight,0,0,0,1,0,0,5,0,'Segoe UI')
-    def text(self,dc,string,rect,font,colour):
+    def text(self,dc,string,rect,font,colour,center=False):
         prev=self.g.SelectObject(dc,font)
         self.g.SetTextColor(dc,self.rgb(*colour)); r=w.RECT(*rect)
-        self.u.DrawTextW(dc,string,-1,c.byref(r),0x00000020|0x00000004|0x00000800) # single line, vertical centre, no prefix
+        self.u.DrawTextW(dc,string,-1,c.byref(r),0x00000020|0x00000004|0x00000800|(1 if center else 0)) # single line, vertical centre, no prefix
         self.g.SelectObject(dc,prev)
     def hit_rect(self,point,rect):
         if rect is None or not self.shown or not self.position or point is None or getattr(self,'placement',None) is not None:return False
@@ -353,6 +354,19 @@ class Hud:
         for k,x,y,cw,rh in g['cells']:
             _,label,colour=WIDGETS[k]
             label,value=values.get(k,(label,'—'))
+            if k in ('hp','mp') and g.get('orb_diameter'):
+                d=g['orb_diameter'];left=x+(cw-d)//2;top=y
+                brushes={}
+                try:
+                    for l,t,r,b,col in globe_rectangles(k,d,values.get(k+'_fill')):
+                        if col not in brushes:brushes[col]=self.g.CreateSolidBrush(self.rgb(*col))
+                        if brushes[col]:fill((left+l,top+t,left+r,top+b),brushes[col])
+                finally:
+                    for brush in brushes.values():
+                        if brush:self.g.DeleteObject(brush)
+                self.text(dc,label,(x,top+d+3,x+cw,top+d+18),self.small,(180,190,205),center=True)
+                self.text(dc,value,(x,top+d+19,x+cw,top+d+41),self.small,colour,center=True)
+                continue
             self.text(dc,label,(x,y,x+cw-3,y+18),self.small,(180,190,205))
             self.text(dc,value,(x,y+18,x+cw-3,y+rh-2),self.large,colour)
             if k=='progress':
@@ -479,6 +493,7 @@ class Hud:
             # Input and positioning still poll at 25 ms. Only rendered
             # metrics are sampled once a second, independently per panel.
             keys=[k for k,*_ in layout['cells']]
+            if layout.get('orb_diameter'):keys += [k+'_fill' for k in keys if k in ('hp','mp')]
             visible={k:new_widgets[k] for k in keys if k in new_widgets}
             now=time.monotonic()
             due=not self.shown or now>=getattr(self,'next_metric_paint',0)

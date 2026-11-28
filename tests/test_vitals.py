@@ -33,9 +33,9 @@ class VitalsTests(unittest.TestCase):
         self.assertIsNone(verified_pair(['58/187','98/187',''],.309))
         self.assertIsNone(verified_pair(['58/187','58/187','59/187'],.309))
         self.assertIsNone(verified_pair(['58/187']*3,None))
-        self.assertEqual(display_value(.309,(58,187)),'58/187')
-        self.assertEqual(display_value(.309),'~31%')
-        self.assertEqual(display_value(None),'—')
+        self.assertEqual(display_value(.309,(58,187)),'58/187 - 31%')
+        self.assertEqual(display_value(.309),'— - ~31%')
+        self.assertEqual(display_value(None),'— - —')
     def test_widgets_opt_in(self):
         self.assertNotIn('hp',clean()['enabled'])
         c=clean({'enabled':['hp','mp','ad']})

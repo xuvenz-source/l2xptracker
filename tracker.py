@@ -40,6 +40,8 @@ from drop_ui import DropEditor,CropWindow,OverlayCropWindow
 import monster_library as monsters
 from monster_ui import MonsterLibraryWindow,KillReviewWindow
 from preferences import write_preference
+from vitals import DISPLAY_MODES,display_value
+from vital_globes import globe_rectangles
 from hud_layout import WIDGETS, PRESETS, ROW_OPTIONS, PROGRESSION, LOOT, VITALS, panel_config, main_config, row_choice, row_settings, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
 from hud import rate_text
 from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows, row_alignment, aligned_rows, bottom_clipped
@@ -981,6 +983,13 @@ class App:
         self.hud_panel_rows={k:tk.StringVar(value=self.hud_config['panel_rows'].get(k,'Shared default')) for k in ('progression','loot','vitals')}
         visibility=ttk.Frame(parent);visibility.pack(fill='x',pady=4)
         for k,label in [('show_xp','Show XP/SP'),('show_loot','Show Adena/Loot'),('show_vitals','Show HP/MP')]:ttk.Checkbutton(visibility,text=label,variable=self.hud_show[k],command=self.apply_hud_config).pack(side='left',padx=4)
+        self.vital_modes={k:tk.StringVar(value=self.hud_config['vital_modes'][k]) for k in VITALS}
+        self.vital_style=tk.StringVar(value=self.hud_config['vital_style'])
+        vital_row=ttk.Frame(parent);vital_row.pack(fill='x',pady=4)
+        for label,var,options in [('HP/MP style',self.vital_style,('Numbers','Globes')),('HP text',self.vital_modes['hp'],DISPLAY_MODES),('MP text',self.vital_modes['mp'],DISPLAY_MODES)]:
+            ttk.Label(vital_row,text=label).pack(side='left',padx=4)
+            cb=ttk.Combobox(vital_row,textvariable=var,values=options,state='readonly',width=10)
+            cb.pack(side='left');cb.bind('<<ComboboxSelected>>',self.apply_hud_config)
         for label,var,options in [('Font',self.hud_size,('compact','standard','large')),('Default rows',self.hud_rows,ROW_OPTIONS)]:
             ttk.Label(row,text=label).pack(side='left',padx=4)
             cb=ttk.Combobox(row,textvariable=var,values=options,state='readonly',width=18 if var is self.hud_rows else 10);cb.pack(side='left');cb.bind('<<ComboboxSelected>>',self.apply_hud_config)
@@ -1031,6 +1040,8 @@ class App:
         self.hud_enabled.set(True)
         for k,v in self.hud_show.items():v.set(k!='show_vitals')
         for k in VITALS:self.hud_vars[k].set(False)
+        self.vital_style.set('Numbers')
+        for v in self.vital_modes.values():v.set('Both')
         for v in self.hud_panel_rows.values():v.set('Shared default')
         for v in self.hud_controls.values():v.set(True)
         self.draw_hud_list();self.hud_preset('Classic');self.reset_hud_opacity()
@@ -1045,7 +1056,7 @@ class App:
             if show.get() and not old_visible and not selected:
                 for k in VITALS:self.hud_vars[k].set(True)
             elif not show.get() and not old_visible and selected-set(old_enabled):show.set(True)
-        self.hud_config=clean_hud(dict(panel_rows={k:v.get() for k,v in getattr(self,'hud_panel_rows',{}).items()},**{k:v.get() for k,v in getattr(self,'hud_show',{}).items()},order=self.hud_order,enabled=[k for k,v in self.hud_vars.items() if v.get()],size=self.hud_size.get(),visible=self.hud_enabled.get(),**row_settings(self.hud_rows.get()),**{k:v.get() for k,v in self.hud_controls.items()}))
+        self.hud_config=clean_hud(dict(vital_style=self.vital_style.get() if hasattr(self,'vital_style') else 'Numbers',vital_modes={k:v.get() for k,v in getattr(self,'vital_modes',{}).items()},panel_rows={k:v.get() for k,v in getattr(self,'hud_panel_rows',{}).items()},**{k:v.get() for k,v in getattr(self,'hud_show',{}).items()},order=self.hud_order,enabled=[k for k,v in self.hud_vars.items() if v.get()],size=self.hud_size.get(),visible=self.hud_enabled.get(),**row_settings(self.hud_rows.get()),**{k:v.get() for k,v in self.hud_controls.items()}))
         try:save_hud(self.hud_config)
         except OSError as e:self.status.set('HUD preferences not saved: '+str(e))
         if self.hud:self.hud.configure_layout(self.hud_config)
@@ -1063,6 +1074,7 @@ class App:
         height=round(sum(g['height']+6 for g in panels)*scale)+6
         if int(cv.cget('height'))!=height:cv.configure(height=height)
         sample={'ad':'12,500','xp':'35,000','kills':'120','eta':'3h 48m','level':'19','progress':'16.91%','loot':'4,500','cost':'3,200','sp':'2,500','spnext':'8,400','killsnext':'~367','hp':'449/505','mp':'58/187'}
+        sample.update({k:display_value(p[0]/p[1],p,c['vital_modes'][k]) for k,p in (('hp',(449,505)),('mp',(58,187)))})
         def blend(colour):
             foreground=tuple(int(colour[i:i+2],16) for i in (1,3,5));background=(69,79,53);a=self.hud_opacity/100
             return '#%02x%02x%02x'%tuple(round(a*f+(1-a)*b) for f,b in zip(foreground,background))
@@ -1076,6 +1088,13 @@ class App:
             if g.get('toolbar'):rect(4,g['toolbar']-1,g['width']-4,g['toolbar'],'#30291F')
             text(g['width']-33,12,'▣',anchor='center');text(g['width']-11,12,'⚙',anchor='center')
             for k,x,y,w,rh in g['cells']:
+                if k in VITALS and g.get('orb_diameter'):
+                    d=g['orb_diameter'];left=x+(w-d)//2
+                    for l,t,r,b,col in globe_rectangles(k,d,449/505 if k=='hp' else 58/187):
+                        rect(left+l,y+t,left+r,y+b,'#%02x%02x%02x'%col)
+                    text(x+w//2,y+d+11,WIDGETS[k][1],'#A0A5B0',anchor='center')
+                    text(x+w//2,y+d+30,sample[k],'#%02x%02x%02x'%WIDGETS[k][2],anchor='center')
+                    continue
                 text(x,y+3,'NET ADENA/H' if k=='ad' and self.hud_net_adena else WIDGETS[k][1],'#A0A5B0')
                 text(x,y+21,'9,300' if k=='ad' and self.hud_net_adena else sample.get(k,'—'),'#%02x%02x%02x'%WIDGETS[k][2],g['large'],bold=True)
             for k,(l,t,r,b) in g['toggles'].items():
@@ -1274,6 +1293,15 @@ class App:
                     menu.add_command(label='Bind XP percentage…',command=lambda:self.select('percent',direct=True))
                 elif panel=='vitals':
                     menu.add_command(label='Bind player frame…',command=lambda:self.select('frame',direct=True))
+                    style=tk.Menu(menu,tearoff=False)
+                    for choice in ('Numbers','Globes'):
+                        style.add_radiobutton(label=choice,variable=self.vital_style,value=choice,command=self.apply_hud_config)
+                    menu.add_cascade(label='Display style',menu=style)
+                    for k in VITALS:
+                        mode=tk.Menu(menu,tearoff=False)
+                        for choice in DISPLAY_MODES:
+                            mode.add_radiobutton(label=choice,variable=self.vital_modes[k],value=choice,command=self.apply_hud_config)
+                        menu.add_cascade(label=k.upper()+' text',menu=mode)
                 else:
                     menu.add_command(label='Monster Library…',command=self.open_monster_library)
                     menu.add_command(label='Review monster kills…',command=self.open_monster_reviews)

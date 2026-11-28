@@ -16,12 +16,12 @@ Python and Tesseract are bundled in the portable release. The application is uns
 ## Features
 
 - Live XP, SP, Adena, kills/hour and player-level forecasts; net Adena after known consumable costs; passive HP/MP readings from a bound player frame.
-- Four independently positionable floating HUDs: main controls, XP/SP, Adena/Loot and optional HP/MP.
+- Four independently positionable floating HUDs: main controls, XP/SP, Adena/Loot and optional HP/MP with numeric or globe display.
 - Monster library, default kill assignment, drop estimates and bulk identification reviews.
 - Observed loot, item valuations, consumable expenses, party rosters and saved presets.
 - Local session history, folders, drag-and-drop merging, CSV exports and OCR corrections.
 - Dark/light appearance, automatic verified updates and incremental downloads for compatible installations.
-- Prestige workspace in v0.56.3 source: Overview, Progression, Loot & Adena, Monster Library, Party, History, Reviews, Activity Log and Settings.
+- Prestige workspace in v0.57 source: Overview, Progression, Loot & Adena, Monster Library, Party, History, Reviews, Activity Log and Settings.
 
 The latest downloadable version is shown on Releases; source changes are not necessarily published yet.
 

@@ -7,6 +7,7 @@ from datetime import datetime
 from sp_forecast import parse_balance,reward_stats,project,kills_label
 from PIL import Image,ImageTk
 from vital_monitor import VitalMonitor
+from vitals import display_value
 from leveling import Progress,load_status,save_status,binding_for,read_number,eta,XP,manual_values,xp_after
 from hud_layout import WIDGETS,PRESETS,SIZES,clean,load,save,geometry
 from hud import rate_text
@@ -283,7 +284,10 @@ class PlayerStatus:
         self.update_sp(remaining,stale)
         if hasattr(self,'vital_monitor'):
             values=self.vital_monitor.tick(a,self.config,self.generation,now)
-            self.widgets.update(values)
+            modes=getattr(a,'hud_config',{}).get('vital_modes',{})
+            for k,(fraction,pair) in self.vital_monitor.readings.items():
+                self.widgets[k]=(k.upper(),display_value(fraction,pair,modes.get(k,'Both')))
+                self.widgets[k+'_fill']=fraction
             summary='  •  '.join(label+' '+value for label,value in values.values())
             if self.vital_summary.get()!=summary:self.vital_summary.set(summary)
         self.percent_var.set(float(p.percent) if p.percent is not None else 0)

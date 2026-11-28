@@ -1,6 +1,6 @@
 # User guide
 
-This describes the v0.56.3 Prestige source interface; earlier installed releases may use tabs or slightly different labels. Check the version on the main window and the published release before troubleshooting.
+This describes the v0.57 Prestige source interface; earlier installed releases may use tabs or slightly different labels. Check the version on the main window and the published release before troubleshooting.
 
 ## First session
 
@@ -30,7 +30,7 @@ The compact main HUD contains Pause/Resume, Reset, lock and gear. Its cog includ
 
 Double-click a padlock to unlock, drag the body and click the padlock to lock. Move panels away from chat and calibrated status regions. Settings → HUD controls global visibility, opacity, font size, widget order, presets and layout. Each tracker gear offers its own rows and visible widgets. Net Adena/hr subtracts known consumable costs; an asterisk indicates unpriced uses.
 
-For HP/MP, use Settings → Player status → Select player frame, draw around the compact frame and choose Auto-fit player. Save the verified regions, then enable Show HP/MP in the main HUD gear. A `~` value is an estimated bar percentage; a dash means unavailable. The separate HP/MP HUD has its own position, visible widgets and row arrangement. Animated orbs are not yet implemented.
+For HP/MP, use Settings → Player status → Select player frame, draw around the compact frame and choose Auto-fit player. Save the verified regions, then enable Show HP/MP in the main HUD gear. A `~` value is an estimated bar percentage; a dash means unavailable. The separate HP/MP HUD has its own position, visible widgets and row arrangement. Choose Numbers or Globes in the HP/MP gear → Display style; HP text and MP text independently offer Value, Percent or Both (default). The first globe design uses circular red and blue fill in the existing draggable HP/MP panel, with numbers underneath. A missing exact value stays a dash; estimated percentages keep their ~ marker. No animated liquid effects yet.
 
 ## Updates and support
 

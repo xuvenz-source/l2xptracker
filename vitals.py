@@ -73,6 +73,14 @@ def read_vital_pair(bar,fraction):
         except RuntimeError:pass
     return verified_pair(reads,fraction)
 
-def display_value(fraction,pair=None):
-    if fraction is None:return '—'
-    return f'{pair[0]}/{pair[1]}' if pair is not None else f'~{round(fraction*100)}%'
+DISPLAY_MODES=('Value','Percent','Both')
+
+def display_value(fraction,pair=None,mode='Both'):
+    """Keep the chosen format even when exact OCR is temporarily unavailable."""
+    exact=f'{pair[0]}/{pair[1]}' if fraction is not None and pair is not None else '—'
+    percent=('—' if fraction is None else
+             f'{round(pair[0]*100/pair[1])}%' if pair is not None else f'~{round(fraction*100)}%')
+    if mode=='Value':return exact
+    if mode=='Percent':return percent
+    return exact+' - '+percent
+

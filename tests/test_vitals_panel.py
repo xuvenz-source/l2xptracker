@@ -32,7 +32,12 @@ class VitalsPanelTests(unittest.TestCase):
     def test_menu_scope(self):
         a=App.__new__(App);a.running=True;a.root=Mock();a.root.winfo_pointerxy.return_value=(10,20)
         a.hud_vars={k:Mock() for k in WIDGETS};a.hud_panel_rows={'vitals':Mock()}
-        menu,widgets,rows=Mock(),Mock(),Mock()
-        with patch('tracker.tk.Menu',side_effect=[menu,widgets,rows]):a.show_hud_settings('vitals')
+        a.vital_style=Mock();a.vital_modes={k:Mock() for k in VITALS}
+        menu,style,hp,mp,widgets,rows=(Mock() for _ in range(6))
+        with patch('tracker.tk.Menu',side_effect=[menu,style,hp,mp,widgets,rows]):a.show_hud_settings('vitals')
+        self.assertEqual([c.kwargs['value'] for c in style.add_radiobutton.call_args_list],['Numbers','Globes'])
+        for k,m in (('hp',hp),('mp',mp)):
+            self.assertEqual([c.kwargs['value'] for c in m.add_radiobutton.call_args_list],['Value','Percent','Both'])
+            self.assertTrue(all(c.kwargs['variable'] is a.vital_modes[k] for c in m.add_radiobutton.call_args_list))
         self.assertEqual([c.kwargs['variable'] for c in widgets.add_checkbutton.call_args_list],[a.hud_vars[k] for k in VITALS])
         self.assertNotIn('hp',PROGRESSION)
