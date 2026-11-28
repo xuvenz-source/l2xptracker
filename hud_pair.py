@@ -75,7 +75,9 @@ class HudPair:
         for kind,globe in self.globes.items():
             active[globe]=running and self.config['show_vitals'] and detached and kind in self.config['enabled']
         for h in self.panels():
-            if not active[h]:h.hide()
+            if not active[h]:
+                if h in self.globes.values():h.cancel_placement()
+                h.hide()
         # Main controls get first placement priority. Each later panel protects
         # the rectangles already placed (and existing visible peer positions).
         for h in self.panels():

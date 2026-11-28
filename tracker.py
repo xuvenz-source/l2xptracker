@@ -1349,10 +1349,10 @@ class App:
         globe=getattr(self.hud,'globes',{}).get(kind) if self.hud else None
         if not globe or not self.running or not self.hud_enabled.get() or not self.hud_config['show_vitals'] or self.hud_config['vital_style']!='Globes' or kind not in self.hud_config['enabled']:
             messagebox.showinfo('Move globe','Start tracking and enable the selected globe first.',parent=self.root);return
-        if globe.placement is not None:
-            globe.cancel_placement();self.status.set('Globe move cancelled.');return
-        self.hud.cancel_placement();globe.arm_placement()
-        self.status.set(kind.upper()+' globe move armed — return to Lineage 2, move the pointer, then tap Shift to save.')
+        if globe.editing:
+            globe.end_move(save=False);self.status.set('Globe move cancelled.');return
+        self.hud.cancel_placement();globe.begin_move()
+        self.status.set(kind.upper()+' globe unlocked — drag the bar above it, then click the padlock to save.')
     def resize_globe(self,kind):
         value=simpledialog.askinteger('Resize '+kind.upper()+' globe','Diameter in pixels (80–240):',initialvalue=self.globe_sizes[kind],minvalue=80,maxvalue=240,parent=self.root)
         if value is not None:

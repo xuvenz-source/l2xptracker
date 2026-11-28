@@ -108,3 +108,24 @@ def premultiplied_bgra(image):
     a=rgba[:,:,3:4]
     rgb=(rgba[:,:,:3]*a+127)//255
     return np.concatenate((rgb[:,:,::-1],a),axis=2).astype(np.uint8).tobytes()
+
+
+MOVE_BAR_HEIGHT=26
+
+def with_move_bar(image,kind):
+    """Temporary opaque handle above the globe; lock occupies right 26 px."""
+    w,h=image.size
+    canvas=Image.new('RGBA',(w,h+MOVE_BAR_HEIGHT))
+    canvas.paste(image,(0,MOVE_BAR_HEIGHT))
+    draw=ImageDraw.Draw(canvas)
+    draw.rounded_rectangle((0,0,w-1,MOVE_BAR_HEIGHT-3),radius=4,fill=(25,24,28,255),outline=(154,132,89,255))
+    draw.line((w-26,3,w-26,MOVE_BAR_HEIGHT-6),fill=(105,88,59,255))
+    # Grip and label; no dependency on emoji or icon fonts.
+    for y in (7,11,15):
+        draw.line((5,y,10,y),fill=(183,161,119,255),width=1)
+    draw.text((14,12),kind.upper()+' MOVE',font=font_at(9 if w<105 else 11),fill=(237,218,180,255),anchor='lm')
+    x=w-13
+    draw.arc((x-4,4,x+4,14),180,360,fill=(228,197,139,255),width=2)
+    draw.rounded_rectangle((x-6,11,x+6,19),radius=2,fill=(228,197,139,255))
+    draw.line((x,14,x,17),fill=(39,32,23,255),width=2)
+    return canvas
