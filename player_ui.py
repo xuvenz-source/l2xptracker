@@ -17,7 +17,7 @@ class PlayerStatus:
         self.source=tk.StringVar(value='Calibrate player status or enter manually.')
         self.summary=tk.StringVar(value='Player progress: not calibrated')
         self.last_run=None;self.last_xp=0;self.last_binding=None;self.manual_anchor=None;self.manual_xp_cache=None
-        self.calibration_results=queue.Queue();self.calibration_preview={}
+        self.calibration_results=queue.Queue();self.calibration_preview={};self.last_status_attempt=None
         self.percent_var=tk.DoubleVar(value=0)
         self.details=tk.StringVar(value='')
         self.sp_input=tk.StringVar(value='');self.sp_next=None;self.sp_cache=None
@@ -107,7 +107,7 @@ class PlayerStatus:
         for label,var,values in [('Mode',self.mode,('auto','manual')),('Level cap',self.cap,tuple(str(i) for i in range(2,76))),('Read interval (s)',self.interval,('1','2','5','10'))]:
             ttk.Label(row,text=label).pack(side='left',padx=(0,5))
             cb=ttk.Combobox(row,textvariable=var,values=values,width=8,state='readonly');cb.pack(side='left',padx=(0,16));cb.bind('<<ComboboxSelected>>',self.change)
-        ttk.Label(parent,text='Automatic capture: select only the level digits and XP percentage. View or edit all bound areas while paused.',wraplength=650).pack(anchor='w',pady=(16,6))
+        ttk.Label(parent,text='Automatic capture uses the fixed character-status font, independently of chat size. Select the level badge and the XP percentage (including decimal and %). Exclude HP, MP and the character name.',wraplength=650).pack(anchor='w',pady=(16,6))
         self.regions=tk.StringVar();self.region_labels()
         row=ttk.Frame(parent);row.pack(fill='x')
         ttk.Button(row,text='Select level digits…',command=lambda:self.calibrate('level')).pack(side='left')
@@ -122,6 +122,19 @@ class PlayerStatus:
         ttk.Button(row,text='Apply manual reading',command=self.manual).pack(side='left',padx=6)
         ttk.Label(parent,textvariable=self.source,wraplength=680).pack(anchor='w',pady=8)
         ttk.Label(parent,textvariable=self.summary,wraplength=680,style='Section.TLabel').pack(anchor='w')
+    def preview_regions(self,shot):
+        # Read the exact saved crops from the already captured game image,
+        # without taking another screenshot or blocking the GUI.
+        binding=self.config['binding'];regions=dict(self.config['regions'])
+        self.calibration_preview={k:'checking…' for k in regions}
+        if hasattr(self,'regions'):self.region_labels()
+        def work():
+            for kind,r in regions.items():
+                x,y,w,h=(r[k] for k in ('left','top','width','height'))
+                try:value=read_number(shot.crop((x,y,x+w,y+h)),kind)
+                except Exception:value=None
+                self.calibration_results.put((binding,kind,r,value))
+        if regions:threading.Thread(target=work,daemon=True).start()
     def region_labels(self):
         self.regions.set('  |  '.join(k+': '+(self.calibration_preview.get(k,'selected') if k in self.config['regions'] else 'not selected') for k in ('level','percent')))
     def change(self,*_):
@@ -196,7 +209,7 @@ class PlayerStatus:
         a=self.app;p=self.progress;now=time.monotonic();xp=a.totals['You','XP / SP'] if a.running or a.pending or finished else self.last_xp
         binding=binding_for(a.target) if a.target else None
         if self.config['mode']=='auto' and binding!=self.last_binding:
-            p.clear();self.generation+=1;self.last_binding=binding
+            p.clear();self.generation+=1;self.last_binding=binding;self.last_status_attempt=None
         try:
             while True:
                 binding,kind,region,value=self.calibration_results.get_nowait()
@@ -215,7 +228,9 @@ class PlayerStatus:
         try:
             while True:
                 gen,level,percent=self.results.get_nowait();self.busy=False
-                if gen==self.generation and self.config['mode']=='auto':p.observe(level,percent,self.config['cap'])
+                if gen==self.generation and self.config['mode']=='auto':
+                    self.last_status_attempt=(level,percent)
+                    p.observe(level,percent,self.config['cap'])
         except queue.Empty:pass
         if self.config['mode']=='auto' and a.running and not a.pause_gate.snapshot()[0] and not a.selecting and not self.busy and now>=self.next_read and len(self.protected())==2:
             self.busy=True;self.next_read=now+self.config['interval'];target=a.target;regions=dict(self.config['regions']);gen=self.generation
@@ -245,7 +260,14 @@ class PlayerStatus:
         label,remaining=eta(p.level,p.percent,a.totals['You','XP / SP'],a.active_seconds,self.config['cap']) if p.level is not None else ('—',None)
         flag='*' if stale and p.level is not None else ''
         self.widgets={'eta':('NEXT LVL',label+flag),'level':('LEVEL',str(p.level)+flag if p.level is not None else '—'),'progress':('EXP %',f'{p.percent:.2f}%'+flag if p.percent is not None else '—')}
-        self.source.set(('Manual: chat XP estimate; recalibrate after death or character change.' if self.config['mode']=='manual' else 'Automatic: last reading stale' if stale else 'Automatic: verified reading'))
+        if self.config['mode']=='manual':source='Manual: chat XP estimate; recalibrate after death or character change.'
+        elif len(self.protected())!=2:source='Automatic: select both level and XP regions for this game window.'
+        elif self.last_status_attempt is None:source='Automatic: waiting for a live status reading.'
+        elif stale:
+            lv,pct=self.last_status_attempt
+            source='Automatic: '+('waiting for confirmation' if lv is not None and pct is not None and lv<=self.config['cap'] else 'unreadable or outside configured level cap')+' (level: '+(str(lv) if lv is not None else 'unreadable')+', XP: '+(str(pct)+'%' if pct is not None else 'unreadable')+').'
+        else:source='Automatic: verified reading'
+        if self.source.get()!=source:self.source.set(source)
         self.summary.set(f'Level {p.level}{flag}  •  {p.percent:.2f}%  •  Next level: {label}{flag}  •  Remaining XP: {remaining:,}' if p.level is not None else 'Player progress: not calibrated')
         self.update_sp(remaining,stale)
         self.percent_var.set(float(p.percent) if p.percent is not None else 0)

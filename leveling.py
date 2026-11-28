@@ -64,21 +64,49 @@ def parse_number(text,kind):
     text=text.strip()
     if kind=='level':
         return int(text) if re.fullmatch(r'\d{1,2}',text) and 1<=int(text)<=75 else None
-    if not re.fullmatch(r'\d{1,3}\.\d{1,2}%',text):return None
-    p=Decimal(text[:-1])
+    # OCR may insert spaces around the printed decimal point or percent sign.
+    # Never infer a missing decimal point, percent sign or digit.
+    m=re.fullmatch(r'([0-9]{1,3})\s*\.\s*([0-9]{1,2})\s*%',text)
+    if not m:return None
+    p=Decimal(m[1]+'.'+m[2])
     return p if 0<=p<=100 else None
 
 def read_number(image,kind):
+    """Read small native status glyphs independently of chat text size."""
     from PIL import ImageOps,Image
     import pytesseract
-    g=ImageOps.grayscale(image).resize((image.width*6,image.height*6),Image.Resampling.LANCZOS)
+    if kind not in ('level','percent') or min(image.size)<3:return None
+    gray=ImageOps.grayscale(image)
+    scaled=gray.resize((gray.width*6,gray.height*6),Image.Resampling.LANCZOS)
     whitelist='0123456789' if kind=='level' else '0123456789.%'
     reads=[]
-    for threshold in (100,125):
-        v=ImageOps.expand(g.point(lambda p:255 if p<threshold else 0),border=12,fill=255)
-        try:reads.append(parse_number(pytesseract.image_to_string(v,config='--psm 7 -c tessedit_char_whitelist='+whitelist,timeout=3),kind))
-        except RuntimeError:return None
-    return reads[0] if reads[0] is not None and reads[0]==reads[1] else None
+    def read(mask,psm):
+        try:
+            value=parse_number(pytesseract.image_to_string(mask,config=f'--psm {psm} -c tessedit_char_whitelist={whitelist}',timeout=3),kind)
+        except RuntimeError:value=None
+        if value is not None:reads.append(value)
+    def agreed():return reads[0] if len(reads)>=2 and len(set(reads))==1 else None
+    def mask(source,threshold):
+        return ImageOps.expand(source.point(lambda p:255 if p<threshold else 0),border=12,fill=255)
+    # Preserve the existing fast path for clean, tightly calibrated fields.
+    for threshold in (100,125):read(mask(scaled,threshold),7)
+    if len(set(reads))>1:return None
+    if agreed() is not None:return agreed()
+    # Native status digits are outlined and antialiased. A third fixed
+    # threshold and a local contrast stretch handle darker badge/bar text.
+    # Use single-word segmentation for the level badge as a second family.
+    read(mask(scaled,150),8 if kind=='level' else 7)
+    if len(set(reads))>1:return None
+    if agreed() is not None:return agreed()
+    contrast=ImageOps.autocontrast(gray,cutoff=1).resize(scaled.size,Image.Resampling.LANCZOS)
+    read(mask(contrast,125),8 if kind=='level' else 7)
+    if len(set(reads))>1:return None
+    if agreed() is not None:return agreed()
+    # A native-resolution mask enlarged without interpolation retains fine
+    # strokes that may disappear during a LANCZOS threshold pass.
+    native=gray.point(lambda p:255 if p<125 else 0).resize(scaled.size,Image.Resampling.NEAREST)
+    read(ImageOps.expand(native,border=12,fill=255),8 if kind=='level' else 7)
+    return agreed()
 
 class Progress:
     def __init__(self):

@@ -1371,10 +1371,13 @@ class App:
                 if not messagebox.askyesno('Confirm game window',f'Use {target.title!r}? Confirm only if this is your Lineage 2 game.',parent=self.root):
                     self.finish_region_editor(False);return
             regions=draft_regions(target,previous,self.region,self.player.config)
-            try:OverlayRegionEditor(self,target,shot,regions,kind,self.apply_bound_regions,self.finish_region_editor,rect)
+            def commit(t,r):
+                self.apply_bound_regions(t,r)
+                self.player.preview_regions(shot)
+            try:OverlayRegionEditor(self,target,shot,regions,kind,commit,self.finish_region_editor,rect)
             except Exception as e:
                 diagnostic('Selection overlay fallback: %s',e)
-                RegionEditor(self,target,shot,regions,kind,self.apply_bound_regions,self.finish_region_editor)
+                RegionEditor(self,target,shot,regions,kind,commit,self.finish_region_editor)
         except Exception as e:
             self.finish_region_editor(False)
             if direct:self.select(kind)
@@ -1395,7 +1398,7 @@ class App:
         self.target=target;self.region=dict(data['region']);self.saved=data
         changed=status!=old
         player.config=status;player.generation+=1;player.next_read=0
-        player.calibration_preview={};player.last_binding=binding_for(target)
+        player.calibration_preview={};player.last_binding=binding_for(target);player.last_status_attempt=None
         if changed and status['mode']=='auto':player.progress.clear()
         if hasattr(player,'regions'):player.region_labels()
         self.capture_state='WAITING FOR CHAT'
