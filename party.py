@@ -63,6 +63,10 @@ def report(parts):
     """Account for roster membership at capture time, including late reviews."""
     observed=Counter(); estimates=Counter(); coverage=Counter(); names={}
     total_estimate=0; configured_seconds=0; configured_count=0
+    # Configured spelling wins over case variants in OCR, across all sessions.
+    for part in parts:
+        for period in periods_for(part):
+            for name in roster(','.join(period['members'])):names.setdefault(name.casefold(),name)
     for part in parts:
         periods=periods_for(part)
         boundaries=[p['at'] for p in periods]

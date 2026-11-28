@@ -13,7 +13,7 @@ from window_focus import Windows, capture_region
 import settings
 from hud import Hud, WIDTH, HEIGHT, safe_position, hud_position
 from session_pause import PauseGate
-from review import ReviewQueue, candidates, review_fields, correction_message
+from review import ReviewQueue, candidates, review_fields, correction_message, effective_category, currency_message
 from history import Archive, new_id, now, snapshot, totals_for, review_queue, count_kills, rate, consumables_for
 from consumable_costs import key as cost_key, price as validate_price, load_prices, save_prices, clean_prices, cost_report, cost_summary, money, write_cost_csv
 from loot_values import load_loot_prices, save_loot_prices, loot_report, loot_summary, unit_label, write_loot_csv
@@ -44,7 +44,7 @@ def parse(line):
     def num(t): return int(t.replace(',', ''))
     m = re.fullmatch(r'You have acquired '+n+r' XP and '+n+r' SP', s, re.I)
     if m: return ('xp', 'You', 'XP / SP', num(m[1]), num(m[2]))
-    m = re.fullmatch(r'(You have|[\w\-]+ has) (?:earned|eamed) '+n+r' Adena', s, re.I)
+    m = re.fullmatch(r'(You have|[\w\-]+ has) (?:obtained|earned|eamed) ([0-9]+(?:,[0-9]{3})*) Adena', s, re.I)
     if m:
         who='You' if m[1].lower()=='you have' else m[1].rsplit(' ',1)[0]
         return ('adena',who,'Adena',num(m[2]),0)
@@ -53,14 +53,15 @@ def parse(line):
         who = 'You' if m[1].lower() == 'you have' else m[1].rsplit(' ',1)[0]
         earned=m[2].lower()!='obtained'
         item = m[3].strip(); qty = 1
-        # A malformed cash amount must never become an item drop.
-        if earned and re.search(r'\bAdena\b',item,re.I):return None
+        # A malformed cash amount must never become an item drop, regardless
+        # of whether the client says obtained or earned.
+        if currency_message(s) or re.fullmatch(r'Adena',item,re.I):return None
         # These explicit quantity formats are provisional, not confirmed in C1.
         for pat, reverse in [(r'(\d[\d,]*) (.+)',False),(r'(.+?)\s*\(\s*(?:x\s*)?(\d[\d,]*)\s*\)',True),(r'(.+?)\s+x\s*(\d[\d,]*)',True)]:
             q = re.fullmatch(pat,item,re.I)
             if q:
                 item, qty = (q[1],num(q[2])) if reverse else (q[2],num(q[1])); break
-        if item.lower() == 'adena': return ('adena',who,'Adena',qty,0)
+        if item.lower() == 'adena': return None
         # Quest rewards use the earned prefix and may share Adena's colour.
         # Require a plausible item name, not a bare amount or damaged currency.
         if earned and (not re.match(r'[A-Za-z]',item) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9 '’().:\-]*",item) or re.search(r'\b(?:Aden[aoe]?|Ad[ec]na|Aden4)\b',item,re.I)):return None
@@ -516,7 +517,7 @@ def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
                 and not re.match(r'You use\b',text,re.I)):
                 break
             valid=[x for text in reads if (x:=parse(text)) and x[0] in allowed and x[3]>0]
-            if len(valid)>=2 and len(set(valid))==1 and valid[0][0]!='xp':
+            if len(valid)>=2 and len(set(valid))==1 and valid[0][0]!='xp' and not (valid[0][0]=='item' and any(currency_message(x) for x in reads)):
                 yield report('line',next(text for text in reads if parse(text)==valid[0]))
                 break
         else:
@@ -544,7 +545,10 @@ def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
             if 'adena' in targets and 'item' not in targets:
                 if any((e:=parse(text)) and e[0]=='item' for text in reads):targets.append('item')
             parsed={e[0] for text in reads if (e:=parse(text)) and e[0] in targets}
-            if len(targets)==1:category=targets[0]
+            cash=any(currency_message(x) for x in reads)
+            if cash and 'item' in parsed:category=None
+            elif cash and set(targets)&{'adena','item'}:category='adena'
+            elif len(targets)==1:category=targets[0]
             elif len(parsed)==1:category=next(iter(parsed))
             elif 'xp' in targets and any(xp_like(x) for x in reads):category='xp'
             elif 'adena' in targets and 'item' not in targets and any(adena_like(x) for x in reads):category='adena'
@@ -1395,7 +1399,7 @@ class App:
         # Preserve current selection and any unsaved manual edit as new OCR arrives.
         ids=set(self.review_tree.get_children())
         category=self.review_filter.get()
-        groups={i:(r.category or review_fields(r,parse,xp_numeric_candidate)['kind']) for i,r in self.reviews.pending.items()}
+        groups={i:review_fields(r,parse,xp_numeric_candidate)['kind'] for i,r in self.reviews.pending.items()}
         for key,button in self.review_filters.items():
             count=sum(1 for c in groups.values() if key=='all' or c==key)
             button.configure(text=f'{self.review_labels[key]} ({count})')
@@ -1479,9 +1483,10 @@ class App:
         r=self.selected_review();kind=self.review_kind.get()
         partial=bool(r and r.event_index is not None)
         if partial:kind='xp';self.review_kind.set(kind)
-        elif r and r.category:kind=r.category;self.review_kind.set(kind)
+        category=effective_category(r,parse) if r else None
+        if not partial and category:kind=category;self.review_kind.set(kind)
         for b in self.review_type_buttons:
-            b.config(state='disabled' if not r or partial or r.category else 'normal')
+            b.config(state='disabled' if not r or partial or category else 'normal')
         for frame in (self.review_xp_frame,self.review_adena_frame,self.review_item_frame):frame.pack_forget()
         if kind=='xp' and r:
             self.review_xp_entry.config(state='readonly' if r.xp_counted is not None else 'normal')

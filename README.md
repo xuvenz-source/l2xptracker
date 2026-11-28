@@ -128,7 +128,10 @@ Five live failed rows contained 67, 84, 81, 84 and 76 Adena. The existing digit 
 ## Live party roster (v0.45)
 The Party tab has eleven editable dropdown slots (you plus up to eleven other characters). Type or choose individual remembered names, clear unused slots, and Apply party changes without stopping a session. The last applied roster is remembered; names from old presets migrate into the contact choices without deleting historical records. Live roster periods store capture-time boundaries and active seconds, so equal-share estimates apply only to the membership at the time of each reward. Buffered OCR and subsequent review corrections retain the capture timestamp. Existing sessions without periods retain their original fixed-roster accounting. Party size is user-configured, not automatically read from the game.
 
-## Current status: v0.45
+## Party and currency review hotfix (v0.45.1)
+Party estimates preserve the configured spelling of character names over OCR case variants. Malformed currency messages using either obtained or earned no longer become item drops. Existing saved misclassified reviews are interpreted from their evidence in the review filter, editor and approval; ambiguous amounts remain blank until corrected. No automatic slash substitutions or retroactive changes to counted events.
+
+## Current status: v0.45.1
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

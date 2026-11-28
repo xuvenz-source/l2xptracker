@@ -56,10 +56,16 @@ class ReviewQueue:
         del self.pending[id]
         return r
 
+def currency_message(text):
+    """Currency label, even if its amount is damaged. Never repair digits."""
+    text=text.strip(' .,;:|')
+    return bool(re.match(r'^(?:You ha[v-y]e|[\w-]+ has)\s+(?:obtained|obtainéd|earned|eamed)\s+.*\b(?:Adena|Ad[e c]na|Aden4|Adans|Adeno|Adene)(?:\s*\(\s*(?:x\s*)?[\d,]+\s*\)|\s+x\s*[\d,]+)?$',text,re.I))
+
 def effective_category(r,parse):
     # Older versions classified earned quest items as Adena based on colour.
     # Reclassify only if the saved OCR evidence actually parses as an item.
-    if r.category!='adena':return r.category
+    if r.event_index is not None:return 'xp'
+    if r.category not in (None,'item','adena'):return r.category
     first,_,tail=r.text.partition(' [')
     parts=[first]
     if tail:
@@ -67,6 +73,10 @@ def effective_category(r,parse):
         parts.extend(rest.split(' | '))
     events=[e for t in parts if (e:=parse(t.strip()))]
     kinds={e[0] for e in events}
+    if any(currency_message(t) for t in parts) or 'adena' in kinds:
+        # A real item/currency conflict must remain selectable, not locked.
+        return None if 'item' in kinds else 'adena'
+    if r.category!='adena':return r.category
     if kinds=={'item'} and any(re.search(r'\b(?:earned|eamed)\b',t,re.I) for t in parts):return 'item'
     if kinds=={'item','adena'}:return None
     return r.category
