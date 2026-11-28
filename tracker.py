@@ -1049,7 +1049,7 @@ class App:
         scale=min(1,max(1,cv.winfo_width()-8)/max(g['width'] for g in panels)) if cv.winfo_width()>10 else 1
         height=round(sum(g['height']+6 for g in panels)*scale)+6
         if int(cv.cget('height'))!=height:cv.configure(height=height)
-        sample={'ad':'12,500','xp':'35,000','kills':'120','eta':'3h 48m','level':'19','progress':'16.91%','loot':'4,500','cost':'3,200','sp':'2,500','spnext':'8,400','killsnext':'~367'}
+        sample={'ad':'12,500','xp':'35,000','kills':'120','eta':'3h 48m','level':'19','progress':'16.91%','loot':'4,500','cost':'3,200','sp':'2,500','spnext':'8,400','killsnext':'~367','hp':'449/505','mp':'58/187'}
         def blend(colour):
             foreground=tuple(int(colour[i:i+2],16) for i in (1,3,5));background=(69,79,53);a=self.hud_opacity/100
             return '#%02x%02x%02x'%tuple(round(a*f+(1-a)*b) for f,b in zip(foreground,background))
@@ -1064,7 +1064,7 @@ class App:
             text(g['width']-33,12,'▣',anchor='center');text(g['width']-11,12,'⚙',anchor='center')
             for k,x,y,w,rh in g['cells']:
                 text(x,y+3,'NET ADENA/H' if k=='ad' and self.hud_net_adena else WIDGETS[k][1],'#A0A5B0')
-                text(x,y+21,'9,300' if k=='ad' and self.hud_net_adena else sample[k],'#%02x%02x%02x'%WIDGETS[k][2],g['large'],bold=True)
+                text(x,y+21,'9,300' if k=='ad' and self.hud_net_adena else sample.get(k,'—'),'#%02x%02x%02x'%WIDGETS[k][2],g['large'],bold=True)
             for k,(l,t,r,b) in g['toggles'].items():
                 rect(l,t,r,b,'#30291F');enabled=c['show_xp' if k=='progression' else 'show_loot']
                 text(l+5,(t+b)//2,('[x] ' if enabled else '[ ] ')+('Show XP/SP' if k=='progression' else 'Show Adena/Loot'),anchor='w')
@@ -2231,7 +2231,7 @@ if __name__=='__main__':
     root=tk.Tk()
     def callback_error(exc,value,tb):
         diagnostic('Tk callback exception',exc_info=(exc,value,tb))
-        messagebox.showerror('Tracker error','A control failed. See tracker-diagnostics.log in the tracker data folder.',parent=root)
+        messagebox.showerror('Tracker error',f'A control failed.\n\nDiagnostic log:\n{settings.settings_path().parent / "tracker-diagnostics.log"}\n\nTo open the folder, use Settings → Advanced → Open diagnostic folder.',parent=root)
     root.report_callback_exception=callback_error
     def open_tracker():
         try:configure_ocr()
