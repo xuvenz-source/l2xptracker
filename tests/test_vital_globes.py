@@ -1,6 +1,6 @@
 import unittest,tempfile
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock,patch
 from vitals import display_value
 from vital_globes import globe_rectangles,EMPTY,UNKNOWN,PALETTE
 from hud_layout import clean,geometry,panel_config,save,load
@@ -43,7 +43,9 @@ class GlobeTests(unittest.TestCase):
         a.hud_preview.winfo_width.return_value=900;a.hud_preview.cget.return_value='110'
         a.hud_opacity=92;a.hud_net_adena=False
         a.hud_config=clean(dict(enabled=['hp','mp'],vital_style='Globes',vital_modes={'hp':'Both','mp':'Percent'}))
-        a.preview_hud()
-        values=[c.kwargs.get('text') for c in a.hud_preview.create_text.call_args_list]
-        self.assertIn('449/505',values);self.assertIn('89%',values);self.assertIn('31%',values)
-        self.assertGreater(a.hud_preview.create_rectangle.call_count,100)
+        with patch('tracker.ImageTk.PhotoImage') as photo,patch('tracker.render_globe',wraps=__import__('ornate_globe').render_globe) as render:
+            a.preview_hud()
+        self.assertEqual(photo.call_count,2)
+        self.assertEqual(a.hud_preview.create_image.call_count,2)
+        self.assertEqual([c.args[3] for c in render.call_args_list],['449/505 - 89%','31%'])
+        self.assertEqual(len(a.hud_preview_images),2)

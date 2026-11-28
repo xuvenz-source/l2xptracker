@@ -43,6 +43,7 @@ from monster_ui import MonsterLibraryWindow,KillReviewWindow
 from preferences import write_preference
 from vitals import DISPLAY_MODES,display_value
 from vital_globes import globe_rectangles
+from ornate_globe import render_globe
 from hud_layout import WIDGETS, PRESETS, ROW_OPTIONS, PROGRESSION, LOOT, VITALS, panel_config, main_config, row_choice, row_settings, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
 from hud import rate_text
 from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows, row_alignment, aligned_rows, bottom_clipped
@@ -1072,6 +1073,7 @@ class App:
     def preview_hud(self):
         if not hasattr(self,'hud_preview'):return
         cv=self.hud_preview;cv.delete('all');c=self.hud_config
+        self.hud_preview_images=[]
         if not c['visible']:
             cv.configure(height=32);cv.create_text(10,16,text='HUD hidden',anchor='w',fill='white');return
         panels=[hud_geometry(main_config(c),'MAIN HUD',main_controls=True)]
@@ -1095,9 +1097,12 @@ class App:
                 cv.create_text((x+3)*scale,(y+y0)*scale,text=value,anchor=anchor,font=('Segoe UI',-max(7,round((size or g['small'])*scale)), 'bold' if bold else 'normal'),fill=blend(colour))
             if g.get('standalone_globe'):
                 k=g['cells'][0][0];d=g['orb_diameter']
-                for l,t,r,b,col in globe_rectangles(k,d,449/505 if k=='hp' else 58/187):rect(l,t,r,b,'#%02x%02x%02x'%col)
-                lines=sample[k].split(' - ',1);h=max(15,d//6);top=(d-h*len(lines))//2
-                for i,line in enumerate(lines):text(d//2,top+i*h+h//2,line,'#F8F5EF',size=g['large'],anchor='center',bold=True)
+                im=render_globe(k,d,449/505 if k=='hp' else 58/187,sample[k]).copy()
+                if self.hud_opacity!=100:im.putalpha(im.getchannel('A').point(lambda a:round(a*self.hud_opacity/100)))
+                if scale!=1:im=im.resize((max(1,round(d*scale)),)*2,Image.Resampling.LANCZOS)
+                photo=ImageTk.PhotoImage(im)
+                self.hud_preview_images.append(photo)
+                cv.create_image(3*scale,y0*scale,image=photo,anchor='nw')
                 y0+=g['height']+6;continue
             rect(0,0,g['width'],g['height'],'#111419')
             if g['title']:text(8,4,g['title'],'#A0A5B0')

@@ -79,3 +79,7 @@ HP/MP HUD gear → Display style offers Numbers (default) or Globes. HP text and
 ### Independent transparent globes and numeric OCR (v0.58)
 
 Globes mode hides the rectangular HP/MP panel and shows individual click-through health and mana globes. Main HUD gear → HP/MP and globe settings provides separate Move and Resize commands. Return to the game, move the pointer and tap Shift to place a globe; sizes (80–240 px) and positions persist separately. Numbers remain a separate conventional panel. Numeric OCR now uses independent bounded workers and alternate luminance masks; a verified pair can survive a static bar calibration offset but is rejected when the measured fill moves or the reading expires. No values are derived from guessed maxima. Live Windows validation is required, especially for layered colour-key transparency and OCR under varying backgrounds.
+
+### Ornate glass globes (v0.59)
+
+Globes now use an original supersampled bronze frame, dark glass cavity, curved red/blue liquid surface, specular highlight and per-pixel alpha via UpdateLayeredWindow. Both text mode places the percentage above the exact value; Value and Percent use a single centered line. Settings preview renders the same art. No image assets or font files are bundled; the renderer uses the installed Windows Segoe UI font with a Pillow fallback. Existing independent positions, sizes (80–240 px), opacity, click-through behaviour and OCR rules are retained. Liquid curvature is static, not animated. Windows visual validation is required.

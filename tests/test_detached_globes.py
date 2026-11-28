@@ -31,10 +31,11 @@ class DetachedGlobesTests(unittest.TestCase):
         pair.update(api,TARGET,REG,True,100,20,30);v.update.assert_called_once()
         pair.close()
         for h in (p,l,m,v,hp,mp):h.close.assert_called_once()
-    def test_colour_key_and_click_through(self):
+    def test_per_pixel_alpha_and_click_through(self):
         h=GlobeHud.__new__(GlobeHud);h.hwnd=3;h.u=Mock()
         h.set_opacity(100)
-        h.u.SetLayeredWindowAttributes.assert_called_once_with(3,0xff00ff,255,3)
+        h.u.SetLayeredWindowAttributes.assert_not_called()
+        self.assertEqual(h.opacity,100)
         self.assertFalse(h.wants_input((20,20)))
     def test_verified_pair_survives_static_bar_offset_not_movement(self):
         self.assertEqual(current_pair(.92,.92,(90,100),1),(90,100))
