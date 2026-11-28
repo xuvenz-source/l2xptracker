@@ -38,10 +38,14 @@ class HudSettingsTests(unittest.TestCase):
     def test_menu_routes_to_editor_and_hud_settings(self):
         from tracker import App
         a=App.__new__(App);a.running=True;a.selecting=False;a.root=Mock();a.root.winfo_pointerxy.return_value=(300,400)
-        a.select=Mock();a.open_hud_settings=Mock();a.hud_show={'show_xp':Mock(),'show_loot':Mock()};a.hud_size=Mock();a.hud_opacity_var=Mock();a.focus_pause_var=Mock();a.hud_controls={};a.apply_hud_config=Mock()
+        a.select=Mock();a.open_hud_settings=Mock();a.hud_show={k:Mock() for k in ('show_xp','show_loot','show_vitals')};a.hud_size=Mock();a.hud_opacity_var=Mock();a.focus_pause_var=Mock();a.hud_controls={};a.apply_hud_config=Mock()
         with patch('tracker.tk.Menu',side_effect=[Mock(),Mock(),Mock()]) as ctor:
             a.show_hud_settings();menu=a.hud_menus['main']
             menu.tk_popup.assert_called_once_with(300,400);menu.grab_release.assert_called_once()
+            visibility={c.kwargs['label']:c.kwargs['variable'] for c in menu.add_checkbutton.call_args_list}
+            self.assertIs(visibility['Show HP/MP'],a.hud_show['show_vitals'])
+            self.assertIs(visibility['Show XP/SP'],a.hud_show['show_xp'])
+            self.assertIs(visibility['Show Adena/Loot'],a.hud_show['show_loot'])
             commands=[c.kwargs['command'] for c in menu.add_command.call_args_list]
             commands[0]();commands[-1]()
             a.select.assert_called_once_with('chat',direct=True);a.open_hud_settings.assert_called_once_with()
