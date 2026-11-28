@@ -39,5 +39,5 @@ class HudPair:
     def update(self,api,target,chat,running,*args,protected=(),**kwargs):
         geo=api.geometry(target.hwnd) if running and target else None
         p=panel_config(self.config,'progression');l=panel_config(self.config,'loot')
-        self.primary.update(api,target,chat,running and bool(p['enabled'] or not (l['enabled'] or self.details)),*args,protected=(*protected,*local_rect(self.loot,geo)),**kwargs)
-        self.loot.update(api,target,chat,running and bool(l['enabled'] or self.details),*args,protected=(*protected,*local_rect(self.primary,geo)),**kwargs)
+        self.primary.update(api,target,chat,running and bool(p['enabled']),*args,protected=(*protected,*local_rect(self.loot,geo)),**kwargs)
+        self.loot.update(api,target,chat,running,*args,protected=(*protected,*local_rect(self.primary,geo)),**kwargs)

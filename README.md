@@ -146,7 +146,10 @@ Dashboard → Skill points accepts the actual current in-game SP balance before 
 ## Split HUD and desired drops (v0.49 experimental)
 The native HUD is split into independently draggable/lockable XP/SP and Adena/Loot windows. Both share session Pause/Reset and the existing widget settings; SP gained and SP next-level widgets are optional. Loot position is separately persisted. Both overlays avoid chat, status and the other overlay. Desired drops is available from the HUD gear or Dashboard. Import a screenshot or pause and capture/select the entire monster Drop tab. OCR reads group and conditional item chances into an editable table; confirm and select up to 12 rows. Only visible rows are imported. Each target shows its expected mean wait using p = group% × item% / 10,000 and the session kill rate (or a manual monster-specific rate). Not a countdown or guarantee. Session XP events are a proxy for kills, especially in parties; monster identity, level penalties, party allocation and server-specific mechanics are not inferred. No combined probability across grouped items. Settings saved locally. OCR import is experimental and requires verification.
 
-## Current status: v0.49
+## One-off loot table selection (v0.49.1)
+The Adena/Loot HUD has a dedicated Select loot table button, clickable even while locked. It opens the one-shot screenshot selection directly; the existing saved table is not altered by capture, OCR, cancellation or a failed save. Confirm edited rows, select desired items and save to replace the table. Newly imported tables clear the draft manual kill-rate override to avoid accidentally applying the old monster's rate. No recurring monster-window capture is performed. The loot HUD remains available with the button even when all its metric widgets are disabled; the global HUD visibility switch still hides both. Capture temporarily pauses an active session, which can be resumed normally after selection.
+
+## Current status: v0.49.1
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

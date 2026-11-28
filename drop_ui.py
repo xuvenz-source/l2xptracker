@@ -66,13 +66,14 @@ class DropEditor:
         ttk.Label(row,text='Monster kills/hr override (blank = session rate):').pack(side='left')
         ttk.Entry(row,textvariable=self.rate,width=10).pack(side='left',padx=5)
         ttk.Button(row,text='Save targets',style='Primary.TButton',command=self.apply).pack(side='right')
+        ttk.Button(row,text='Cancel',command=self.win.destroy).pack(side='right',padx=6)
         ttk.Label(footer,text='Assumes all recorded kills are this monster unless overridden. Estimates are average waits, not guarantees.',wraplength=750).pack(anchor='w',pady=4)
         ttk.Label(footer,textvariable=self.status,wraplength=750).pack(anchor='w')
         app.appearance.restyle(self.win);self.confirm(config['selected'])
         if image is not None:self.read(image)
     def capture(self):
         if self.busy:return
-        self.win.destroy();self.app.capture_drop_window()
+        self.app.capture_drop_window()
     def import_image(self):
         if self.busy:return
         path=filedialog.askopenfilename(parent=self.win,filetypes=[('Images','*.png *.jpg *.jpeg *.bmp')])
@@ -92,6 +93,7 @@ class DropEditor:
         self.busy=False;self.import_btn.config(state='normal')
         if not ok:self.status.set('OCR failed: '+result);return
         raw,(monster,rows,warnings)=result
+        self.rate.set('')  # New table: never reuse another monster's rate override.
         self.monster.set(monster);self.table.delete('1.0','end');self.table.insert('1.0',format_table(rows))
         self.list.delete(0,'end');self.committed_text=None
         self.status.set(f'{len(rows)} rows read. Verify all names and percentages, then confirm. '+(' | '.join(warnings) if warnings else ''))
@@ -116,6 +118,8 @@ class DropEditor:
         config=clean(raw)
         if raw['rate'] and not config['rate']:self.status.set('Enter a positive kills/hr rate up to 100,000, or leave blank.');return
         if chosen and not raw['monster']:self.status.set('Enter the monster name.');return
+        if self.app.drop_config['rows'] and config!=self.app.drop_config:
+            if not messagebox.askyesno('Replace loot table','Replace the saved loot table and selected targets with these settings?',parent=self.win):return
         try:save(config)
         except OSError as e:self.status.set(str(e));return
         self.app.drop_config=config;self.app.update_drop_targets();self.win.destroy()

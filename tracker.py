@@ -592,7 +592,7 @@ class App:
         except Exception as e: self.hud_enabled.set(False); self.status.set(self.status.get()+f' HUD unavailable: {e}')
         if self.hud:
             try:
-                loot=Hud(preferred=load_loot_position(),on_move=self.queue_loot_hud_move,on_pause=self.queue_hud_pause,opacity=self.hud_opacity,on_reset=self.queue_hud_reset,on_settings=self.queue_hud_settings,name_suffix='_loot')
+                loot=Hud(preferred=load_loot_position(),on_move=self.queue_loot_hud_move,on_pause=self.queue_hud_pause,opacity=self.hud_opacity,on_reset=self.queue_hud_reset,on_settings=self.queue_hud_settings,name_suffix='_loot',on_select_loot=self.queue_select_loot)
                 self.hud=HudPair(self.hud,loot)
                 self.hud.configure_layout(self.hud_config)
             except Exception as e:
@@ -1014,16 +1014,22 @@ class App:
         existing=getattr(self,'drop_editor',None)
         if existing and existing.win.winfo_exists():existing.win.lift();return
         self.drop_editor=DropEditor(self,image)
+    def queue_select_loot(self):
+        # Native HUD click only queues an action; Tk handles the screenshot flow.
+        self.inbox.put(('select_loot',self.run_id))
     def capture_drop_window(self):
-        if getattr(self,'selecting',False) or getattr(self,'closing',False):return
-        if not messagebox.askokcancel('Monster drop window','Open the monster Drop tab and focus the game within five seconds. Tracking pauses for capture; resume after importing.',parent=self.root):return
+        if getattr(self,'selecting',False) or getattr(self,'closing',False) or getattr(self,'update_busy',False) or (self.pending and not self.running):return
+        if not messagebox.askokcancel('Select loot table','Open the monster Drop tab and focus the game within five seconds. Select the whole table in the screenshot. Tracking pauses for capture; resume after importing. The existing table stays saved until you confirm the replacement.',parent=self.root):return
+        existing=getattr(self,'drop_editor',None)
+        if existing and existing.win.winfo_exists():existing.win.destroy()
         if self.running and not self.pause_gate.snapshot()[0]:self.toggle_pause()
         self.selecting=True
-        if self.hud:self.hud.hide()
+        if self.hud:self.hud.cancel_placement();self.hud.hide()
         self.root.withdraw();self.root.after(5000,self.take_drop_screenshot)
     def take_drop_screenshot(self):
         def finish(image=None):
-            self.selecting=False;self.root.deiconify();self.open_drop_editor(image)
+            self.selecting=False;self.root.deiconify()
+            if image is not None:self.open_drop_editor(image)
         try:
             api=Windows();target=api.bind_foreground()
             if self.target and (target.title,target.window_class)!=(self.target.title,self.target.window_class):raise RuntimeError('Focus the calibrated Lineage 2 client.')
@@ -1325,6 +1331,8 @@ class App:
                 if self.running and data==self.run_id:self.reset_session()
             elif kind=='hud_settings':
                 if self.running and data==self.run_id:self.show_hud_settings()
+            elif kind=='select_loot':
+                if self.running and data==self.run_id:self.capture_drop_window()
             elif kind=='hud_move':self.save_hud_position(data)
             elif kind=='loot_hud_move':
                 try:write_preference('loot_hud_position',list(data))
