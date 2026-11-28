@@ -68,6 +68,8 @@ class Windows:
             return True
         self.u.EnumWindows(visit,0)
         return select_match(matches,self.foreground())
+    def minimized(self,hwnd):
+        return bool(hwnd and self.u.IsWindow(hwnd) and self.u.IsIconic(hwnd))
     def usable(self, hwnd):
         return bool(hwnd and self.u.IsWindow(hwnd) and self.u.IsWindowVisible(hwnd) and not self.u.IsIconic(hwnd))
     def region_clear(self,hwnd,region):
@@ -106,10 +108,14 @@ def intersects(region,bounds):
     x,y,r,b=bounds
     return x<region['left']+region['width'] and r>region['left'] and y<region['top']+region['height'] and b>region['top']
 
+BACKGROUND_WAIT='Tracking time — game chat temporarily unreadable'
+
 def capture_region(api, target, local, desktop, pause_on_blur=True):
     """Capture the calibrated focused client, or unobstructed background chat."""
     h = target.hwnd
     if not api.usable(h) or api.pid(h) != target.pid:
+        if not pause_on_blur and api.minimized(h) is True and api.pid(h)==target.pid:
+            return None, BACKGROUND_WAIT+' (minimised). Restore the game to read rewards.'
         return None, 'Waiting — game window unavailable or minimised. Restore the game; rebind if it has restarted.'
     focused=api.foreground()==h
     if pause_on_blur and not focused:
@@ -131,5 +137,5 @@ def capture_region(api, target, local, desktop, pause_on_blur=True):
     # transparent overlays for covering windows, even in a focused game.
     # Keep that conservative scan for actual background capture only.
     if not focused and not api.region_clear(h,region):
-        return None, 'Waiting — game chat is covered. Keep the chat visible to continue tracking.'
+        return None, BACKGROUND_WAIT+' (covered). Time continues; rewards resume when chat is visible.'
     return region, None

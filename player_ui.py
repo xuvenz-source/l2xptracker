@@ -159,6 +159,7 @@ class PlayerStatus:
         except queue.Empty:pass
         if self.config['mode']=='auto' and a.running and not a.pause_gate.snapshot()[0] and not a.selecting and not self.busy and now>=self.next_read and len(self.protected())==2:
             self.busy=True;self.next_read=now+self.config['interval'];target=a.target;regions=dict(self.config['regions']);gen=self.generation
+            gate=a.pause_gate;_,revision,focus_only=gate.capture_policy()
             def work():
                 level=percent=None
                 try:
@@ -168,14 +169,16 @@ class PlayerStatus:
                     with mss.mss() as screen:
                         images={}
                         for k,r in regions.items():
-                            rect,_=capture_region(api,target,r,screen.monitors[0])
+                            rect,_=capture_region(api,target,r,screen.monitors[0],pause_on_blur=focus_only)
                             if not rect:break
                             shot=screen.grab(rect)
-                            if capture_region(api,target,r,screen.monitors[0])[0]!=rect:break
+                            if capture_region(api,target,r,screen.monitors[0],pause_on_blur=focus_only)[0]!=rect:break
                             images[k]=Image.frombytes('RGB',(rect['width'],rect['height']),shot.rgb)
                         if len(images)==2:
                             level=read_number(images['level'],'level');percent=read_number(images['percent'],'percent')
                 except Exception:pass
+                with gate.lock:
+                    if not gate.accepts(revision):level=percent=None
                 self.results.put((gen,level,percent))
             threading.Thread(target=work,daemon=True).start()
         stale=self.config['mode']=='auto' and (p.seen is None or now-p.seen>max(15,self.config['interval']*4))

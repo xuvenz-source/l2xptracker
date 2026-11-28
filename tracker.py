@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image, ImageTk, ImageOps
 import mss
 import pytesseract
-from window_focus import Windows, capture_region
+from window_focus import Windows, capture_region, BACKGROUND_WAIT
 import settings
 from hud import Hud, WIDTH, HEIGHT, safe_position, hud_position
 from session_pause import PauseGate
@@ -725,7 +725,7 @@ class App:
         ttk.Label(content,text='Tracking',style='Section.TLabel').pack(anchor='w',pady=(4,5))
         self.focus_pause_var=tk.BooleanVar(master=win,value=self.pause_on_blur)
         ttk.Checkbutton(content,text='Pause when Lineage 2 loses focus',variable=self.focus_pause_var,command=self.change_focus_policy).pack(anchor='w')
-        ttk.Label(content,text='Off by default. Capture continues if the game chat is visible; covered, minimised or resized game windows still wait safely.',style='Muted.TLabel',wraplength=500).pack(anchor='w',pady=(3,10))
+        ttk.Label(content,text='Off by default. The session timer keeps running when chat is covered or the game is minimised. Rewards and player status are read only when their game regions are visible. Resized or closed windows still wait safely.',style='Muted.TLabel',wraplength=500).pack(anchor='w',pady=(3,10))
         hudappearance=ttk.Frame(hudpage);hudappearance.pack(fill='x',pady=(0,2))
         ttk.Checkbutton(hudappearance,text='Show floating game HUD',variable=self.hud_enabled,command=self.apply_hud_config).pack(side='left')
         ttk.Label(hudappearance,text='HUD opacity:').pack(side='left',padx=(16,5))
@@ -1222,7 +1222,7 @@ class App:
     def capture(self,target,region,pitch,halt,jobs,gate):
         revision=None; old=None; failures=0; last_active=None; last_status=None
         frames=0; batches=0; last_report=time.monotonic()
-        alignment=None; last_alignment_check=0; state=None; old_rgb=None; clipped=False
+        alignment=None; last_alignment_check=0; state=None; old_rgb=None; clipped=False; obscured_since=None
         def capture_state(value):
             nonlocal state
             if value!=state:self.inbox.put(('capture_state',value));state=value
@@ -1232,9 +1232,23 @@ class App:
                 self.inbox.put(('status',message)); last_status=message
                 diagnostic('capture status: %s',message.replace(target.title,'[game]') if target.title else message)
         def pause(message):
-            nonlocal old, failures, last_active, alignment, old_rgb
-            old=None; old_rgb=None; failures=0; last_active=None;alignment=None
+            nonlocal old, failures, last_active, alignment, old_rgb, obscured_since
+            old=None; old_rgb=None; failures=0; last_active=None;alignment=None;obscured_since=None
             capture_state('WAITING FOR CHAT');status(message)
+        def wait_background(message):
+            nonlocal last_active,obscured_since,old,old_rgb,alignment,failures
+            with gate.lock:
+                if halt.is_set() or not gate.accepts(revision):return
+                now=time.monotonic()
+                if last_active is not None:self.active_seconds+=max(0,now-last_active)
+                last_active=now
+                if obscured_since is None:obscured_since=now
+                # Short interruptions may be recoverable via the usual row
+                # overlap. After a long interruption a fresh baseline is safer.
+                if old is not None and now-obscured_since>30:
+                    old=None;old_rgb=None;alignment=None;failures=0
+                    self.inbox.put(('gap','Chat was hidden for over 30 seconds; unread rewards may have been missed.'))
+            capture_state('CHAT HIDDEN');status(message)
         try:
             api=Windows()
             with mss.mss() as s:
@@ -1242,18 +1256,22 @@ class App:
                     tick=time.monotonic()
                     manual,current,pause_on_blur,target,region=gate.capture_context(target,region)
                     if current!=revision:
-                        old=None;old_rgb=None; failures=0; last_active=None; revision=current;alignment=None
+                        old=None;old_rgb=None; failures=0; last_active=None; revision=current;alignment=None;obscured_since=None
                         capture_state('WAITING FOR CHAT')
                     if manual:
                         pause('Manually paused — click Resume to continue.'); halt.wait(.05); continue
                     rect,reason=capture_region(api,target,region,s.monitors[0],pause_on_blur=pause_on_blur)
                     if rect is None:
-                        pause(reason); halt.wait(.05); continue
+                        if not pause_on_blur and reason and reason.startswith(BACKGROUND_WAIT):wait_background(reason)
+                        else:pause(reason)
+                        halt.wait(.05); continue
                     shot=s.grab(rect)
                     # Discard frames if focus or geometry changed while capturing.
                     after,reason=capture_region(api,target,region,s.monitors[0],pause_on_blur=pause_on_blur)
                     if after!=rect:
-                        pause(reason or 'Paused — window moved during capture; resynchronising.'); halt.wait(.05); continue
+                        if not pause_on_blur and reason and reason.startswith(BACKGROUND_WAIT):wait_background(reason)
+                        else:pause(reason or 'Paused — window moved during capture; resynchronising.')
+                        halt.wait(.05); continue
                     rgb=np.asarray(shot)[:,:,:3][:,:,::-1]; colours=getattr(self,'session_colours',None)
                     if colours:
                         if alignment is None or tick-last_alignment_check>=2:
@@ -1280,10 +1298,13 @@ class App:
                     # A pause/resume during screen capture discards the stale frame.
                     with gate.lock:
                         if halt.is_set() or not gate.accepts(revision):
-                            old=None;old_rgb=None; failures=0; last_active=None; alignment=None;continue
+                            old=None;old_rgb=None; failures=0; last_active=None; alignment=None;obscured_since=None;continue
                         now=time.monotonic()
                         if last_active is not None: self.active_seconds+=max(0,now-last_active)
                         last_active=now;frames+=1
+                        returning=obscured_since is not None;obscured_since=None
+                        if returning and old is None:
+                            self.inbox.put(('gap','Chat became visible again; a fresh baseline is required. Some rewards may have been missed.'))
                         if now-last_report>=10:
                             diagnostic('capture progress: frames=%d queued_batches=%d active_seconds=%.1f',frames,batches,self.active_seconds)
                             last_report=now
@@ -1296,6 +1317,7 @@ class App:
                             shift=overlap(old,new)
                             if shift is None:
                                 failures+=1;capture_state('SYNCING CHAT')
+                                if returning:failures=4
                                 if failures>=4:
                                     self.inbox.put(('gap','No reliable row overlap; resynchronised without counting ambiguous lines.')); old=new;old_rgb=rgb.copy() if colours else None; failures=0
                             else:

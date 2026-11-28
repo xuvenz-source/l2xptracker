@@ -161,7 +161,10 @@ Each release attempts to generate direct-to-latest differential ZIPs for the eig
 ## Monster header and HUD repaint fixes (v0.50.3)
 Monster imports keep the name and level separate. Base EXP and SP are read from their own digit regions using two preprocessing passes; agreement is required or the uncertain field is left blank for review. The full table OCR is still used for drops and as independent labelled evidence. HUD metric text is refreshed at most once a second, while input/placement still poll at 25 ms; only visible widgets trigger metric repaints. Native layout frames are drawn into a temporary compatible bitmap and copied to the window in one blit, avoiding visible background-first redraws. Target ETA-only changes do not reconfigure window geometry and are throttled. Actual hide/show still occurs for focus loss, unsafe positioning, or layout size changes. Windows live verification remains necessary.
 
-## Current status: v0.50.3
+## Background tracking (v0.50.4)
+With Pause when Lineage 2 loses focus disabled, both chat and automatic level/XP OCR can read unobstructed game regions in the background. Covered or minimised game windows keep the active session clock running without taking screenshots of other applications. Short occlusions retain the last trusted chat frame; normal overlap matching can recover visible new messages on return, otherwise a capture warning and fresh baseline prevent ambiguous counting. Interruptions longer than 30 seconds discard the old baseline. Manual pause, enabled focus-only mode, invalid geometry or a closed/restarted game still stop the clock. Hidden chat cannot be read and rewards may be missed; the HUD itself still hides on focus loss. Status OCR rejects results if a pause or binding/policy revision changed during capture.
+
+## Current status: v0.50.4
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 
