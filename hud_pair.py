@@ -1,5 +1,6 @@
 """Independent native overlays sharing one passive session."""
 from hud_layout import panel_config
+import time
 from preferences import read_preferences
 
 def load_loot_position():
@@ -11,7 +12,7 @@ def local_rect(hud,geo):
     return (dict(left=hud.position[0]-geo[0],top=hud.position[1]-geo[1],width=w,height=h),)
 class HudPair:
     def __init__(self,primary,loot):
-        self.primary=primary;self.loot=loot;self.config=None;self.details=[];self.title='ADENA / LOOT'
+        self.primary=primary;self.loot=loot;self.config=None;self.details=[];self.title='ADENA / LOOT';self.next_detail_paint=0
     @property
     def preferred(self):return self.primary.preferred
     @preferred.setter
@@ -33,8 +34,13 @@ class HudPair:
     def set_targets(self,monster,rows):
         title='ADENA / LOOT'+(' • '+monster if monster and rows else '')
         if rows==self.details and title==self.title:return
+        geometry_changed=len(rows)!=len(self.details) or title!=self.title
+        names_changed=[r[0] for r in rows]!=[r[0] for r in self.details]
+        now=time.monotonic()
+        if not (geometry_changed or names_changed) and now<self.next_detail_paint:return
+        self.next_detail_paint=now+1
         self.details=list(rows);self.title=title;self.loot.detail_rows=self.details
-        if self.config is not None:self.loot.configure_layout(panel_config(self.config,'loot'),title,len(rows))
+        if geometry_changed and self.config is not None:self.loot.configure_layout(panel_config(self.config,'loot'),title,len(rows))
         if self.loot.hwnd:self.loot.u.InvalidateRect(self.loot.hwnd,None,False)
     def update(self,api,target,chat,running,*args,protected=(),**kwargs):
         geo=api.geometry(target.hwnd) if running and target else None

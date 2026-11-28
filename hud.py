@@ -96,6 +96,10 @@ class Hud:
         sig(self.u,'ReleaseCapture',[],w.BOOL)
         sig(self.u,'GetWindowLongW',[H,c.c_int],c.c_long)
         sig(self.u,'SetWindowLongW',[H,c.c_int,c.c_long],c.c_long)
+        sig(self.g,'CreateCompatibleDC',[H],H)
+        sig(self.g,'CreateCompatibleBitmap',[H,c.c_int,c.c_int],H)
+        sig(self.g,'DeleteDC',[H],w.BOOL)
+        sig(self.g,'BitBlt',[H,c.c_int,c.c_int,c.c_int,c.c_int,H,c.c_int,c.c_int,w.DWORD],w.BOOL)
         sig(self.g,'CreateSolidBrush',[w.DWORD],H)
         sig(self.g,'DeleteObject',[H],w.BOOL)
         sig(self.g,'SelectObject',[H,H],H)
@@ -135,7 +139,7 @@ class Hud:
         old=(self.small,self.large)
         self.small=self.font(g['small'],400);self.large=self.font(g['large'],600)
         for f in old:self.g.DeleteObject(f)
-        self.layout=g
+        self.layout=g;self.next_metric_paint=0
         if self.hwnd:
             self.u.SetWindowPos(self.hwnd,None,0,0,g['width'],g['height'],0x0002|0x0004|0x0010)
             self.u.InvalidateRect(self.hwnd,None,False)
@@ -275,7 +279,7 @@ class Hud:
             if dc:
                 try:
                     if getattr(self,'layout',None):
-                        self.paint_layout(dc);return 0
+                        self.paint_buffered(dc);return 0
                     self.u.FillRect(dc,c.byref(w.RECT(0,0,WIDTH,HEIGHT)),self.brush)
                     for x in (103,206):self.u.FillRect(dc,c.byref(w.RECT(x,12,x+1,50)),self.divider)
                     self.g.SetBkMode(dc,1)
@@ -308,6 +312,24 @@ class Hud:
         for j,row in enumerate(rows):
             for i,ch in enumerate(row):
                 if ch=='#':self.u.FillRect(dc,c.byref(w.RECT(x+i,y+j,x+i+1,y+j+1)),self.lock_brush)
+    def paint_buffered(self,dc):
+        # Compose a complete frame off-screen, then copy it in one operation.
+        # Always release the bitmap and DC, including on failed drawing.
+        width,height=self.dimensions()
+        mem=self.g.CreateCompatibleDC(dc)
+        if not mem:self.paint_layout(dc);return
+        bitmap=None;previous=None
+        try:
+            bitmap=self.g.CreateCompatibleBitmap(dc,width,height)
+            if not bitmap:self.paint_layout(dc);return
+            previous=self.g.SelectObject(mem,bitmap)
+            if not previous or previous==c.c_void_p(-1).value:self.paint_layout(dc);return
+            self.paint_layout(mem)
+            if not self.g.BitBlt(dc,0,0,width,height,mem,0,0,0x00CC0020):self.paint_layout(dc)
+        finally:
+            if previous and previous!=c.c_void_p(-1).value:self.g.SelectObject(mem,previous)
+            if bitmap:self.g.DeleteObject(bitmap)
+            self.g.DeleteDC(mem)
     def paint_layout(self,dc):
         g=self.layout;width,height=self.dimensions()
         fill=lambda rect,brush:self.u.FillRect(dc,c.byref(w.RECT(*rect)),brush)
@@ -425,11 +447,26 @@ class Hud:
         label,adena_rate=adena_metric(adena,seconds,consumable_cost,unpriced_uses)
         values=(adena_rate,rate_text(xp,seconds),rate_text(kills,seconds))
         new_widgets=dict(widgets or {},ad=(label.replace(' / HR','/H'),adena_rate),xp=('EXP/H',values[1]),kills=('KILLS/H',values[2]))
-        widget_changed=bool(getattr(self,'layout',None)) and new_widgets!=getattr(self,'widget_values',{})
-        self.widget_values=new_widgets
-        state_changed=capture_state!=getattr(self,'capture_state','SESSION ACTIVE');self.capture_state=capture_state
-        if state_changed or widget_changed or values!=self.values or paused!=getattr(self,'paused',False) or label!=getattr(self,'adena_label','ADENA / HR'):
-            self.values=values;self.paused=paused;self.adena_label=label;self.u.InvalidateRect(self.hwnd,None,False)
+        layout=getattr(self,'layout',None)
+        state_changed=capture_state!=getattr(self,'capture_state','SESSION ACTIVE') or paused!=getattr(self,'paused',False)
+        self.capture_state=capture_state;self.paused=paused
+        if layout:
+            # Input and positioning still poll at 25 ms. Only rendered
+            # metrics are sampled once a second, independently per panel.
+            keys=[k for k,*_ in layout['cells']]
+            visible={k:new_widgets[k] for k in keys if k in new_widgets}
+            now=time.monotonic()
+            due=not self.shown or now>=getattr(self,'next_metric_paint',0)
+            if due:
+                self.next_metric_paint=now+1
+                changed=visible!=getattr(self,'widget_values',{})
+                self.widget_values=visible;self.values=values;self.adena_label=label
+            else:changed=False
+            if state_changed or changed:self.u.InvalidateRect(self.hwnd,None,False)
+        else:
+            # Compatibility layout used by older callers/tests.
+            if state_changed or values!=self.values or label!=getattr(self,'adena_label','ADENA / HR'):
+                self.values=values;self.adena_label=label;self.u.InvalidateRect(self.hwnd,None,False)
         if not self.shown or pos!=self.position:
             if self.u.SetWindowPos(self.hwnd,c.c_void_p(-1),*pos,*self.dimensions(),0x0010|0x0040|0x0200):
                 self.shown=True;self.position=pos

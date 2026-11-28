@@ -6,9 +6,7 @@ import re
 from preferences import read_preferences,write_preference
 from drop_targets import clean as clean_drop,display as display_drop
 
-def header(text):
-    m=re.search(r'\bEXP\s*:\s*([\d,]+)\s+SP\s*:\s*([\d,]+)',text,re.I)
-    return (m[1].replace(',',''),m[2].replace(',','')) if m else ('','')
+from monster_header import split_name,labelled_rewards as header
 
 def whole(value,low,high):
     try:n=int(str(value).strip())
@@ -20,10 +18,8 @@ def profile(drop,level,xp,sp,legacy=False):
     d=clean_drop(drop)
     name=d['monster'].strip()
     if not name:raise ValueError('Enter the monster name.')
-    m=re.search(r',?\s+Lv\.?\s*(\d+)$',name,re.I)
-    if m:
-        if not str(level).strip():level=m[1]
-        name=name[:m.start()].strip()
+    name,suffix=split_name(name)
+    if suffix and not str(level).strip():level=suffix
     if not name:raise ValueError('Enter the monster name.')
     level=whole(level,1,100) if str(level).strip() else None
     if level is None and not legacy:raise ValueError('Enter monster level.')

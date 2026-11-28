@@ -5,7 +5,8 @@ from PIL import Image,ImageOps,ImageTk
 import threading,queue
 from drop_targets import parse_ocr,parse_table,format_table,chance,clean,save
 from region_editor import rect_from_points
-from monster_library import profile,header as reward_header
+from monster_library import profile
+from monster_header import read_header,split_name
 
 def read_monster(image):
     import pytesseract
@@ -13,7 +14,9 @@ def read_monster(image):
     im=ImageOps.invert(ImageOps.grayscale(image.crop((round(w*.054),round(h*.064),round(w*.98),round(h*.94)))))
     im=im.resize((im.width*3,im.height*3),Image.Resampling.LANCZOS)
     text=pytesseract.image_to_string(im,config='--psm 6',timeout=20)
-    return text,parse_ocr(text)
+    monster,rows,warnings=parse_ocr(text)
+    fields,notes=read_header(image,text,monster,pytesseract.image_to_string)
+    return text,(fields,rows,warnings+notes)
 
 class CropWindow:
     def __init__(self,root,shot,done,cancel):
@@ -52,7 +55,7 @@ class DropEditor:
         self.level=tk.StringVar(value=str(existing['level'] or '') if existing else '')
         self.xp=tk.StringVar(value=str(existing['xp']) if existing and existing['xp'] is not None else '')
         self.sp=tk.StringVar(value=str(existing['sp']) if existing and existing['sp'] is not None else '')
-        self.monster=tk.StringVar(value=config['monster']);self.rate=tk.StringVar(value=config['rate']);self.status=tk.StringVar()
+        self.monster=tk.StringVar(value=split_name(config['monster'])[0]);self.rate=tk.StringVar(value=config['rate']);self.status=tk.StringVar()
         header=ttk.Frame(self.win,padding=8);header.pack(fill='x')
         ttk.Label(header,text='Desired drops',style='Title.TLabel').pack(anchor='w')
         row=ttk.Frame(header);row.pack(fill='x',pady=4)
@@ -100,12 +103,10 @@ class DropEditor:
         except queue.Empty:self.win.after(100,self.poll);return
         self.busy=False;self.import_btn.config(state='normal')
         if not ok:self.status.set('OCR failed: '+result);return
-        raw,(monster,rows,warnings)=result
+        raw,(fields,rows,warnings)=result
         self.rate.set('')  # New table: never reuse another monster's rate override.
-        import re
-        m=re.search(r'Lv\.?\s*(\d+)$',monster,re.I);self.level.set(m[1] if m else '')
-        xp,sp=reward_header(raw);self.xp.set(xp);self.sp.set(sp)
-        self.monster.set(monster);self.table.delete('1.0','end');self.table.insert('1.0',format_table(rows))
+        self.level.set(fields['level']);self.xp.set(fields['xp']);self.sp.set(fields['sp'])
+        self.monster.set(fields['name']);self.table.delete('1.0','end');self.table.insert('1.0',format_table(rows))
         self.list.delete(0,'end');self.committed_text=None
         self.status.set(f'{len(rows)} rows read. Verify all names and percentages, then confirm. '+(' | '.join(warnings) if warnings else ''))
         win=tk.Toplevel(self.win);win.title('Raw OCR — verify against monster window');win.geometry('600x380')

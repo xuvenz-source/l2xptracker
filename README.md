@@ -158,7 +158,10 @@ The kill review lists exact candidates followed by approximate reduced-share sug
 ## Direct cumulative updates (v0.50.2)
 Each release attempts to generate direct-to-latest differential ZIPs for the eight newest eligible stable public base versions. Each contains the final changed/new files once and the complete target SHA-256 inventory. Unchanged files are reused locally and obsolete files excluded. Existing updaters already support these names. Each delta is reconstructed and compared to the full target installer in CI; the staged app must pass a smoke test before switching. Missing, invalid or larger-than-full deltas fall back to the verified full installer. Settings/history and backup/rollback behavior are unchanged. This is file-level, not binary-level patching; changed executables are transferred whole.
 
-## Current status: v0.50.2
+## Monster header and HUD repaint fixes (v0.50.3)
+Monster imports keep the name and level separate. Base EXP and SP are read from their own digit regions using two preprocessing passes; agreement is required or the uncertain field is left blank for review. The full table OCR is still used for drops and as independent labelled evidence. HUD metric text is refreshed at most once a second, while input/placement still poll at 25 ms; only visible widgets trigger metric repaints. Native layout frames are drawn into a temporary compatible bitmap and copied to the window in one blit, avoiding visible background-first redraws. Target ETA-only changes do not reconfigure window geometry and are throttled. Actual hide/show still occurs for focus loss, unsafe positioning, or layout size changes. Windows live verification remains necessary.
+
+## Current status: v0.50.3
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 
