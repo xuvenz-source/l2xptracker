@@ -3,6 +3,8 @@ import tkinter as tk
 from tkinter import ttk,messagebox
 from decimal import Decimal,InvalidOperation
 import threading,time,queue
+from datetime import datetime
+from sp_forecast import parse_balance,reward_stats,project
 from PIL import Image,ImageTk
 from leveling import Progress,load_status,save_status,binding_for,read_number,eta,XP
 from hud_layout import WIDGETS,PRESETS,SIZES,clean,load,save,geometry
@@ -18,11 +20,75 @@ class PlayerStatus:
         self.calibration_results=queue.Queue();self.calibration_preview={}
         self.percent_var=tk.DoubleVar(value=0)
         self.details=tk.StringVar(value='')
+        self.sp_input=tk.StringVar(value='');self.sp_next=None;self.sp_cache=None
+        self.sp_summary=tk.StringVar(value='Enter your current SP to estimate your balance at the next level.')
+        self.sp_projection=tk.StringVar(value='Waiting for session rewards.')
+        self.sp_context=tk.StringVar(value='Set the actual in-game balance before starting, or update it during a session.')
     def build_dashboard(self,parent):
         panel=ttk.Frame(parent);panel.pack(fill='x',pady=(0,5))
         ttk.Label(panel,textvariable=self.summary,style='Section.TLabel',wraplength=870).pack(anchor='w')
         ttk.Progressbar(panel,variable=self.percent_var,maximum=100).pack(fill='x',pady=(2,0))
         ttk.Label(panel,textvariable=self.details,style='Muted.TLabel',wraplength=870).pack(anchor='w')
+        self.build_sp(panel)
+    def build_sp(self,parent):
+        panel=ttk.LabelFrame(parent,text='Skill points (SP) — next level estimate',padding=8)
+        panel.pack(fill='x',pady=(8,3))
+        row=ttk.Frame(panel);row.pack(fill='x')
+        ttk.Label(row,text='Current in-game SP:').pack(side='left')
+        entry=ttk.Entry(row,textvariable=self.sp_input,width=16);entry.pack(side='left',padx=6)
+        entry.bind('<Return>',lambda _:self.set_sp_balance())
+        ttk.Button(row,text='Set SP balance',command=self.set_sp_balance).pack(side='left')
+        ttk.Button(row,text='Clear balance',command=self.clear_sp_balance).pack(side='left',padx=6)
+        ttk.Label(panel,textvariable=self.sp_summary,style='Section.TLabel',wraplength=820).pack(anchor='w',pady=(6,2))
+        ttk.Label(panel,textvariable=self.sp_projection,wraplength=820).pack(anchor='w')
+        ttk.Label(panel,textvariable=self.sp_context,style='Muted.TLabel',wraplength=820).pack(anchor='w',pady=(3,0))
+    def begin_sp_session(self):
+        # Never silently carry another character's balance into a fresh log.
+        a=self.app
+        a.sp_anchor=None if self.sp_next is None else dict(balance=self.sp_next,at='')
+        a.sp_live=True;self.sp_next=None;self.sp_cache=None
+        self.sp_input.set('' if a.sp_anchor is None else str(a.sp_anchor['balance']))
+    def set_sp_balance(self):
+        a=self.app
+        try:value=parse_balance(self.sp_input.get())
+        except ValueError as e:messagebox.showwarning('Skill points',str(e),parent=a.root);return
+        if a.pending and not a.running:
+            messagebox.showinfo('Skill points','Wait for buffered OCR to finish before setting the next session balance.',parent=a.root);return
+        if a.running:
+            # The entered balance already includes rewards received before
+            # this moment. Late OCR or corrections use capture timestamps.
+            a.sp_anchor=dict(balance=value,at=datetime.now().isoformat(timespec='microseconds'))
+            self.sp_cache=None;a.save_session(quiet=True)
+        else:self.sp_next=value
+        self.sp_input.set(f'{value:,}')
+    def clear_sp_balance(self):
+        a=self.app
+        self.sp_next=None;self.sp_input.set('')
+        if a.running:
+            a.sp_anchor=None;self.sp_cache=None;a.save_session(quiet=True)
+    def update_sp(self,remaining,stale):
+        a=self.app
+        if self.sp_cache is None:
+            self.sp_cache=reward_stats(a.events,getattr(a,'sp_anchor',None))
+        r=self.sp_cache
+        avg='—' if r['average_sp'] is None else f"{r['average_sp']:,.2f}"
+        balance='Not entered' if r['current'] is None else f"~{r['current']:,}"
+        self.sp_summary.set(f"Recorded session SP: {r['earned']:,}  •  Avg SP/kill: {avg}  •  Estimated current SP: {balance}")
+        live=getattr(a,'sp_live',False)
+        cap=self.progress.level is not None and self.progress.level>=self.config['cap']
+        f=project(r,remaining,cap) if live else None
+        if f is not None:
+            suffix=' (last known XP %; stale)' if stale else ''
+            total='Set current SP to see total' if f['total'] is None else f"Estimated SP at next level: {f['total']:,}"
+            self.sp_projection.set(f"~{f['kills']:,} kills remaining  •  Expected additional SP: {f['gain']:,}  •  {total}"+suffix)
+        else:
+            self.sp_projection.set('At configured level cap.' if cap and live else 'Next-level forecast needs verified level, XP % and paired session rewards.' if live else 'Start a new session for a live next-level forecast.')
+        note=f"{r['sample']:,}/{r['kills']:,} recorded kills have paired XP/SP values. Uses the same farming mix; excludes partial rewards from the average."
+        if r['unknown']:note+=f" {r['unknown']} unverified SP rewards after the balance entry."
+        if self.sp_next is not None:note+=f" Next session balance set to {self.sp_next:,} SP."
+        elif not a.running:note+=" Enter your actual SP for the next session."
+        else:note+=" Update the balance after spending SP."
+        self.sp_context.set(note)
     def save(self):
         try:save_status(self.config)
         except OSError as e:self.source.set('Could not save: '+str(e))
@@ -116,5 +182,6 @@ class PlayerStatus:
         self.widgets={'eta':('NEXT LVL',label+flag),'level':('LEVEL',str(p.level)+flag if p.level is not None else '—'),'progress':('EXP %',f'{p.percent:.2f}%'+flag if p.percent is not None else '—')}
         self.source.set(('Manual: chat XP estimate; recalibrate after death or character change.' if self.config['mode']=='manual' else 'Automatic: last reading stale' if stale else 'Automatic: verified reading'))
         self.summary.set(f'Level {p.level}{flag}  •  {p.percent:.2f}%  •  Next level: {label}{flag}  •  Remaining XP: {remaining:,}' if p.level is not None else 'Player progress: not calibrated')
+        self.update_sp(remaining,stale)
         self.percent_var.set(float(p.percent) if p.percent is not None else 0)
         self.details.set(f'XP in level: {round(XP[p.level-1]*p.percent/100):,} / {XP[p.level-1]:,}  |  XP/hr: {rate_text(a.totals["You","XP / SP"],a.active_seconds)}  |  {self.source.get()}' if p.level is not None else 'Configure level and XP regions in Settings → Player status.')

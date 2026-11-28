@@ -140,7 +140,10 @@ A gear beside the lock opens a compact settings menu with View / edit bound area
 ## In-game HUD customization (v0.47)
 The gear menu now includes Visible widgets (individual checkboxes for all eight metrics) and Widgets per row (1–8, auto one row or auto two rows). The main HUD settings use the same variables and persistent configuration. The HUD wraps immediately without restarting or pausing the session; the previous one/two-row layouts migrate unchanged until a specific column limit is chosen. Widget visibility only affects display, never session accounting. Layout changes briefly hide the overlay before repositioning to avoid covering protected OCR regions. Extra header room keeps the gear and lock clear of metric cells.
 
-## Current status: v0.47
+## Skill point forecasts (v0.48)
+Dashboard → Skill points accepts the actual current in-game SP balance before starting or during a running session. Recorded SP is shown separately from the estimated current balance, which adds only rewards captured after the balance entry (late OCR/review corrections before entry do not double count). Use Set SP balance again after spending skill points. The next-level projection uses average XP and SP per matched personal reward event (estimated kill): remaining XP / mean XP × mean SP. The displayed kill count rounds up; the projected SP uses the unrounded expectation. Partial XP/SP events are excluded from the paired sample, but verified SP still counts toward recorded SP. No forecast without matched rewards and level/progress; stale progress is explicitly marked, and no next-level forecast is shown at the configured cap. New sessions require a new actual balance or an explicitly staged balance; history preserves the anchor but does not combine historical rewards with a live level forecast. No automatic detection of skill purchases or character identity. No OCR or HUD changes.
+
+## Current status: v0.48
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

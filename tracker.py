@@ -32,6 +32,7 @@ from scroll_ui import ScrollPage,table_scroll
 from player_ui import PlayerStatus
 from region_editor import RegionEditor,draft_regions,calibration_data
 from leveling import save_status,binding_for
+from sp_forecast import clean_anchor
 from hud_layout import WIDGETS, PRESETS, ROW_OPTIONS, row_choice, row_settings, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
 from hud import rate_text
 from chat_style import TEXT_SIZES, DEFAULT_COLOURS, CUSTOM_COLOURS, LABELS, load_style, save_style, validate_style, pixel_masks, row_group, styled_rows, row_alignment, aligned_rows, bottom_clipped
@@ -571,6 +572,7 @@ class App:
         self.default_loot_prices=load_loot_prices();self.session_loot_prices=dict(self.default_loot_prices);self.loot_report=loot_report([]);self.loot_rows={}
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
         self.party_members=[]; self.next_party_members=load_current_party(); self.party_periods=[];self.party_cache=None; self.kills=0; self.update_busy=False
+        self.sp_anchor=None;self.sp_live=False
         self.archive=None; self.session_id=None; self.session_date=None; self.session_end=None; self.session_complete=None; self.history_window=None; self.last_archive_save=0; self.closing=False;self.reset_request=None
         self.pause_gate=PauseGate(self.pause_on_blur); self.position_win=None; self.reviews=ReviewQueue(); self.review_win=None; self.review_count=tk.StringVar(value="Review (0)"); self.saved=None; self.hud=None; self.api=None; self.hud_enabled=tk.BooleanVar(value=self.hud_config['visible'])
         try:
@@ -1090,6 +1092,7 @@ class App:
             self.review_tree.delete(*self.review_tree.get_children());self.review_selected=None
         self.reviews=ReviewQueue(); self.refresh_reviews()
         self.events=[]; self.raw=[]; self.kills=0; self.totals.clear(); self.tree.delete(*self.tree.get_children());
+        if hasattr(self,'player'):self.player.begin_sp_session()
         if hasattr(self,'consumable_tree'):self.consumable_tree.delete(*self.consumable_tree.get_children())
         if hasattr(self,'cost_status'):self.cost_status.set('No recorded consumable costs.')
         if hasattr(self,'loot_status'):self.loot_status.set('No recorded loot values.')
@@ -1334,6 +1337,7 @@ class App:
             if extra:self.stats.set(self.stats.get()+'\n'+extra)
     def refresh_totals(self):
         self.party_cache=None
+        if hasattr(self,'player'):self.player.sp_cache=None
         self.kills=count_kills(self.events)
         selected_loot=None
         if hasattr(self,'loot_status'):
@@ -1662,6 +1666,7 @@ class App:
         # The stopped session can no longer be checkpointed or resurrected.
         self.session_id=None;self.session_date=None;self.session_end=None;self.session_complete=None
         self.started=None;self.ended=None;self.active_seconds=0;self.events=[];self.raw=[];self.totals.clear()
+        self.sp_anchor=None;self.sp_live=False
         self.kills=0;self.gaps=0;self.party_members=[];self.party_periods=[];self.party_cache=None;self.reviews=ReviewQueue()
         self.log.config(state='normal');self.log.delete('1.0','end');self.log.config(state='disabled')
         self.refresh_totals();self.refresh_reviews()
@@ -1684,6 +1689,7 @@ class App:
         self.session_loot_prices=clean_prices(d.get('loot_prices',{}))
         self.party_members=list(d.get('party_members',[]));self.party_periods=list(d.get('party_periods',[]));self.party_cache=None
         self.party_status.set(self.party_label('Saved session party',self.party_members))
+        self.sp_anchor=clean_anchor(d.get('sp_anchor'));self.sp_live=False
         self.session_id=id;self.session_date=d['start'];self.session_end=d['end'];self.session_complete=d['complete'];self.active_seconds=d['seconds'];self.events=events;self.raw=raw;self.reviews=reviews;self.totals=totals;self.gaps=d['gaps'];self.started=time.monotonic();self.ended=self.started
         self.log.config(state='normal');self.log.delete('1.0','end');self.log.config(state='disabled')
         for ts,status,line in self.raw[-100:]:self.append(f'{status}: {line}')
