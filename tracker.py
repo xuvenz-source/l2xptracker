@@ -522,20 +522,36 @@ def recover_no_grade_soulshot(reads):
     same activation. Do not infer a damaged item, arbitrary grade or prefix.
     A conflicting valid message or an explicit different grade blocks recovery.
     """
-    votes=0
+    votes=0;non_ao=0
     for raw in reads:
         text=re.sub(r'\s+',' ',raw).strip(' .,;:|')
         event=parse(text)
         if event is not None:
             if event[0]!='consumable' or event[1]!='You' or event[2].casefold()!='soulshot: no grade' or event[3]!=1:return None
-            votes+=1;continue
-        if re.fullmatch(r'Use Soulshot:\s*(?:No Grads|Ne Grace)',text,re.I):
+            votes+=1;non_ao+=1;continue
+        if re.fullmatch(r'Use Soulshot:\s*(?:No Grads|Ne Grace|(?:Ni|Ho|Wo|Heo) Grade)',text,re.I):
+            votes+=1;non_ao+=1
+        elif re.fullmatch(r'Use Soulshot:\s*Ao Grade',text,re.I):
+            # Ao could be a damaged A-grade message. Require another
+            # independently preprocessed No-grade-like reading as well.
             votes+=1
         elif re.search(r'\b(?:Blessed\s+)?(?:Soulshot|Spiritshot)\s*:\s*[DCSBA]\b',text,re.I):
             return None
         elif re.search(r'\b(?:Blessed\s+Soulshot|Spiritshot)\b',text,re.I):
             return None
-    return 'Use Soulshot: No Grade.' if votes>=2 else None
+    return 'Use Soulshot: No Grade.' if votes>=2 and non_ao>=1 else None
+
+def recover_blue_diamond_recipe(reads):
+    """Resolve the observed C/D disagreement without general item-name guessing."""
+    canonical='You have obtained Recipe: Blue Diamond Necklace.'
+    alias='You have obtained Recipe: Blue Ciamond Necklace.'
+    if len(reads)!=3:return None
+    normalized=[re.sub(r'\s+',' ',r).strip(' .,;:|').casefold() for r in reads]
+    good=canonical.rstrip('.').casefold();bad=alias.rstrip('.').casefold()
+    # Require two complete correct names and only the observed single-letter
+    # alternative. Never infer a quantity, recipient, or different recipe.
+    if normalized.count(good)==2 and normalized.count(bad)==1:return canonical
+    return None
 
 def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
     """Respect shared colours: classify by text where a hue is not unique."""
@@ -606,6 +622,12 @@ def configured_ocr_rows(rows,colours,use_templates=False,evidence=None):
                 recovered=recover_no_grade_soulshot(reads)
                 if recovered is not None:
                     yield report('line',recovered)
+                    continue
+            # Item/loot hues only; a cash or other-message row cannot vote.
+            if 'item' in group and set(group)<={'item','adena'} and not any(currency_message(x) for x in reads):
+                recipe=recover_blue_diamond_recipe(reads)
+                if recipe is not None:
+                    yield report('line',recipe)
                     continue
             def read_number(crop,nearest):
                 # Use the same isolated digits and sixfold scaling as
