@@ -173,7 +173,10 @@ Bound areas and one-off loot table capture now use a borderless temporary frozen
 ## Quick manual progress from the HUD (v0.51.1)
 Both HUD gear menus offer Set level / XP % and Use automatic level / XP OCR. The compact topmost editor prefills the current known values and switches to manual mode only when applied; cancellation changes nothing. Enter applies and Escape cancels. No reset or explicit pause is required. Manual estimates use verified personal chat XP captured after the reading timestamp, so delayed OCR and later corrections from before the reading do not double count. Stop combat briefly while entering the values because a capture timestamp is not the exact reward time. A new session rebases the current estimate as before. Automatic OCR requires both calibrated fields and rejects stale in-flight results after mode changes. The main application and HUD use the same player state; next-level ETA, SP forecast and future monster signatures reflect the reading. Automatic focus/visibility rules still apply while the editor has focus. Manual calibration is not persisted across application restarts.
 
-## Current status: v0.51.1
+## Kills until next level widget (v0.51.2)
+Enable Kills until next level from either HUD gear → Visible widgets, or Settings → HUD. It appears only on the XP/SP HUD and is included in the Leveling preset. Existing widget selections are preserved. Uses remaining XP divided by the mean verified positive personal XP reward in the current session, rounded up to a whole estimated kill. SP is not required for the sample; incomplete XP and other players' rewards are excluded. Uses the same current level/XP data as the next-level ETA and updates with OCR reviews. Displays Calc… while waiting for a sample, — without calibrated progress or a live-session forecast, MAX at the cap, and * when automatic progress is stale. XP acquisition messages are a proxy for kills; mixed monsters, quest rewards and changes in reward conditions can affect the estimate.
+
+## Current status: v0.51.2
 
 The pause/resume regression fixture uses correctly shaped pixel arrays; mixed-pitch OCR batches are processed separately so a calibration change cannot invalidate queued rows.
 

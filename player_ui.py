@@ -4,7 +4,7 @@ from tkinter import ttk,messagebox
 from decimal import Decimal,InvalidOperation
 import threading,time,queue
 from datetime import datetime
-from sp_forecast import parse_balance,reward_stats,project
+from sp_forecast import parse_balance,reward_stats,project,kills_label
 from PIL import Image,ImageTk
 from leveling import Progress,load_status,save_status,binding_for,read_number,eta,XP,manual_values,xp_after
 from hud_layout import WIDGETS,PRESETS,SIZES,clean,load,save,geometry
@@ -89,6 +89,7 @@ class PlayerStatus:
         elif not a.running:note+=" Enter your actual SP for the next session."
         else:note+=" Update the balance after spending SP."
         self.sp_context.set(note)
+        self.widgets['killsnext']=('KILLS LEFT',kills_label(r,remaining,cap,stale) if live else '—')
         self.widgets['sp']=('SP GAINED',f"{r['earned']:,}")
         self.widgets['spnext']=('SP NEXT',f"{f['total']:,}"+('*' if stale else '') if f and f['total'] is not None else '—')
     def save(self):

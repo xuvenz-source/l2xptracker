@@ -832,7 +832,7 @@ class App:
             foreground=tuple(int(colour[i:i+2],16) for i in (1,3,5));background=(69,79,53);a=self.hud_opacity/100
             return '#%02x%02x%02x'%tuple(round(a*f+(1-a)*b) for f,b in zip(foreground,background))
         cv.create_rectangle(2,2,g['width']+2,g['height']+2,fill=blend('#141921'),outline='')
-        sample={'ad':'12,500','xp':'35,000','kills':'120','eta':'3h 48m','level':'19','progress':'16.91%','loot':'4,500','cost':'3,200','sp':'2,500','spnext':'8,400'}
+        sample={'ad':'12,500','xp':'35,000','kills':'120','eta':'3h 48m','level':'19','progress':'16.91%','loot':'4,500','cost':'3,200','sp':'2,500','spnext':'8,400','killsnext':'~367'}
         for k,x,y,w,rh in g['cells']:
             cv.create_text(x+2,y+3,text=('NET ADENA/H' if k=='ad' and self.hud_net_adena else WIDGETS[k][1]),anchor='nw',font=('Segoe UI',-max(7,round(g['small']*scale))),fill=blend('#B4BECD'))
             cv.create_text(x+2,y+21,text=('9,300' if k=='ad' and self.hud_net_adena else sample[k]),anchor='nw',font=('Segoe UI',-max(9,round(g['large']*scale)),'bold'),fill=blend('#%02x%02x%02x'%WIDGETS[k][2]))

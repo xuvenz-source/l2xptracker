@@ -1,7 +1,7 @@
 """Persisted, pure HUD layout geometry."""
 from preferences import read_preferences,write_preference
-WIDGETS={'ad':('Adena/hr','ADENA/H',(247,202,102)),'xp':('Experience/hr','EXP/H',(134,224,183)),'kills':('Kills/hr','KILLS/H',(214,224,245)),'eta':('Time to next level','NEXT LVL',(170,200,255)),'level':('Current level','LEVEL',(170,200,255)),'progress':('Experience percentage','EXP %',(170,200,255)),'loot':('Estimated loot value/hr','LOOT/H',(203,177,242)),'cost':('Consumable costs/hr','COST/H',(255,165,165)),'sp':('Session SP gained','SP GAINED',(170,200,255)),'spnext':('Estimated SP at next level','SP NEXT',(170,200,255))}
-PRESETS={'Classic':['ad','xp','kills'],'Minimal':['ad','eta'],'Leveling':['xp','eta','level','progress'],'Farming':['ad','loot','cost','kills']}
+WIDGETS={'ad':('Adena/hr','ADENA/H',(247,202,102)),'xp':('Experience/hr','EXP/H',(134,224,183)),'kills':('Kills/hr','KILLS/H',(214,224,245)),'eta':('Time to next level','NEXT LVL',(170,200,255)),'level':('Current level','LEVEL',(170,200,255)),'progress':('Experience percentage','EXP %',(170,200,255)),'loot':('Estimated loot value/hr','LOOT/H',(203,177,242)),'cost':('Consumable costs/hr','COST/H',(255,165,165)),'sp':('Session SP gained','SP GAINED',(170,200,255)),'spnext':('Estimated SP at next level','SP NEXT',(170,200,255)),'killsnext':('Kills until next level','KILLS LEFT',(170,200,255))}
+PRESETS={'Classic':['ad','xp','kills'],'Minimal':['ad','eta'],'Leveling':['xp','eta','level','progress','killsnext'],'Farming':['ad','loot','cost','kills']}
 SIZES={'compact':(91,48,11,17),'standard':(103,54,14,19),'large':(120,63,16,22)}
 ROW_OPTIONS=('Auto (one row)','Auto (two rows)',*tuple(str(i) for i in range(1,len(WIDGETS)+1)))
 
@@ -25,7 +25,7 @@ def clean(raw=None):
 def load(path=None):return clean(read_preferences(path).get('hud_layout'))
 def save(value,path=None):write_preference('hud_layout',clean(value),path)
 
-PROGRESSION=('xp','kills','eta','level','progress','sp','spnext')
+PROGRESSION=('xp','kills','eta','level','progress','sp','spnext','killsnext')
 LOOT=('ad','loot','cost')
 
 def panel_config(config,kind):

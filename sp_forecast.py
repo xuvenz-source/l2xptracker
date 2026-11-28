@@ -14,20 +14,37 @@ def clean_anchor(raw):
 
 def reward_stats(events,anchor=None):
     anchor=clean_anchor(anchor)
-    kills=sample=xp_sum=sp_sum=earned=after=unknown=0
+    kills=sample=xp_sum=sp_sum=earned=after=unknown=xp_sample=verified_xp=0
     for ts,typ,who,_,xp,sp,_ in events:
         if typ!='xp' or who.casefold()!='you':continue
         if xp is not None or sp is not None:kills+=1
         if type(sp) is int and sp>=0:earned+=sp
+        if type(xp) is int and xp>0:
+            xp_sample+=1;verified_xp+=xp
         if type(xp) is int and xp>0 and type(sp) is int and sp>=0:
             sample+=1;xp_sum+=xp;sp_sum+=sp
         if anchor is not None and ts>anchor['at']:
             if type(sp) is int and sp>=0:after+=sp
             else:unknown+=1
-    return dict(kills=kills,sample=sample,xp=xp_sum,sp=sp_sum,earned=earned,
+    return dict(kills=kills,sample=sample,xp=xp_sum,sp=sp_sum,earned=earned,xp_sample=xp_sample,verified_xp=verified_xp,
                 average_xp=Decimal(xp_sum)/sample if sample else None,
                 average_sp=Decimal(sp_sum)/sample if sample else None,
                 current=anchor['balance']+after if anchor is not None else None,unknown=unknown)
+
+def kills_until_level(stats,remaining,at_cap=False):
+    """Estimated kills using all verified positive personal XP rewards.
+
+    SP may be missing; it is not needed for this estimate. Round up to
+    a whole kill, rather than rounding the average XP per kill.
+    """
+    if at_cap or remaining is None or not stats['xp_sample'] or stats['verified_xp']<=0:return None
+    return (max(0,int(remaining))*stats['xp_sample']+stats['verified_xp']-1)//stats['verified_xp']
+
+def kills_label(stats,remaining,at_cap=False,stale=False):
+    if at_cap:return 'MAX'
+    if remaining is None:return '—'
+    n=kills_until_level(stats,remaining)
+    return 'Calc…' if n is None else f'~{n:,}'+('*' if stale else '')
 
 def project(stats,remaining,at_cap=False):
     """Use the unrounded expected kill count; round SP only for display."""
