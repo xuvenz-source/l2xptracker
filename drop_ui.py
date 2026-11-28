@@ -5,6 +5,7 @@ from PIL import Image,ImageOps,ImageTk
 import threading,queue
 from drop_targets import parse_ocr,parse_table,format_table,chance,clean,save
 from region_editor import rect_from_points
+from monster_library import profile,header as reward_header
 
 def read_monster(image):
     import pytesseract
@@ -46,7 +47,11 @@ class DropEditor:
     def __init__(self,app,image=None):
         self.app=app;self.win=tk.Toplevel(app.root);self.win.title('Desired monster drops');self.win.geometry('840x640');self.win.minsize(630,480)
         self.win.attributes('-topmost',True);self.result=queue.Queue();self.busy=False;self.rows=[];self.committed_text=None
-        config=app.drop_config
+        existing=getattr(app,'drop_edit_profile',None)
+        config=existing['drop'] if existing else (clean({}) if isinstance(getattr(app,'monster_library',None),dict) else app.drop_config)
+        self.level=tk.StringVar(value=str(existing['level'] or '') if existing else '')
+        self.xp=tk.StringVar(value=str(existing['xp']) if existing and existing['xp'] is not None else '')
+        self.sp=tk.StringVar(value=str(existing['sp']) if existing and existing['sp'] is not None else '')
         self.monster=tk.StringVar(value=config['monster']);self.rate=tk.StringVar(value=config['rate']);self.status=tk.StringVar()
         header=ttk.Frame(self.win,padding=8);header.pack(fill='x')
         ttk.Label(header,text='Desired drops',style='Title.TLabel').pack(anchor='w')
@@ -54,6 +59,9 @@ class DropEditor:
         ttk.Button(row,text='Read game window…',command=self.capture).pack(side='left')
         self.import_btn=ttk.Button(row,text='Import screenshot…',command=self.import_image);self.import_btn.pack(side='left',padx=6)
         ttk.Label(row,text='Monster:').pack(side='left',padx=5);ttk.Entry(row,textvariable=self.monster).pack(side='left',fill='x',expand=True)
+        rewards=ttk.Frame(header);rewards.pack(fill='x',pady=4)
+        for label,var in [('Monster level',self.level),('Base XP',self.xp),('Base SP',self.sp)]:
+            ttk.Label(rewards,text=label+':').pack(side='left',padx=(4,2));ttk.Entry(rewards,textvariable=var,width=10).pack(side='left',padx=(0,8))
         ttk.Label(header,text='Verify or edit the table against the Drop tab. Each row: item name [Tab] group % [Tab] item %. Confirm, then select your targets.',wraplength=740).pack(anchor='w')
         self.table=tk.Text(self.win,height=9,wrap='none',undo=True);self.table.pack(fill='both',expand=True,padx=8);self.table.insert('1.0',format_table(config['rows']))
         ttk.Button(self.win,text='Confirm table / refresh choices',command=self.confirm).pack(anchor='w',padx=8,pady=4)
@@ -67,7 +75,7 @@ class DropEditor:
         ttk.Entry(row,textvariable=self.rate,width=10).pack(side='left',padx=5)
         ttk.Button(row,text='Save targets',style='Primary.TButton',command=self.apply).pack(side='right')
         ttk.Button(row,text='Cancel',command=self.win.destroy).pack(side='right',padx=6)
-        ttk.Label(footer,text='Assumes all recorded kills are this monster unless overridden. Estimates are average waits, not guarantees.',wraplength=750).pack(anchor='w',pady=4)
+        ttk.Label(footer,text='Uses identified monster kills per session hour unless overridden. Estimates are average waits, not guarantees.',wraplength=750).pack(anchor='w',pady=4)
         ttk.Label(footer,textvariable=self.status,wraplength=750).pack(anchor='w')
         app.appearance.restyle(self.win);self.confirm(config['selected'])
         if image is not None:self.read(image)
@@ -94,6 +102,9 @@ class DropEditor:
         if not ok:self.status.set('OCR failed: '+result);return
         raw,(monster,rows,warnings)=result
         self.rate.set('')  # New table: never reuse another monster's rate override.
+        import re
+        m=re.search(r'Lv\.?\s*(\d+)$',monster,re.I);self.level.set(m[1] if m else '')
+        xp,sp=reward_header(raw);self.xp.set(xp);self.sp.set(sp)
         self.monster.set(monster);self.table.delete('1.0','end');self.table.insert('1.0',format_table(rows))
         self.list.delete(0,'end');self.committed_text=None
         self.status.set(f'{len(rows)} rows read. Verify all names and percentages, then confirm. '+(' | '.join(warnings) if warnings else ''))
@@ -118,6 +129,14 @@ class DropEditor:
         config=clean(raw)
         if raw['rate'] and not config['rate']:self.status.set('Enter a positive kills/hr rate up to 100,000, or leave blank.');return
         if chosen and not raw['monster']:self.status.set('Enter the monster name.');return
+        if isinstance(getattr(self.app,'monster_library',None),dict):
+            try:p=profile(config,self.level.get(),self.xp.get(),self.sp.get())
+            except ValueError as e:self.status.set(str(e));return
+            if p['id'] in self.app.monster_library['profiles'] and p!=self.app.monster_library['profiles'][p['id']]:
+                if not messagebox.askyesno('Update monster','Replace this monster’s saved profile and drop targets?',parent=self.win):return
+            try:self.app.save_monster_profile(p)
+            except OSError as e:self.status.set(str(e));return
+            self.win.destroy();return
         if self.app.drop_config['rows'] and config!=self.app.drop_config:
             if not messagebox.askyesno('Replace loot table','Replace the saved loot table and selected targets with these settings?',parent=self.win):return
         try:save(config)

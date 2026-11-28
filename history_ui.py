@@ -202,6 +202,9 @@ class HistoryWindow:
             self.loot.insert('','end',values=('You','Used: '+r['item'],f"{r['uses']:,} uses"+suffix))
         self.details.set(self.details.get()+'\n'+cost_summary(s['consumable_report'],t['You','Adena'],s['seconds']))
         for row in party_rows(s['party']):self.loot.insert('','end',values=row)
+        m=s.get('monsters',{})
+        if m.get('counts') or m.get('unknown'):
+            self.details.set(self.details.get()+'\nMonster kills: '+', '.join(f'{name}: {n:,}' for name,n in m.get('counts',{}).items())+f" | Unidentified: {m.get('unknown',0):,}")
         extra=party_summary(s['party'])
         if extra:self.details.set(self.details.get()+'\n'+extra)
     def single(self):

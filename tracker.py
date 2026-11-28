@@ -36,6 +36,8 @@ from sp_forecast import clean_anchor
 from hud_pair import HudPair,load_loot_position
 from drop_targets import load as load_drop_targets, display as display_drops
 from drop_ui import DropEditor,CropWindow
+import monster_library as monsters
+from monster_ui import MonsterLibraryWindow,KillReviewWindow
 from preferences import write_preference
 from hud_layout import WIDGETS, PRESETS, ROW_OPTIONS, row_choice, row_settings, clean as clean_hud, load as load_hud, save as save_hud, geometry as hud_geometry
 from hud import rate_text
@@ -571,7 +573,7 @@ class App:
         self.appearance=Appearance(root)
         self.pause_on_blur=load_focus_pause();self.auto_update=load_auto_update();self.settings_win=None
         self.hud_opacity=load_hud_opacity();self.hud_opacity_save_job=None
-        self.hud_net_adena=load_hud_net_adena();self.hud_config=load_hud();self.drop_config=load_drop_targets()
+        self.hud_net_adena=load_hud_net_adena();self.hud_config=load_hud();self.drop_config=load_drop_targets();self.monster_library=monsters.load();self.monster_kills={};self.monster_contexts=[];self.monster_counts_cache=None;self.monster_tracking=False
         self.default_prices=load_prices();self.session_prices=dict(self.default_prices);self.consumable_report=cost_report([])
         self.default_loot_prices=load_loot_prices();self.session_loot_prices=dict(self.default_loot_prices);self.loot_report=loot_report([]);self.loot_rows={}
         self.region=None; self.target=None; self.active_seconds=0.0; self.selecting=False; self.pitch=tk.StringVar(value='18'); self.status=tk.StringVar(value='Select the system-message text area.'); self.stats=tk.StringVar(value='No session'); self.events=[]; self.totals=Counter(); self.inbox=queue.Queue(); self.running=False; self.started=None; self.ended=None; self.gaps=0; self.pending=0; self.raw=[]; self.run_id=0
@@ -623,7 +625,8 @@ class App:
         ttk.Label(dash,textvariable=self.stats,wraplength=880,padding=(0,3,0,12),style='Muted.TLabel').pack(fill='x')
         loot_header=ttk.Frame(dash);loot_header.pack(fill='x',pady=(2,8))
         ttk.Label(loot_header,text='Session loot',style='Section.TLabel').pack(side='left')
-        ttk.Button(loot_header,text='Desired drops…',command=self.open_drop_editor).pack(side='left',padx=6)
+        ttk.Button(loot_header,text='Monster Library…',command=self.open_monster_library).pack(side='left',padx=6)
+        ttk.Button(loot_header,text='Review kills…',command=self.open_monster_reviews).pack(side='left',padx=4)
         self.drop_summary=tk.StringVar(value='No desired drops selected.')
         ttk.Label(dash,textvariable=self.drop_summary,wraplength=850,style='Muted.TLabel').pack(anchor='w',pady=(0,4))
         ttk.Button(loot_header,text='Export CSV',command=self.export).pack(side='right')
@@ -955,6 +958,7 @@ class App:
                     self.party_periods.append(dict(at=datetime.now().isoformat(timespec='microseconds'),seconds=self.active_seconds,members=list(members)))
                     self.party_members=list(members)
             self.party_cache=None
+            self.record_monster_context()
             self.party_status.set(self.party_label('Session party',members))
             self.refresh_totals();self.save_session(quiet=True)
         else:self.party_status.set(self.party_label('Next session',members))
@@ -988,7 +992,8 @@ class App:
         if menu is None:
             menu=self.hud_settings_menu=tk.Menu(self.root,tearoff=False)
             menu.add_command(label='View / edit bound areas…',command=lambda:self.select('chat'))
-            menu.add_command(label='Desired drops…',command=self.open_drop_editor)
+            menu.add_command(label='Monster Library…',command=self.open_monster_library)
+            menu.add_command(label='Review monster kills…',command=self.open_monster_reviews)
             menu.add_separator()
             widgets=tk.Menu(menu,tearoff=False)
             for k in WIDGETS:
@@ -1009,17 +1014,55 @@ class App:
         self.settings_tabs.select(self.settings_scroll['HUD'])
     def queue_loot_hud_move(self,position):
         self.inbox.put(('loot_hud_move',position))
+    def monster_level(self):
+        p=getattr(self,'player',None)
+        if p is None:return None
+        if p.config['mode']=='auto' and (p.progress.seen is None or time.monotonic()-p.progress.seen>max(15,p.config['interval']*4) or p.progress.candidate is not None):return None
+        return p.progress.level
+    def record_monster_context(self,initial=False):
+        if not hasattr(self,'monster_library') or not (self.running or initial):return
+        ctx=monsters.context(self.monster_library,self.monster_level(),not self.party_members)
+        # Store only state changes. Use capture timestamps for delayed OCR.
+        if not self.monster_contexts or self.monster_contexts[-1]['context']!=ctx:
+            self.monster_contexts.append(dict(at='' if initial else datetime.now().isoformat(timespec='microseconds'),context=ctx))
+    def set_monster_library(self,lib):
+        monsters.save(lib);self.monster_library=lib
+        if self.running:
+            self.monster_tracking=True;self.record_monster_context();self.save_session(quiet=True)
+        self.update_drop_targets()
+    def save_monster_profile(self,p):
+        from copy import deepcopy
+        lib=deepcopy(self.monster_library);key=p['id']
+        lib['profiles'][key]=p
+        if key not in lib['active']:lib['active'].append(key)
+        self.set_monster_library(lib)
+    def open_monster_library(self):
+        if getattr(self,'selecting',False) or getattr(self,'update_busy',False):return
+        old=getattr(self,'monster_window',None)
+        if old and old.win.winfo_exists():old.refresh();old.win.lift();return
+        self.monster_window=MonsterLibraryWindow(self)
+    def open_monster_reviews(self):
+        if getattr(self,'update_busy',False) or not self.session_id:return
+        old=getattr(self,'kill_review_window',None)
+        if old and old.win.winfo_exists():
+            if old.session==self.session_id:old.refresh();old.win.lift();return
+            old.win.destroy()
+        self.kill_review_window=KillReviewWindow(self)
+    def edit_monster(self,key):
+        self.drop_edit_profile=self.monster_library['profiles'][key]
+        self.open_drop_editor()
     def open_drop_editor(self,image=None):
         if getattr(self,'selecting',False) or getattr(self,'update_busy',False):return
         existing=getattr(self,'drop_editor',None)
         if existing and existing.win.winfo_exists():existing.win.lift();return
         self.drop_editor=DropEditor(self,image)
+        self.drop_edit_profile=None
     def queue_select_loot(self):
         # Native HUD click only queues an action; Tk handles the screenshot flow.
         self.inbox.put(('select_loot',self.run_id))
     def capture_drop_window(self):
         if getattr(self,'selecting',False) or getattr(self,'closing',False) or getattr(self,'update_busy',False) or (self.pending and not self.running):return
-        if not messagebox.askokcancel('Select loot table','Open the monster Drop tab and focus the game within five seconds. Select the whole table in the screenshot. Tracking pauses for capture; resume after importing. The existing table stays saved until you confirm the replacement.',parent=self.root):return
+        if not messagebox.askokcancel('Select loot table','Open the monster Drop tab and focus the game within five seconds. Select the whole table in the screenshot. Tracking pauses for capture; resume after importing. Existing monsters stay saved; importing another monster adds it to the library.',parent=self.root):return
         existing=getattr(self,'drop_editor',None)
         if existing and existing.win.winfo_exists():existing.win.destroy()
         if self.running and not self.pause_gate.snapshot()[0]:self.toggle_pause()
@@ -1029,7 +1072,8 @@ class App:
     def take_drop_screenshot(self):
         def finish(image=None):
             self.selecting=False;self.root.deiconify()
-            if image is not None:self.open_drop_editor(image)
+            if image is not None:
+                self.drop_edit_profile=None;self.open_drop_editor(image)
         try:
             api=Windows();target=api.bind_foreground()
             if self.target and (target.title,target.window_class)!=(self.target.title,self.target.window_class):raise RuntimeError('Focus the calibrated Lineage 2 client.')
@@ -1045,10 +1089,14 @@ class App:
             self.selecting=False;self.root.deiconify();messagebox.showerror('Monster window',str(e),parent=self.root);self.open_drop_editor()
     def update_drop_targets(self):
         if not hasattr(self,'drop_config'):return
-        rate,rows=display_drops(self.drop_config,self.kills,self.active_seconds)
-        if isinstance(self.hud,HudPair):self.hud.set_targets(self.drop_config['monster'],rows)
+        if not hasattr(self,'monster_library'):return
+        if self.monster_counts_cache is None:self.monster_counts_cache=monsters.counts(self.events,self.monster_kills)
+        c,n,unknown=self.monster_counts_cache
+        rows=monsters.forecasts(self.monster_library,c,self.active_seconds)
+        if isinstance(self.hud,HudPair):self.hud.set_targets('Monster targets',rows[:12])
         if hasattr(self,'drop_summary'):
-            self.drop_summary.set(('Desired drops — '+self.drop_config['monster']+f' | {rate:,.0f} kills/h | '+' • '.join(name+': '+value for name,value in rows)) if rows else 'No desired drops selected.')
+            rates=' • '.join(f"{n[k]}: {v:,} killed ({v*3600/max(1,self.active_seconds):,.0f}/h)" for k,v in c.items())
+            self.drop_summary.set(f'Monster kills: {rates or "none identified"} | Unidentified: {unknown:,}' + ('\nDesired drops (average waits): '+' • '.join(name+': '+value for name,value in rows) if rows else '')+('\nHUD shows first 12 targets; all listed here.' if len(rows)>12 else ''))
     def queue_hud_move(self,position):
         self.inbox.put(('hud_move',position))
     def save_hud_position(self,position):
@@ -1146,6 +1194,8 @@ class App:
         self.reviews=ReviewQueue(); self.refresh_reviews()
         self.events=[]; self.raw=[]; self.kills=0; self.totals.clear(); self.tree.delete(*self.tree.get_children());
         if hasattr(self,'player'):self.player.begin_sp_session()
+        if hasattr(self,'monster_library'):
+            self.monster_kills={};self.monster_contexts=[];self.monster_counts_cache=None;self.monster_tracking=bool(self.monster_library['profiles'])
         if hasattr(self,'consumable_tree'):self.consumable_tree.delete(*self.consumable_tree.get_children())
         if hasattr(self,'cost_status'):self.cost_status.set('No recorded consumable costs.')
         if hasattr(self,'loot_status'):self.loot_status.set('No recorded loot values.')
@@ -1161,6 +1211,7 @@ class App:
             self.running=False; self.pending=0; self.started=None; self.session_id=None; self.start_btn.config(state='normal'); self.stop_btn.config(state='disabled'); self.pause_btn.config(state='disabled')
             if hasattr(self,'reset_btn'):self.reset_btn.config(state='disabled')
             return
+        self.record_monster_context(initial=True)
         self.session_pitch=pitch;self.capture_state='WAITING FOR CHAT'
         self.session_templates=load_numeric_templates()
         self.ocr_evidence=OcrEvidence() if hasattr(self,'ocr_evidence_var') and self.ocr_evidence_var.get() else None
@@ -1322,6 +1373,7 @@ class App:
             except tk.TclError:pass
     def process_inbox(self):
         changed=False; finished=False
+        self.record_monster_context()
         while True:
             try: kind,data=self.inbox.get_nowait()
             except queue.Empty:break
@@ -1385,6 +1437,7 @@ class App:
             self.closing=False
             if self.close():return
         if hasattr(self,'player'):self.player.tick()
+        self.record_monster_context()
         self.update_drop_targets()
         if self.started is not None:
             dur=self.active_seconds; h=max(1,dur)/3600; xp=self.totals[('You','XP / SP')]; sp=self.totals[('You','SP')]; ad=self.totals[('You','Adena')]
@@ -1398,6 +1451,9 @@ class App:
         self.party_cache=None
         if hasattr(self,'player'):self.player.sp_cache=None
         self.kills=count_kills(self.events)
+        if hasattr(self,'monster_library'):
+            if self.monster_tracking:monsters.sync(self.events,self.monster_kills,self.monster_contexts)
+            self.monster_counts_cache=None
         selected_loot=None
         if hasattr(self,'loot_status'):
             selected=self.tree.selection()
@@ -1529,6 +1585,7 @@ class App:
         self.review_win=self.pages['review']
         self.review_scroll=ScrollPage(self.review_win);self.review_scroll.pack(fill='both',expand=True);win=self.review_scroll.content
         ttk.Label(win,text='OCR review',style='Title.TLabel',padding=(12,10,12,0)).pack(anchor='w')
+        ttk.Button(win,text='Review unidentified monster kills…',command=self.open_monster_reviews).pack(anchor='w',padx=10,pady=4)
         ttk.Label(win,text='Select a message, confirm the type and enter the missing numbers. Already-counted amounts are locked.',wraplength=740,padding=10).pack(fill='x')
         filters=ttk.Frame(win);filters.pack(fill='x',padx=10,pady=(0,6))
         self.review_filter=tk.StringVar(value='all');self.review_filters={}
@@ -1726,6 +1783,7 @@ class App:
         self.session_id=None;self.session_date=None;self.session_end=None;self.session_complete=None
         self.started=None;self.ended=None;self.active_seconds=0;self.events=[];self.raw=[];self.totals.clear()
         self.sp_anchor=None;self.sp_live=False
+        self.monster_kills={};self.monster_contexts=[];self.monster_counts_cache=None;self.monster_tracking=False
         self.kills=0;self.gaps=0;self.party_members=[];self.party_periods=[];self.party_cache=None;self.reviews=ReviewQueue()
         self.log.config(state='normal');self.log.delete('1.0','end');self.log.config(state='disabled')
         self.refresh_totals();self.refresh_reviews()
@@ -1749,6 +1807,7 @@ class App:
         self.party_members=list(d.get('party_members',[]));self.party_periods=list(d.get('party_periods',[]));self.party_cache=None
         self.party_status.set(self.party_label('Saved session party',self.party_members))
         self.sp_anchor=clean_anchor(d.get('sp_anchor'));self.sp_live=False
+        self.monster_kills=dict(d.get('monster_kills',{}));self.monster_contexts=list(d.get('monster_contexts',[]));self.monster_tracking=bool(d.get('monster_tracking',False));self.monster_counts_cache=None
         self.session_id=id;self.session_date=d['start'];self.session_end=d['end'];self.session_complete=d['complete'];self.active_seconds=d['seconds'];self.events=events;self.raw=raw;self.reviews=reviews;self.totals=totals;self.gaps=d['gaps'];self.started=time.monotonic();self.ended=self.started
         self.log.config(state='normal');self.log.delete('1.0','end');self.log.config(state='disabled')
         for ts,status,line in self.raw[-100:]:self.append(f'{status}: {line}')
